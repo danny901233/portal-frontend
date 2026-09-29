@@ -1609,38 +1609,98 @@ type ParsedTsService = {
 };
 type ParsedBracket = { maxCC: number; price: number };
 
+/**
+ * Read a CSV into records, honouring quotes: "a,b" is one field, "" is an escaped quote, and a
+ * newline inside quotes continues the same record. Tyresoft's service descriptions contain all
+ * three. The tyre-stock importer has always parsed properly; this path did not.
+ */
+function parseCsvRecords(csv: string): string[][] {
+  const records: string[][] = [];
+  let row: string[] = [];
+  let field = '';
+  let inQuotes = false;
+  const text = csv.replace(/^\uFEFF/, '');
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (text[i + 1] === '"') { field += '"'; i++; } else { inQuotes = false; }
+      } else field += ch;
+      continue;
+    }
+    if (ch === '"') { inQuotes = true; continue; }
+    if (ch === ',') { row.push(field); field = ''; continue; }
+    if (ch === '\r') continue;
+    if (ch === '\n') {
+      row.push(field); field = '';
+      if (row.some((c) => c.trim() !== '')) records.push(row);
+      row = [];
+      continue;
+    }
+    field += ch;
+  }
+  row.push(field);
+  if (row.some((c) => c.trim() !== '')) records.push(row);
+  return records;
+}
+
 function parseServicesCsv(csv: string): {
   services: ParsedTsService[];
   pricingRules: Record<string, ParsedBracket[]>;
   warnings: string[];
 } {
   const warnings: string[] = [];
-  const lines = csv.split(/\r?\n/).filter((l) => l.trim().length > 0);
-  if (lines.length < 2) {
+  // Proper CSV, not split(','). Tyresoft's newer export quotes every field, and its service
+  // descriptions contain both commas and line breaks — so splitting on commas mangled the rows,
+  // and splitting the header left every name wrapped in quote marks, which is why a file
+  // containing "Service Code" and "Service Name" was rejected for missing both.
+  const rows = parseCsvRecords(csv);
+  if (rows.length < 2) {
     throw new Error('CSV must contain a header row and at least one data row');
   }
-  const headers = lines[0].split(',').map((h) => h.trim());
-  const col = (name: string) => headers.findIndex((h) => h.toLowerCase() === name.toLowerCase());
+  const headers = rows[0].map((h) => h.trim());
+  const col = (...names: string[]) =>
+    headers.findIndex((h) => names.some((n) => h.toLowerCase() === n.toLowerCase()));
   const iCode = col('Service Code');
   const iName = col('Service Name');
-  const iPrice = col('Service Export Sell Price');
-  const iFrom = col('Service Engine Size From');
-  const iTo = col('Service Engine Size To');
+  // Two export shapes in the wild. The original ships a gross "Service Export Sell Price";
+  // the current one ships "Selling Price (Net)", which is ex-VAT — Lurgan Tyre Centre's
+  // £16.67 puncture repair is £20 to a customer. Quoting the net figure would undercharge
+  // every caller by a fifth, and nothing downstream adds VAT: the agent is told in as many
+  // words to quote exactly what it is given and never add VAT.
+  const iPriceGross = col('Service Export Sell Price');
+  const iPriceNet = col('Selling Price (Net)', 'Selling Price (Net)'.replace(/[()]/g, ''), 'Selling Price Net');
+  const iPrice = iPriceGross >= 0 ? iPriceGross : iPriceNet;
+  const pricesAreNet = iPriceGross < 0 && iPriceNet >= 0;
+  const iVatCode = col('Vat Code', 'VAT Code');
+  const iFrom = col('Service Engine Size From', 'Engine Size From');
+  const iTo = col('Service Engine Size To', 'Engine Size To');
   const missing: string[] = [];
   if (iCode < 0) missing.push('Service Code');
   if (iName < 0) missing.push('Service Name');
-  if (iPrice < 0) missing.push('Service Export Sell Price');
-  if (iFrom < 0) missing.push('Service Engine Size From');
-  if (iTo < 0) missing.push('Service Engine Size To');
+  if (iPrice < 0) missing.push('Service Export Sell Price (or Selling Price (Net))');
+  if (iFrom < 0) missing.push('Engine Size From');
+  if (iTo < 0) missing.push('Engine Size To');
   if (missing.length) {
     throw new Error(`CSV is missing required columns: ${missing.join(', ')}`);
   }
+  if (pricesAreNet) warnings.push('Prices read as ex-VAT (Selling Price (Net)) and grossed up by 20%.');
+
+  const VAT_RATE = 0.2;
+  // An MOT is outside the scope of VAT, so it must never be grossed up. Trust the row's own VAT
+  // code first — anything that is not standard-rated is left alone — and fall back to the name,
+  // because a mislabelled MOT row priced 20% over is a number a customer would be quoted.
+  const grossUp = (net: number, vatCode: string, name: string): number => {
+    const zeroRated = /mot/i.test(name) || (vatCode !== '' && !/^s/i.test(vatCode));
+    if (zeroRated) return net;
+    return Math.round(net * (1 + VAT_RATE) * 100) / 100;
+  };
 
   const fixed: ParsedTsService[] = [];
   const groups = new Map<string, { name: string; brackets: ParsedBracket[] }>();
 
-  for (let lineNo = 1; lineNo < lines.length; lineNo++) {
-    const cells = lines[lineNo].split(',').map((c) => c.trim());
+  for (let lineNo = 1; lineNo < rows.length; lineNo++) {
+    const cells = rows[lineNo].map((c) => c.trim());
     const code = cells[iCode];
     const name = cells[iName];
     const priceRaw = cells[iPrice];
@@ -1650,11 +1710,14 @@ function parseServicesCsv(csv: string): {
       warnings.push(`Row ${lineNo + 1}: missing code or name — skipped`);
       continue;
     }
-    const price = parseFloat(priceRaw);
-    if (!Number.isFinite(price)) {
+    const priceRead = parseFloat(priceRaw);
+    if (!Number.isFinite(priceRead)) {
       warnings.push(`Row ${lineNo + 1} (${code}): invalid price "${priceRaw}" — skipped`);
       continue;
     }
+    const price = pricesAreNet
+      ? grossUp(priceRead, iVatCode >= 0 ? (cells[iVatCode] ?? '') : '', name)
+      : priceRead;
     const hasRange = fromRaw.length > 0 && toRaw.length > 0;
     if (hasRange) {
       const maxCC = parseInt(toRaw, 10);

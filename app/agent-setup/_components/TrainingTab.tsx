@@ -60,7 +60,9 @@ export default function TrainingTab({ config, save, isSaving }: Props) {
       priceOffTyresoft: 'Off by default. Turn on to upload your Tyresoft price list as a CSV.',
       tyreMarkup: 'Tyre markup',
       tyreMarkupHint:
-        "Added to Tyresoft's supplier price before the agent quotes a tyre. Leave blank for no markup.",
+        "Enter this BEFORE VAT. It is added to Tyresoft's trade price and VAT is applied to the "
+        + "total, so a £28 markup earns you £28 and adds £33.60 to what the customer pays. Leave "
+        + "blank for no markup.",
       flatPerTyre: 'Flat £ per tyre',
       percentage: 'Percentage %',
       priceOffAssist:
@@ -123,7 +125,9 @@ export default function TrainingTab({ config, save, isSaving }: Props) {
         'Désactivé par défaut. Activez pour téléverser votre liste de prix Tyresoft au format CSV.',
       tyreMarkup: 'Marge sur pneus',
       tyreMarkupHint:
-        "Ajoutée au prix fournisseur Tyresoft avant que l'agent ne cite un pneu. Laissez vide pour aucune marge.",
+        "Saisissez ce montant HORS TVA. Il s'ajoute au prix d'achat Tyresoft, puis la TVA "
+        + "s'applique au total : une marge de 28 £ vous rapporte 28 £ et augmente le prix client "
+        + "de 33,60 £. Laissez vide pour aucune marge.",
       flatPerTyre: 'Montant fixe £ par pneu',
       percentage: 'Pourcentage %',
       priceOffAssist:

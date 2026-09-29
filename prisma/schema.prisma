@@ -1383,7 +1383,13 @@ enum TicketStatus {
   open                  // someone owns it, ours to act on
   pending               // we replied, waiting on the customer (drops from work queue, back to open when they reply)
   on_hold               // blocked internally (waiting for Twilio, or Dan's decision)
-  solved                // done; auto-reopens on customer reply
+  // RETIRED 2026-09-29. It was meant to be "done, but a reply brings it back",
+  // while closed meant gone for good — but a reply reopened both, so the two
+  // never actually differed, nothing automatic ever set it, and it was the one
+  // finished state that did not archive the mail in Outlook. Existing rows were
+  // migrated to closed. The value stays because Postgres cannot drop an enum
+  // member cleanly; the API no longer accepts it and the UI no longer offers it.
+  solved
   closed                // archived; will not reopen automatically
 }
 

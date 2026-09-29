@@ -58,6 +58,12 @@ const STATUS_TONE: Record<TicketStatus, string> = {
   closed:  'bg-slate-100 text-slate-600 ring-slate-300',
 };
 
+// What a person may set a ticket to. 'solved' is kept in the labels above so an
+// old row still renders, but retired as a choice: it never differed from closed
+// (a reply reopened both), nothing automatic set it, and it was the one
+// finished state that left the original email in the inbox.
+const SELECTABLE_STATUSES: TicketStatus[] = ['new', 'open', 'pending', 'on_hold', 'closed'];
+
 const PRIORITY_TONE: Record<string, string> = {
   low:    'text-slate-500',
   normal: 'text-slate-700',
@@ -391,7 +397,6 @@ export default function AdminTicketsPage() {
     { key: 'new',     label: 'New' },
     { key: 'open',    label: 'Open' },
     { key: 'pending', label: 'Pending' },
-    { key: 'solved',  label: 'Solved' },
     { key: 'closed',  label: 'Closed' },
     { key: 'spam',    label: 'Spam' },
     { key: 'sent',    label: 'Sent' },
@@ -739,9 +744,15 @@ export default function AdminTicketsPage() {
                       onChange={(e) => handleStatusChange(e.target.value as TicketStatus)}
                       className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-800"
                     >
-                      {(Object.keys(STATUS_LABEL) as TicketStatus[]).map((s) => (
+                      {SELECTABLE_STATUSES.map((s) => (
                         <option key={s} value={s}>{STATUS_LABEL[s]}</option>
                       ))}
+                      {/* A ticket left on a retired status still shows its own
+                          value, so the dropdown never silently reads as
+                          something it is not. */}
+                      {!SELECTABLE_STATUSES.includes(selected.status) && (
+                        <option value={selected.status}>{STATUS_LABEL[selected.status]}</option>
+                      )}
                     </select>
                     {selected.assignee ? (
                       <span className="rounded-md bg-brand-50 px-2 py-1 text-xs text-brand-700 ring-1 ring-brand-200">

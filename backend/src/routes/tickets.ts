@@ -55,7 +55,8 @@ const serializeTicket = <T extends { status: TicketStatus }>(t: T): Omit<T, 'sta
 // ─── Validation schemas ────────────────────────────────────────────────────
 
 // Status uses DB literals (`'new'`, not `'new_'`) and coerces to the Prisma value.
-const statusEnum   = z.enum(['new', 'open', 'pending', 'on_hold', 'solved', 'closed'])
+// 'solved' is deliberately absent — retired 2026-09-29, see schema.prisma.
+const statusEnum   = z.enum(['new', 'open', 'pending', 'on_hold', 'closed'])
                       .transform((v) => dbStatusIn(v) as TicketStatus);
 const categoryEnum = z.nativeEnum(TicketCategory);
 const priorityEnum = z.nativeEnum(TicketPriority);
@@ -642,7 +643,6 @@ router.patch('/admin/tickets/:id/status', authenticate, requireAdmin, async (req
 
   const now = new Date();
   const patch: Prisma.TicketUpdateInput = { status: parsed.data.status };
-  if (parsed.data.status === TicketStatus.solved) patch.solvedAt = now;
   if (parsed.data.status === TicketStatus.closed) patch.closedAt = now;
 
   const [updated] = await prisma.$transaction([

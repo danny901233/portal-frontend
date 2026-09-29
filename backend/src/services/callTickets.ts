@@ -184,6 +184,8 @@ interface FollowUp {
   title: string;
   summary: string;
   urgent: boolean;
+  /** Plain summary of the whole call, needed or not — the call is kept either way now. */
+  callSummary: string;
 }
 
 /**
@@ -207,7 +209,7 @@ async function decideFollowUp(transcript: string): Promise<FollowUp | null> {
             'You read transcripts of phone calls answered by a member of the ReceptionMate team and decide whether anything is still OUTSTANDING afterwards.\n\n' +
             'Answer "needed": true ONLY if someone promised to do something, owes the caller a reply, or raised a problem that was not resolved on the call. ' +
             'Answer false for calls that concluded — a question answered, a booking made, a chat, a wrong number, or nothing of substance.\n\n' +
-            'Reply with JSON only: {"needed":boolean,"title":"short summary under 70 chars","summary":"what is outstanding and who owes what, 1-2 sentences","urgent":boolean}',
+            'Reply with JSON only: {"needed":boolean,"title":"short summary under 70 chars","summary":"what is outstanding and who owes what, 1-2 sentences","urgent":boolean,"callSummary":"2-3 sentences on what the call was about and what was agreed, written whether or not anything is outstanding"}',
         },
         { role: 'user', content: transcript.slice(0, 8000) },
       ],
@@ -223,6 +225,7 @@ async function decideFollowUp(transcript: string): Promise<FollowUp | null> {
       title: String(parsed.title || 'Call needs follow-up').slice(0, 200),
       summary: String(parsed.summary || ''),
       urgent: parsed.urgent === true,
+      callSummary: String(parsed.callSummary || ''),
     };
   } catch (err) {
     console.error('[CALL_TICKET] follow-up decision failed:', err);
@@ -230,14 +233,101 @@ async function decideFollowUp(transcript: string): Promise<FollowUp | null> {
   }
 }
 
+/** The 8-digit id the calls API hands out, so a kept call looks like any other in the portal. */
+async function newCallId(): Promise<string> {
+  for (let i = 0; i < 20; i += 1) {
+    const id = String(Math.floor(Math.random() * 1e8)).padStart(8, '0');
+    if (!(await prisma.call.findUnique({ where: { id } }))) return id;
+  }
+  throw new Error('could not allocate a call id');
+}
+
+/**
+ * Write the call down. A screened call answered by a PERSON produces no agent session, so
+ * nothing ever posted it to /api/calls and it existed only as Twilio billing.
+ *
+ * It was worse than merely unlogged: we fetched the recording and transcribed it purely to ask
+ * an AI whether anything was outstanding, and threw the transcript away when the answer was no.
+ * A 22-minute call to our own line on 29 Sep 2026 was recorded, transcribed, judged "no
+ * follow-up needed" and left no trace. The words already exist by the time we get here — the
+ * only thing missing was keeping them.
+ *
+ * Deliberately NOT gated on SUPPORT_TICKET_GARAGE_IDS. That list decides whose calls WE answer
+ * and so whose calls belong in OUR support queue; it has nothing to do with whether a garage
+ * gets to see its own call. The ticket below is still gated by it.
+ */
+async function keepScreenedCall(args: {
+  garageId: string;
+  transcript: string;
+  summary: string;
+  callerPhone?: string | null;
+  callSid?: string | null;
+  recordingSid?: string | null;
+  recordingDurationSeconds?: number | null;
+}): Promise<void> {
+  try {
+    if (args.callSid) {
+      const existing = await prisma.call.findFirst({ where: { twilioCallSid: args.callSid } });
+      if (existing) return; // the callback can fire more than once
+    }
+
+    const seconds = Math.max(0, Math.round(args.recordingDurationSeconds ?? 0));
+    const completedAt = new Date();
+    // Recording starts when the person picks up, so this is when the conversation began — far
+    // closer than stamping it at callback time, which for a 22-minute call is 22 minutes late.
+    const startedAt = new Date(completedAt.getTime() - seconds * 1000);
+
+    await prisma.call.create({
+      data: {
+        id: await newCallId(),
+        garageId: args.garageId,
+        roomName: `screened-${args.callSid || completedAt.getTime()}`,
+        createdAt: startedAt,
+        durationSeconds: seconds,
+        // 'other' rather than a new label: the classifier maps a value it does not know onto
+        // 'other' anyway, and inventing a category here would skew every dashboard that counts
+        // them. Who answered is recorded in metrics and said plainly in the summary.
+        callType: 'other',
+        fromNumber: args.callerPhone || undefined,
+        customerPhone: args.callerPhone || undefined,
+        twilioCallSid: args.callSid || undefined,
+        summary: `Answered by a person (screened call). ${args.summary}`.trim(),
+        // Whisper gives no speaker labels, so this is one block of speech and is marked as such
+        // rather than split into turns we would be guessing at.
+        transcript: [
+          { type: 'message', speaker: 'system', text: args.transcript, timestamp: 0 },
+        ],
+        metrics: {
+          source: 'screened-call',
+          answeredBy: 'person',
+          transcriptSource: 'whisper-whole-call',
+          recordingDurationSeconds: seconds,
+        },
+        ...(args.recordingSid
+          ? {
+              recordingUrl: args.recordingSid,
+              recordingDurationSeconds: seconds,
+              recordingCompletedAt: completedAt,
+            }
+          : {}),
+      },
+    });
+    console.log(`[CALL_TICKET] kept screened call for garage ${args.garageId} (${seconds}s)`);
+  } catch (err) {
+    // Keeping the call must never cost us the ticket below.
+    console.error('[CALL_TICKET] could not keep the screened call:', err);
+  }
+}
+
 export async function raiseTicketFromScreenedCall(args: {
   garageId: string;
   recordingUrl: string;
   callerPhone?: string | null;
+  callSid?: string | null;
+  recordingSid?: string | null;
+  recordingDurationSeconds?: number | null;
 }): Promise<void> {
   try {
-    if (!raisesTickets(args.garageId)) return;
-
     const garage = await prisma.garage.findUnique({
       where: { id: args.garageId },
       select: { name: true },
@@ -248,6 +338,19 @@ export async function raiseTicketFromScreenedCall(args: {
     if (!transcript) return;
 
     const verdict = await decideFollowUp(transcript);
+
+    await keepScreenedCall({
+      garageId: args.garageId,
+      transcript,
+      summary: verdict?.callSummary || '',
+      callerPhone: args.callerPhone,
+      callSid: args.callSid,
+      recordingSid: args.recordingSid,
+      recordingDurationSeconds: args.recordingDurationSeconds,
+    });
+
+    // The ticket, and only the ticket, is scoped to the lines we answer ourselves.
+    if (!raisesTickets(args.garageId)) return;
     if (!verdict?.needed) {
       console.log(`[CALL_TICKET] screened call at ${garage.name} needs no follow-up`);
       return;

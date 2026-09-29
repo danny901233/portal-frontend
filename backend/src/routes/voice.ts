@@ -417,15 +417,20 @@ router.post('/recording-status', async (req: Request, res: Response) => {
       console.log(`[RECORDING] Stored recording for CallSid ${CallSid}`);
 
       // A screened call a PERSON answered. The AI never joined, so this recording
-      // is the only account of what was said — transcribe it and raise a ticket
-      // if anything was left outstanding.
+      // is the only account of what was said — transcribe it, KEEP it as a call in
+      // the portal, and raise a ticket if anything was left outstanding.
       const human = takeHumanAnswered(String(CallSid));
       if (human) {
-        console.log(`[RECORDING] CallSid ${CallSid} was a screened call answered by a person — transcribing for follow-up`);
+        console.log(`[RECORDING] CallSid ${CallSid} was a screened call answered by a person — transcribing and keeping it`);
         void raiseTicketFromScreenedCall({
           garageId: human.garageId,
           recordingUrl: String(RecordingUrl),
           callerPhone: human.from || null,
+          // Passed through so the kept call carries its own recording and length rather
+          // than a row nobody can listen to.
+          callSid: String(CallSid),
+          recordingSid: RecordingSid ? String(RecordingSid) : null,
+          recordingDurationSeconds: Number.isNaN(durationSeconds ?? NaN) ? null : durationSeconds,
         });
       } else if (screenedHumanCalls.size > 0) {
         // Say so loudly. If Twilio reports the CHILD leg's SID here rather than

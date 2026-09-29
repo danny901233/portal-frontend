@@ -46,9 +46,13 @@ router.use('/agent/support', requireWebhookSecret);
 
 // ─── Who is this? ───────────────────────────────────────────────────────────
 
+// nullable(), not just optional(): the agent sends the fields it does not have
+// as explicit JSON nulls, and zod's .optional() accepts a MISSING key but
+// rejects a null one. Same trap as identifySchema in support-voice.ts, which
+// carries the scar — every call 400'd until it was fixed there too.
 const identifySchema = z.object({
-  callerNumber: z.string().trim().max(32).optional(),
-  supportCode: z.string().trim().max(16).optional(),
+  callerNumber: z.string().trim().max(32).nullable().optional(),
+  supportCode: z.string().trim().max(16).nullable().optional(),
 });
 
 router.post('/agent/support/identify', async (req: Request, res: Response) => {
@@ -138,8 +142,8 @@ router.get('/agent/support/context/:garageId', async (req: Request, res: Respons
 
 const findCallSchema = z.object({
   garageId: z.string().trim().min(1),
-  callId: z.string().trim().max(64).optional(),
-  customerName: z.string().trim().max(120).optional(),
+  callId: z.string().trim().max(64).nullable().optional(),
+  customerName: z.string().trim().max(120).nullable().optional(),
 });
 
 router.post('/agent/support/find-call', async (req: Request, res: Response) => {
@@ -190,9 +194,9 @@ const changeRequestSchema = z.object({
   garageId: z.string().trim().min(1),
   /** In the agent's own words: what the caller asked for and what it would have done. */
   summary: z.string().trim().min(1).max(4000),
-  callId: z.string().trim().max(64).optional(),
-  callerPhone: z.string().trim().max(32).optional(),
-  callerName: z.string().trim().max(120).optional(),
+  callId: z.string().trim().max(64).nullable().optional(),
+  callerPhone: z.string().trim().max(32).nullable().optional(),
+  callerName: z.string().trim().max(120).nullable().optional(),
 });
 
 router.post('/agent/support/change-request', async (req: Request, res: Response) => {

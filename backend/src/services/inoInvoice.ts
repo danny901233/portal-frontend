@@ -7,7 +7,7 @@ import { sendEmail } from '../utils/email.js';
  *
  * In'n'out pay by their own Direct Debit against an emailed invoice (they are NOT in the
  * GoCardless auto-charge flow). So on the 1st of each month we: compute the combined bill for
- * all four branches (each £365 subscription for the coming month + the previous month's call
+ * all branches (each £365 subscription for the coming month + the previous month's call
  * minutes at their per-minute rate + VAT), render a PDF, and email it to their accounts team.
  */
 
@@ -34,6 +34,7 @@ const PAYMENT_TERMS_DAYS = 14;
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const gbp = (pence: number) => `£${(pence / 100).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const fmtDate = (d: Date) => `${String(d.getUTCDate()).padStart(2, '0')} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+const branchCount = (n: number) => ['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten'][n] ?? String(n);
 const shortBranch = (name: string) => name.replace(/In'n'out Autocentres\s*/i, '').trim() || name;
 
 interface InoLine { branch: string; garageId: string; businessId: string | null; subPence: number; minutes: number; ratePence: number; minutesPence: number; }
@@ -171,7 +172,9 @@ export async function renderInoInvoicePdf(data: InoInvoiceData): Promise<Buffer>
       doc.fillColor(INK_400).font('Helvetica-Bold').fontSize(8).text('BILLED TO', L, y);
       doc.fillColor(INK_900).font('Helvetica-Bold').fontSize(12).text("In'n'out Autocentres", L, y + 14);
       doc.fillColor(INK_700).font('Helvetica').fontSize(10).text('accounts@inocentres.co.uk', L, y + 30);
-      doc.fillColor(INK_500).fontSize(9.5).text('Basingstoke · Norwich · Spalding · Erith', L, y + 44);
+      // Derived, not frozen. This was a hard-coded four-branch list; Bracknell joined and the
+      // invoice quietly billed five branches while naming four.
+      doc.fillColor(INK_500).fontSize(9.5).text(data.lines.map((l) => l.branch).join(' · '), L, y + 44, { width: 270 });
 
       const dX = 330, dValX = R - 130;
       const detailRows: [string, string][] = [
@@ -275,7 +278,7 @@ export async function sendInoInvoice(opts: { to?: string[]; now?: Date; record?:
   </div>
   <div style="padding:24px 6px;">
     <p style="font-size:15px;color:#0f172a;margin:0 0 12px;">Hi,</p>
-    <p style="font-size:14px;line-height:1.6;margin:0 0 14px;">Please find attached your ReceptionMate invoice for <b>${data.subMonthLabel}</b> (subscription plus ${data.usageMonthLabel} call usage across your four branches).</p>
+    <p style="font-size:14px;line-height:1.6;margin:0 0 14px;">Please find attached your ReceptionMate invoice for <b>${data.subMonthLabel}</b> (subscription plus ${data.usageMonthLabel} call usage across your ${branchCount(data.lines.length)} branches).</p>
     <table style="font-size:14px;border-collapse:collapse;margin:0 0 16px;">
       <tr><td style="color:#64748b;padding:3px 18px 3px 0;">Invoice</td><td style="color:#0f172a;font-weight:600;">${data.invoiceNo}</td></tr>
       <tr><td style="color:#64748b;padding:3px 18px 3px 0;">Amount due</td><td style="color:#0f172a;font-weight:700;">${gbp(data.total)} inc VAT</td></tr>
@@ -293,7 +296,7 @@ export async function sendInoInvoice(opts: { to?: string[]; now?: Date; record?:
 
   const text = `Hi,
 
-Please find attached your ReceptionMate invoice for ${data.subMonthLabel} (subscription plus ${data.usageMonthLabel} call usage across your four branches).
+Please find attached your ReceptionMate invoice for ${data.subMonthLabel} (subscription plus ${data.usageMonthLabel} call usage across your ${branchCount(data.lines.length)} branches).
 
 Invoice: ${data.invoiceNo}
 Amount due: ${gbp(data.total)} inc VAT

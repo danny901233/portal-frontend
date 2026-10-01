@@ -1009,10 +1009,21 @@ interface ArrearsWarningEmailData {
 export interface LatePaymentEmailData {
   customerName: string;
   finalNotice?: boolean;   // second chase, 14 days after the first
+  // Which reminder this is, in words ("second", "third"). The final-notice copy used to
+  // hard-code "second"; a reminder sent by hand after two automated ones then told the
+  // customer something they could see was untrue.
+  reminderOrdinal?: string;
   amount: string;          // formatted, e.g. "£1,855.50"
   dueDate: string;         // e.g. "15 August 2026"
   daysOverdue: number;
   lines?: Array<{ label: string; amount: string }>;  // e.g. per-branch breakdown
+  // Invoices that are issued but NOT yet past their terms, listed so a customer who is late on
+  // one month can settle both in a single transfer. Kept apart from `lines` on purpose: folding
+  // them into the headline would describe money as overdue that is not, which is both wrong and
+  // the kind of error a customer remembers. When present, `amount` stays the OVERDUE figure and
+  // `totalOutstanding` carries the combined one.
+  upcoming?: Array<{ label: string; amount: string; due: string }>;
+  totalOutstanding?: string;
   ddSetupUrl?: string;     // omitted → the Direct Debit section is left out
   portalUrl?: string;
   // The invoices being chased, as PDFs. A reminder that asks somebody to pay but makes them go
@@ -1144,21 +1155,62 @@ export const sendLatePaymentEmail = async (
     return false;
   }
 
+  const ordinalWord = data.reminderOrdinal || 'second';
+
   const lineRows = (data.lines || []).map((l) => `
                   <tr>
                     <td style="padding: 4px 0; font-size: 15px; color: #3a3f5c;">${l.label}</td>
                     <td style="padding: 4px 0; font-size: 15px; color: #1d1a72; font-weight: 600; text-align: right;">${l.amount}</td>
                   </tr>`).join('');
 
-  const breakdown = lineRows ? `
-              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%"
-                     style="margin: 0 0 20px; padding: 16px 20px; background-color: #f7f7fb; border: 1px solid #e9eaf5; border-radius: 10px;">
+  const heading = (text: string, first: boolean) => `
+                  <tr>
+                    <td colspan="2" style="padding: ${first ? '0' : '14px'} 0 6px; font-size: 11px; font-weight: 700;
+                        letter-spacing: 0.06em; color: #8b90b0;">${text}</td>
+                  </tr>`;
+
+  const upcomingRows = (data.upcoming || []).map((l) => `
+                  <tr>
+                    <td style="padding: 4px 0; font-size: 15px; color: #3a3f5c;">${l.label}<br>
+                      <span style="font-size: 13px; color: #8b90b0;">due ${l.due}</span></td>
+                    <td style="padding: 4px 0; font-size: 15px; color: #1d1a72; font-weight: 600; text-align: right; vertical-align: top;">${l.amount}</td>
+                  </tr>`).join('');
+
+  // With an upcoming section the table needs labelled groups and two totals, so the overdue
+  // figure stays the one being chased and the combined figure is clearly just the balance.
+  const grouped = upcomingRows ? `
+                ${heading('OVERDUE', true)}
+                ${lineRows}
+                <tr>
+                  <td style="padding: 8px 0 0; border-top: 1px solid #e9eaf5; font-size: 15px; font-weight: 700; color: #1d1a72;">Overdue now</td>
+                  <td style="padding: 8px 0 0; border-top: 1px solid #e9eaf5; font-size: 15px; font-weight: 700; color: #1d1a72; text-align: right;">${data.amount}</td>
+                </tr>
+                ${heading('NOT YET DUE', false)}
+                ${upcomingRows}
+                ${data.totalOutstanding ? `
+                <tr>
+                  <td style="padding: 12px 0 0; border-top: 2px solid #e9eaf5; font-size: 15px; font-weight: 700; color: #1d1a72;">Total outstanding</td>
+                  <td style="padding: 12px 0 0; border-top: 2px solid #e9eaf5; font-size: 15px; font-weight: 700; color: #1d1a72; text-align: right;">${data.totalOutstanding}</td>
+                </tr>` : ''}` : `
                 ${lineRows}
                 <tr>
                   <td style="padding: 10px 0 0; border-top: 1px solid #e9eaf5; font-size: 15px; font-weight: 700; color: #1d1a72;">Total</td>
                   <td style="padding: 10px 0 0; border-top: 1px solid #e9eaf5; font-size: 15px; font-weight: 700; color: #1d1a72; text-align: right;">${data.amount}</td>
-                </tr>
+                </tr>`;
+
+  const breakdown = (lineRows || upcomingRows) ? `
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%"
+                     style="margin: 0 0 20px; padding: 16px 20px; background-color: #f7f7fb; border: 1px solid #e9eaf5; border-radius: 10px;">
+                ${grouped}
               </table>` : '';
+
+  // Said immediately after the table, where someone looking at two numbers decides what to pay.
+  const upcomingNote = upcomingRows ? `
+              <p style="margin: 0 0 16px; font-size: 15px; line-height: 1.6; color: #6b7194;">
+                Nothing is needed yet on the ${data.upcoming!.length === 1 ? 'invoice' : 'invoices'} shown as not yet due —
+                ${data.upcoming!.length === 1 ? "it's" : "they're"} listed only so you can settle everything in one transfer
+                if that's easier for you.
+              </p>` : '';
 
   const ddBlock = data.ddSetupUrl ? `
               <p style="margin: 24px 0 8px; font-size: 16px; font-weight: 600; color: #1d1a72;">Would Direct Debit be easier?</p>
@@ -1195,13 +1247,14 @@ export const sendLatePaymentEmail = async (
               <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin: 0 0 18px;">
                 <tr>
                   <td style="padding: 16px 20px; background-color: #fef3f2; border: 1px solid #fbd5d0; border-radius: 10px; font-size: 15px; line-height: 1.6; color: #7a2b23;">
-                    This is our second reminder. Under our agreement, accounts unpaid after 30 days may
+                    This is our ${ordinalWord} reminder. Under our agreement, accounts unpaid after 30 days may
                     have their service restricted on 5 days' notice — we'd much rather not do that, so
                     please let us know if there's a problem and we'll work something out.
                   </td>
                 </tr>
               </table>` : ''}
               ${breakdown}
+              ${upcomingNote}
               ${ddBlock}
               <p style="margin: 0 0 16px; font-size: 15px; line-height: 1.6; color: #6b7194;">
                 Prefer to pay this one by transfer? Our bank details are on the invoice${data.portalUrl ? `,
@@ -1215,14 +1268,27 @@ export const sendLatePaymentEmail = async (
           </tr>`);
 
   const text = [
-    `Your invoice is now overdue — ${data.customerName}`,
+    `${data.finalNotice ? 'Your invoice is still unpaid' : 'Your invoice is now overdue'} — ${data.customerName}`,
     '',
     `Our records show your invoice for ${data.amount} was due on ${data.dueDate} and is still showing`,
     `as unpaid — ${data.daysOverdue} day${data.daysOverdue === 1 ? '' : 's'} past our 14 day terms. If you've already sent it across in the`,
     'last day or two, thank you, and please ignore this.',
     '',
-    ...(data.lines || []).map((l) => `  ${l.label}: ${l.amount}`),
-    ...(data.lines?.length ? [`  Total: ${data.amount}`, ''] : []),
+    ...(data.lines?.length ? [
+      ...(data.upcoming?.length ? ['OVERDUE'] : []),
+      ...data.lines.map((l) => `  ${l.label}: ${l.amount}`),
+      `  ${data.upcoming?.length ? 'Overdue now' : 'Total'}: ${data.amount}`,
+      '',
+    ] : []),
+    ...(data.upcoming?.length ? [
+      'NOT YET DUE',
+      ...data.upcoming.map((l) => `  ${l.label}: ${l.amount} (due ${l.due})`),
+      ...(data.totalOutstanding ? [`  Total outstanding: ${data.totalOutstanding}`] : []),
+      '',
+      `Nothing is needed yet on the ${data.upcoming.length === 1 ? 'invoice' : 'invoices'} shown as not yet due —`,
+      `${data.upcoming.length === 1 ? 'it is' : 'they are'} listed only so you can settle everything in one transfer if that is easier.`,
+      '',
+    ] : []),
     ...(data.ddSetupUrl ? [
       'Would Direct Debit be easier? Most of our customers pay this way — it collects automatically',
       'on the same date each month, so there is nothing to remember and no risk of a missed invoice',
@@ -1237,7 +1303,9 @@ export const sendLatePaymentEmail = async (
     // Ends "reply to this email and we'll sort it out" — a disputed invoice is
     // exactly the reply we most want to receive.
     replyTo: SUPPORT_REPLY_TO,
-    subject: data.finalNotice ? `Second reminder: invoice still unpaid — ${data.amount}` : `Invoice overdue — ${data.amount}`,
+    subject: data.finalNotice
+      ? `${ordinalWord.charAt(0).toUpperCase() + ordinalWord.slice(1)} reminder: invoice still unpaid — ${data.amount}`
+      : `Invoice overdue — ${data.amount}`,
     html, text,
     ...(data.attachments?.length ? { attachments: data.attachments } : {}),
     template: data.finalNotice ? 'invoice_chase_2' : 'invoice_chase_1' });

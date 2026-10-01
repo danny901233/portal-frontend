@@ -94,7 +94,7 @@ const baseNavigation: NavItem[] = [
   { name: 'Agent Configurations', tKey: 'nav.agentConfigurations', href: '/agent-configurations', icon: <CogIcon />, requiresManager: true },
   { name: 'Team', tKey: 'nav.team', href: '/team', icon: <UsersIcon />, requiresManager: true },
   { name: 'Observability', tKey: 'nav.observability', href: '/observability', icon: <ChartIcon />, requiresStaff: true },
-  { name: 'Billing', tKey: 'nav.billing', href: '/billing', icon: <BillingIcon /> },
+  { name: 'Billing', tKey: 'nav.billing', href: '/billing', icon: <BillingIcon />, requiresManager: true },
 ];
 
 const adminNavigation: NavItem = { name: 'Admin', tKey: 'nav.admin', href: '/admin', icon: <ShieldIcon /> };
@@ -138,9 +138,9 @@ export default function Sidebar({
   const items = useMemo(() => {
     const filteredBase = baseNavigation.filter((item) => {
       if (item.href === '/messages') return hasMessagingAccess;
-      if (item.href === '/billing') return hasManagerAccess;
       // Branch-managers (MANAGER branch-role, global role USER) are managers of their
-      // own garage — show them the manager items too, matching how Billing gates.
+      // own garage, and a global MANAGER with no branchRoles at all is the account holder
+      // — both get the manager items, including Billing, which the API already allows them.
       if (item.requiresManager) return isManagerUser || hasManagerAccess;
       if (item.requiresMessaging) return hasMessagingAccess;
       if (item.requiresStaff) return showAdminLink;

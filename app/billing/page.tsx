@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import PaymentMethodCard from '../components/PaymentMethodCard';
-import { getGarageId, getUserBranchRoles, isReceptionMateStaff } from '../lib/auth';
+import { getGarageId, getUserBranchRoles, isManager, isReceptionMateStaff } from '../lib/auth';
 import { ALL_ASSIGNED_BRANCHES_IDENTIFIER } from '../lib/branchScope';
 import type { GarageSummary } from '../types';
 import { fetchGarages } from '../lib/api';
@@ -50,8 +50,12 @@ export default function BillingPage() {
   const [businessInfo, setBusinessInfo] = useState<BusinessBillingInfo | null>(null);
 
   const isStaffUser = useMemo(() => isReceptionMateStaff(), []);
+  // A global MANAGER is the account holder: they manage every garage they can see, which is how
+  // the API scopes them too (getManagedGarageIds in routes/customer-billing.ts). Their branchRoles
+  // are usually empty, so reading only those left them with no branches and no invoices.
+  const isAccountManager = useMemo(() => isManager(), []);
 
-  // Get managed garages (for non-staff manager users)
+  // Get managed garages (for branch-level manager users)
   const branchRoles = useMemo(() => getUserBranchRoles(), []);
   const managedGarageIds = useMemo(
     () =>
@@ -67,14 +71,15 @@ export default function BillingPage() {
     queryFn: fetchGarages,
   });
 
-  // Staff see all garages; managers see only their assigned ones
+  // Staff and account managers see every garage they can access; branch managers see only the
+  // branches they manage.
   const managedGarages = useMemo(() => {
     if (!garagesQuery.data?.garages) return [];
-    if (isStaffUser) return garagesQuery.data.garages;
+    if (isStaffUser || isAccountManager) return garagesQuery.data.garages;
     return garagesQuery.data.garages.filter((garage) =>
       managedGarageIds.includes(garage.id)
     );
-  }, [garagesQuery.data, managedGarageIds, isStaffUser]);
+  }, [garagesQuery.data, managedGarageIds, isStaffUser, isAccountManager]);
 
   // Keep billing in sync with navbar garage selection (including live changes)
   useEffect(() => {
@@ -103,7 +108,7 @@ export default function BillingPage() {
     queryKey: ['customer-invoices', selectedGarageId],
     queryFn: () =>
       fetchCustomerInvoices(selectedGarageId === 'all' ? undefined : selectedGarageId),
-    enabled: isStaffUser ? selectedGarageId !== 'all' : (selectedGarageId !== 'all' || managedGarageIds.length > 0),
+    enabled: isStaffUser ? selectedGarageId !== 'all' : (selectedGarageId !== 'all' || managedGarages.length > 0),
   });
 
   // Fetch business info

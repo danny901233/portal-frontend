@@ -108,6 +108,21 @@ export async function downloadInvoicePdf(invoiceId: string): Promise<Blob> {
 }
 
 /**
+ * Email copies of the selected invoices. Always goes to the signed-in user's own address; the
+ * server decides that, not the client. `alsoTo` is the accountant/bookkeeper case.
+ */
+export async function emailInvoiceCopies(
+  invoiceIds: string[],
+  alsoTo?: string,
+): Promise<{ sent: boolean; to?: string[]; invoiceCount: number; failedInvoiceIds: string[] }> {
+  const { data } = await api.post('/api/customer/billing/invoices/email', {
+    invoiceIds,
+    alsoTo: alsoTo || undefined,
+  });
+  return data;
+}
+
+/**
  * Fetch business billing information
  * @param garageId Optional - get info for specific garage's business
  */

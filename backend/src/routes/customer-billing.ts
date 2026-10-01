@@ -3,6 +3,12 @@ import { authenticate } from '../middleware/auth.js';
 import { prisma } from '../db.js';
 import { generateInvoicePdf, generateCombinedInvoicePdf, combinedInvoiceNumber } from '../services/invoicePdf.js';
 import { isManagerForGarage } from '../utils/branchRoles.js';
+import {
+  sendInvoiceCopies,
+  invoiceCopiesSentInLastHour,
+  HOURLY_SEND_LIMIT,
+  EMAIL_RE,
+} from '../services/invoiceCopies.js';
 
 const router = Router();
 
@@ -209,6 +215,130 @@ async function combineWhereAsked(invoices: InvoiceWithGarage[], managedGarageIds
     return bt - at;
   });
 }
+
+/**
+ * POST /api/customer/billing/invoices/email
+ *
+ * Email the customer copies of invoices they picked, so getting hold of their own billing
+ * history does not require asking us for it. Body: { invoiceIds: string[], alsoTo?: string }.
+ *
+ * The primary recipient is always the signed-in user's own address, read from the database
+ * rather than taken from the request — a client that could name its own "to" would turn this
+ * into an open relay for PDFs from our sending domain. `alsoTo` is the real-world case: garages
+ * forward invoices to whoever does their books.
+ */
+router.post('/invoices/email', authenticate, requireManager, async (req: Request, res: Response) => {
+  try {
+    const { invoiceIds, alsoTo } = req.body ?? {};
+
+    if (!Array.isArray(invoiceIds) || invoiceIds.length === 0 || !invoiceIds.every((i) => typeof i === 'string')) {
+      return res.status(400).json({ error: 'Select at least one invoice' });
+    }
+    // A cap on one request, so a single call cannot try to render hundreds of PDFs.
+    if (invoiceIds.length > 24) {
+      return res.status(400).json({ error: 'Too many invoices in one email — select 24 or fewer' });
+    }
+
+    const userId = req.user?.userId;
+    if (!userId) return res.status(401).json({ error: 'Not authenticated' });
+
+    const user = await prisma.user.findUnique({ where: { id: userId }, select: { email: true } });
+    if (!user?.email) return res.status(400).json({ error: 'Your account has no email address' });
+
+    if (alsoTo !== undefined && alsoTo !== null && alsoTo !== '') {
+      if (typeof alsoTo !== 'string' || !EMAIL_RE.test(alsoTo.trim())) {
+        return res.status(400).json({ error: 'That second email address is not valid' });
+      }
+    }
+
+    // Authorisation: every invoice must belong to a garage this user manages. Done here, by id,
+    // rather than trusting the ids the page happened to render.
+    const managedGarageIds = getManagedGarageIds(req);
+    if (managedGarageIds.length === 0) {
+      return res.status(403).json({ error: 'No garages to send invoices for' });
+    }
+    // A combined invoice is not a row in the table — it is the whole business's bill for that
+    // period, which is the document a combined-invoicing customer actually recognises. Separate
+    // them out and authorise each against the business, mirroring the PDF download route.
+    const plainIds: string[] = [];
+    const combinedPicks: { businessId: string; periodStart: Date; label: string; total: number }[] = [];
+    for (const id of invoiceIds as string[]) {
+      const parsed = parseCombinedId(id);
+      if (parsed) {
+        const managesThisBusiness = await prisma.garage.findFirst({
+          where: { id: { in: managedGarageIds }, businessId: parsed.businessId },
+          select: { id: true },
+        });
+        if (!managesThisBusiness) {
+          return res.status(403).json({ error: 'Access denied to one or more of those invoices' });
+        }
+        const dayStart = new Date(parsed.periodStart);
+        dayStart.setHours(0, 0, 0, 0);
+        const dayEnd = new Date(dayStart);
+        dayEnd.setDate(dayEnd.getDate() + 1);
+        const parts = await prisma.invoice.findMany({
+          where: {
+            garage: { businessId: parsed.businessId },
+            periodStart: { gte: dayStart, lt: dayEnd },
+            status: { not: 'cancelled' },
+          },
+          select: { total: true, periodStart: true, periodEnd: true },
+        });
+        if (parts.length === 0) {
+          return res.status(404).json({ error: 'One or more of those invoices no longer exists' });
+        }
+        combinedPicks.push({
+          businessId: parsed.businessId,
+          periodStart: parsed.periodStart,
+          label: `${parts[0].periodStart.toLocaleDateString('en-GB')} – ${parts[0].periodEnd.toLocaleDateString('en-GB')} (all branches)`,
+          total: parts.reduce((a, b) => a + b.total, 0),
+        });
+      } else {
+        plainIds.push(id);
+      }
+    }
+
+    const invoices = await prisma.invoice.findMany({
+      where: { id: { in: plainIds } },
+      select: { id: true, garageId: true },
+    });
+    if (invoices.length !== plainIds.length) {
+      return res.status(404).json({ error: 'One or more of those invoices no longer exists' });
+    }
+    const outOfScope = invoices.filter((inv) => !managedGarageIds.includes(inv.garageId));
+    if (outOfScope.length > 0) {
+      console.warn(`[INVOICE_COPIES] ${req.user?.email} asked for ${outOfScope.length} invoice(s) outside their scope`);
+      return res.status(403).json({ error: 'Access denied to one or more of those invoices' });
+    }
+
+    const recentSends = await invoiceCopiesSentInLastHour(userId);
+    if (recentSends >= HOURLY_SEND_LIMIT) {
+      return res.status(429).json({ error: 'That is a lot of invoice emails in one hour. Try again later.' });
+    }
+
+    const to = [user.email];
+    const second = typeof alsoTo === 'string' ? alsoTo.trim() : '';
+    if (second && second.toLowerCase() !== user.email.toLowerCase()) to.push(second);
+
+    const result = await sendInvoiceCopies({
+      invoiceIds: invoices.map((i) => i.id),
+      combined: combinedPicks,
+      to,
+      requestedByUserId: userId,
+    });
+
+    if (!result.sent) {
+      console.error(`[INVOICE_COPIES] self-serve send failed for ${user.email}: ${result.reason}`);
+      return res.status(400).json(result);
+    }
+
+    console.log(`[INVOICE_COPIES] ${user.email} emailed ${result.invoiceCount} invoice(s) to ${to.join(', ')}`);
+    res.json(result);
+  } catch (error) {
+    console.error('Error emailing invoice copies:', error);
+    res.status(500).json({ error: 'Failed to email those invoices' });
+  }
+});
 
 /**
  * GET /api/customer/billing/invoices/:invoiceId/pdf

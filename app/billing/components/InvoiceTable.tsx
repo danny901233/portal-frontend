@@ -1,8 +1,9 @@
 'use client';
 
 import type { Invoice } from '../../lib/billing';
-import { downloadInvoicePdf, triggerPdfDownload } from '../../lib/billing';
-import { useState } from 'react';
+import { downloadInvoicePdf, triggerPdfDownload, emailInvoiceCopies } from '../../lib/billing';
+import { useMemo, useState } from 'react';
+import { getUserEmail } from '../../lib/auth';
 import { useLang } from '@/app/i18n/LocaleProvider';
 
 interface InvoiceTableProps {
@@ -28,6 +29,18 @@ export default function InvoiceTable({ invoices }: InvoiceTableProps) {
       periodTo: 'to',
       downloading: 'Downloading...',
       downloadPdf: 'Download PDF',
+      selectAll: 'Select all',
+      selected: (n: number) => `${n} selected`,
+      emailSelected: 'Email selected',
+      emailTitle: 'Email these invoices',
+      emailToYou: 'These will be sent to you at',
+      alsoSendTo: 'Also send to (optional)',
+      alsoSendHint: 'e.g. your accountant or bookkeeper',
+      sending: 'Sending…',
+      send: 'Send',
+      cancel: 'Cancel',
+      emailFailed: 'Could not email those invoices. Please try again.',
+      emailSent: (n: number, to: string) => `Sent ${n} invoice${n === 1 ? '' : 's'} to ${to}`,
       status: (s: string) => ({
         paid: 'Paid',
         pending: 'Pending',
@@ -51,6 +64,18 @@ export default function InvoiceTable({ invoices }: InvoiceTableProps) {
       periodTo: 'au',
       downloading: 'Téléchargement...',
       downloadPdf: 'Télécharger le PDF',
+      selectAll: 'Tout sélectionner',
+      selected: (n: number) => `${n} sélectionnée(s)`,
+      emailSelected: 'Envoyer par e-mail',
+      emailTitle: 'Envoyer ces factures par e-mail',
+      emailToYou: 'Elles vous seront envoyées à',
+      alsoSendTo: 'Envoyer également à (facultatif)',
+      alsoSendHint: 'p. ex. votre comptable',
+      sending: 'Envoi…',
+      send: 'Envoyer',
+      cancel: 'Annuler',
+      emailFailed: "Impossible d'envoyer ces factures. Veuillez réessayer.",
+      emailSent: (n: number, to: string) => `${n} facture(s) envoyée(s) à ${to}`,
       status: (s: string) => ({
         paid: 'Payée',
         pending: 'En attente',
@@ -59,7 +84,41 @@ export default function InvoiceTable({ invoices }: InvoiceTableProps) {
       }[s.toLowerCase()] ?? s),
     },
   }[lang];
+  const userEmail = useMemo(() => getUserEmail(), []);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [emailOpen, setEmailOpen] = useState(false);
+  const [alsoTo, setAlsoTo] = useState('');
+  const [sending, setSending] = useState(false);
+  const [emailNotice, setEmailNotice] = useState<string | null>(null);
+
+  const toggle = (id: string) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  const allSelected = invoices.length > 0 && selected.size === invoices.length;
+  const toggleAll = () =>
+    setSelected(allSelected ? new Set() : new Set(invoices.map((i) => i.id)));
+
+  const handleEmail = async () => {
+    try {
+      setSending(true);
+      const res = await emailInvoiceCopies([...selected], alsoTo.trim() || undefined);
+      setEmailNotice(c.emailSent(res.invoiceCount, (res.to ?? []).join(', ')));
+      setEmailOpen(false);
+      setAlsoTo('');
+      setSelected(new Set());
+    } catch (error) {
+      console.error('Failed to email invoices:', error);
+      alert(c.emailFailed);
+    } finally {
+      setSending(false);
+    }
+  };
 
   const handleDownload = async (invoice: Invoice) => {
     try {
@@ -128,10 +187,72 @@ export default function InvoiceTable({ invoices }: InvoiceTableProps) {
 
   return (
     <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+      {emailNotice && (
+        <div className="border-b border-emerald-200 bg-emerald-50 px-6 py-3 text-sm text-emerald-800">
+          {emailNotice}
+        </div>
+      )}
+
+      {selected.size > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-6 py-3">
+          <span className="text-sm font-medium text-slate-700">{c.selected(selected.size)}</span>
+          <button
+            onClick={() => setEmailOpen(true)}
+            className="rounded-md bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700"
+          >
+            {c.emailSelected}
+          </button>
+        </div>
+      )}
+
+      {emailOpen && (
+        <div className="border-b border-slate-200 bg-white px-6 py-5">
+          <h3 className="text-sm font-semibold text-slate-900">{c.emailTitle}</h3>
+          <p className="mt-1 text-sm text-slate-600">
+            {c.emailToYou} <strong>{userEmail ?? 'your account email'}</strong>.
+          </p>
+          <label className="mt-3 block max-w-sm">
+            <span className="block text-xs font-medium text-slate-600">{c.alsoSendTo}</span>
+            <input
+              type="email"
+              value={alsoTo}
+              onChange={(e) => setAlsoTo(e.target.value)}
+              placeholder={c.alsoSendHint}
+              className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
+            />
+          </label>
+          <div className="mt-4 flex gap-2">
+            <button
+              onClick={handleEmail}
+              disabled={sending}
+              className="rounded-md bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-40"
+            >
+              {sending ? c.sending : `${c.send} (${selected.size})`}
+            </button>
+            <button
+              onClick={() => setEmailOpen(false)}
+              disabled={sending}
+              className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            >
+              {c.cancel}
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="overflow-x-auto">
         <table className="w-full">
           <thead>
             <tr className="border-b border-slate-200 bg-white">
+              <th scope="col" className="px-6 py-4 text-left">
+                <input
+                  type="checkbox"
+                  checked={allSelected}
+                  onChange={toggleAll}
+                  aria-label={c.selectAll}
+                  className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-600"
+                />
+              </th>
               <th className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
                 {c.colInvoice}
               </th>
@@ -158,6 +279,15 @@ export default function InvoiceTable({ invoices }: InvoiceTableProps) {
           <tbody className="divide-y divide-slate-200">
             {invoices.map((invoice) => (
               <tr key={invoice.id} className="transition-colors hover:bg-slate-50">
+                <td className="px-6 py-4">
+                  <input
+                    type="checkbox"
+                    checked={selected.has(invoice.id)}
+                    onChange={() => toggle(invoice.id)}
+                    aria-label={invoice.invoiceNumber ?? invoice.id}
+                    className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-600"
+                  />
+                </td>
                 <td className="px-6 py-4">
                   <span className="font-mono text-sm text-slate-600">
                     {invoice.invoiceNumber ?? invoice.id.slice(0, 8).toUpperCase()}

@@ -304,15 +304,24 @@ router.post('/admin/garages/:garageId/invoice-copies', authenticate, requireAdmi
       return res.status(400).json({ error: 'A valid recipient email address is required' });
     }
 
+    // Staff action: every invoice on the garage is in scope, cancelled ones excluded.
+    const invoices = await prisma.invoice.findMany({
+      where: { garageId, status: { not: 'cancelled' } },
+      select: { id: true },
+    });
+    if (invoices.length === 0) {
+      return res.status(400).json({ error: 'That garage has no invoices to send' });
+    }
+
     const result = await sendInvoiceCopies({
-      garageId,
-      to: to.trim(),
+      invoiceIds: invoices.map((i) => i.id),
+      to: [to.trim()],
       requestedByUserId: req.user?.userId ?? null,
     });
 
     if (!result.sent) {
       console.error(`[INVOICE_COPIES] ${req.user?.email} -> ${to}: ${result.reason}`);
-      return res.status(result.reason === 'garage not found' ? 404 : 400).json(result);
+      return res.status(400).json(result);
     }
 
     console.log(

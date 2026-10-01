@@ -173,7 +173,7 @@ export const createEmptyWeeklyOpeningHours = (): WeeklyOpeningHours => {
 // after the other three diaries shipped, so every `integrationProvider === 'tyresoft'`
 // (and bookar, and poole) in the UI was a comparison TypeScript called impossible — three
 // standing errors that made a fourth one look like more of the same noise.
-export type IntegrationProvider = 'none' | 'garage_hive' | 'bookar' | 'poole' | 'tyresoft';
+export type IntegrationProvider = 'none' | 'garage_hive' | 'bookar' | 'poole' | 'tyresoft' | 'demo';
 
 export type AgentType = 'assist' | 'automate';
 

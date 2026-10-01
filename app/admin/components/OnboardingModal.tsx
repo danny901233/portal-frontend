@@ -268,7 +268,7 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
   // tied to one diary — so the picker below only shows for that one. Without it a garage
   // onboarded onto the unified agent starts on 'none' and books nothing.
   const [integrationProvider, setIntegrationProvider] = useState<
-    'none' | 'garage_hive' | 'bookar' | 'poole' | 'tyresoft'
+    'none' | 'garage_hive' | 'bookar' | 'poole' | 'tyresoft' | 'demo'
   >('none');
 
   // Service agreement
@@ -1177,6 +1177,7 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
                     <option value="bookar">Bookar</option>
                     <option value="poole">Poole (AutoSage)</option>
                     <option value="tyresoft">Tyresoft</option>
+                    <option value="demo">Demo (fake diary)</option>
                   </select>
                   <p className="mt-1 text-xs text-slate-500">
                     Which diary the unified agent books into. Credentials are still added in Agent

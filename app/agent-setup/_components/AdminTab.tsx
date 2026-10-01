@@ -101,6 +101,7 @@ export default function AdminTab({ config, save, isSaving }: Props) {
       bsBookar: 'Bookar (Vitara Commerce)',
       bsPoole: 'Poole (AutoSage)',
       bsTyresoft: 'Tyresoft',
+      bsDemo: 'Demo — fake diary, nothing really books',
       diaryLabel: 'Diary integration',
       notConnected: 'Not connected',
       garageHive: 'Garage Hive',
@@ -183,6 +184,7 @@ export default function AdminTab({ config, save, isSaving }: Props) {
       bsBookar: 'Bookar (Vitara Commerce)',
       bsPoole: 'Poole (AutoSage)',
       bsTyresoft: 'Tyresoft',
+      bsDemo: 'Démo — agenda fictif, aucune réservation réelle',
       diaryLabel: 'Intégration d’agenda',
       notConnected: 'Non connecté',
       garageHive: 'Garage Hive',
@@ -392,6 +394,7 @@ export default function AdminTab({ config, save, isSaving }: Props) {
             <option value="bookar">{c.bsBookar}</option>
             <option value="poole">{c.bsPoole}</option>
             <option value="tyresoft">{c.bsTyresoft}</option>
+            <option value="demo">{c.bsDemo}</option>
           </select>
           <p className="mt-1 text-xs text-slate-500">{c.bookingSystemHint}</p>
         </div>

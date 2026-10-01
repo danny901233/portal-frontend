@@ -1105,7 +1105,7 @@ const batchBranchSchema = z.object({
     agentScript: z.enum(['Assist-agent', 'GarageHive-agent', 'tyresoft-agent', 'unified-agent', 'receptionmate-agent-v3', 'receptionmate-agent']).optional().default('Assist-agent'),
     // Which diary these branches book into. The modal sends it, zod stripped it, and every
     // branch after the first was created with 'none' — integrated on paper, booking nothing.
-    integrationProvider: z.enum(['none', 'garage_hive', 'bookar', 'poole', 'tyresoft']).optional().default('none'),
+    integrationProvider: z.enum(['none', 'garage_hive', 'bookar', 'poole', 'tyresoft', 'demo']).optional().default('none'),
   })).min(1).max(20),
   // Where these branches start in the onboarding pipeline. The column defaults to 'live', which
   // is right for the garages that predate the pipeline and wrong for every new one — and because

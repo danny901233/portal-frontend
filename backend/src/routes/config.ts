@@ -340,7 +340,10 @@ const sanitizeConfigForResponse = (config: AgentConfigurationPayload) => {
     : createDefaultWeeklyOpeningHours();
   // Every diary the unified agent supports is a legitimate provider now. Collapsing anything
   // but garage_hive to 'none' is what reset a Bookar garage to no diary on every save.
-  const KNOWN_PROVIDERS: IntegrationProvider[] = ['garage_hive', 'bookar', 'poole', 'tyresoft'];
+  // 'demo' is the fake diary behind the demo line. It MUST be listed here: anything not in
+  // this array is collapsed to 'none' on every save, which would silently leave the demo
+  // garage with no diary and no booking tools — the same way a Bookar garage was reset.
+  const KNOWN_PROVIDERS: IntegrationProvider[] = ['garage_hive', 'bookar', 'poole', 'tyresoft', 'demo'];
   const sanitizedProvider: IntegrationProvider =
     KNOWN_PROVIDERS.includes(config.integrationProvider as IntegrationProvider)
       ? (config.integrationProvider as IntegrationProvider) : 'none';

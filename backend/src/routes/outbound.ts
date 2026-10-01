@@ -445,9 +445,13 @@ router.get('/outbound/garagehive/settings', authenticate, async (req: Request, r
       callerRecognitionEnabled: conn.callerRecognitionEnabled,
       advisoryUpsellsEnabled: conn.advisoryUpsellsEnabled,
       claimUnattributed: conn.claimUnattributed,
-      // Only meaningful for a branch inside a shared company — a single-site garage attributes
-      // nothing, so it has no unattributed pile and the toggle would be a confusing no-op.
-      isBranchOfGroup: !!conn.locationCode,
+      // Only meaningful where several garages genuinely share one Business Central company, which
+      // is what creates an unattributed pile in the first place. A locationCode alone is not the
+      // test: two single-site garages have one set while being the only branch in their company,
+      // and showing them a catch-all switch would only raise questions it cannot answer.
+      isBranchOfGroup: await prisma.garageHiveConnection.count({
+        where: { tenantId: conn.tenantId, companyId: conn.companyId },
+      }) > 1,
       lastRunAt: conn.lastRunAt,
       lastRunError: conn.lastRunError,
     });

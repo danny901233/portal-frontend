@@ -3,6 +3,8 @@ import { prisma } from '../db.js';
 import https from 'https';
 
 const LOGO_URL = 'https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/media/65cf28be6e4392e608cca8a9.png';
+// Brand blue — the same chip colour the agreement PDF uses (agreementPdf.ts).
+const BRAND = '#3426cf';
 
 function fetchLogoBuffer(): Promise<Buffer> {
   return new Promise((resolve) => {
@@ -128,11 +130,38 @@ function createPdfBuffer(invoice: InvoiceData, business: BusinessData | null): P
 
 /**
  * Add ReceptionMate header
+ *
+ * The logo is white on a transparent background — it is meant to sit on something dark. Drawn
+ * straight onto the white page it rendered invisibly, so every invoice looked like it had no
+ * logo at all while the code happily reported it had drawn one. Sit it on a brand-coloured chip,
+ * exactly as the agreement PDF does (agreementPdf.ts), and size the chip to the image so a
+ * different logo file cannot leave a band of empty blue.
+ *
+ * The chip is deliberately kept inside y=45..89: the contact lines below start at y=95, and the
+ * old full-width 140pt logo would have overlapped them had it ever been visible.
  */
 function addHeader(doc: typeof PDFDocument.prototype, logoBuffer: Buffer) {
+  let logoDrawn = false;
+
   if (logoBuffer.length > 0) {
-    doc.image(logoBuffer, 50, 45, { width: 140 });
-  } else {
+    try {
+      const chipX = 50;
+      const chipY = 45;
+      const chipH = 44;
+      const logoH = chipH - 16;
+      const image = doc.openImage(logoBuffer);
+      const logoW = (image.width / image.height) * logoH;
+
+      doc.save().roundedRect(chipX, chipY, logoW + 24, chipH, 8).fill(BRAND).restore();
+      doc.image(logoBuffer, chipX + 12, chipY + 8, { height: logoH });
+      doc.fillColor('#000000');
+      logoDrawn = true;
+    } catch {
+      /* A decorative header must never cost us the invoice — fall back to the wordmark. */
+    }
+  }
+
+  if (!logoDrawn) {
     doc
       .fontSize(24)
       .font('Helvetica-Bold')

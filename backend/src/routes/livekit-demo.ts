@@ -88,10 +88,27 @@ setInterval(() => {
  * Returns null if LiveKit can't be reached — the caller then allows the demo rather than blocking
  * every visitor because of an unrelated outage.
  */
-async function liveDemoCount(httpUrl: string): Promise<number | null> {
+// Count the demos that are actually live, IN THE PROJECT THEY RUN IN.
+//
+// This used to hardcode account 1 and a "demo-" prefix. When the browser demo moved to the
+// unified project with rooms named "garage-<demoId>_web_<rand>", both halves stopped matching:
+// it listed a project the demos were no longer in, and filtered for a prefix they no longer
+// had. The count was therefore always 0 and MAX_CONCURRENT_DEMOS never fired — an unlimited
+// number of simultaneous browser demos, each burning STT, LLM and TTS, on the same worker that
+// answers 35 real garages. The cap matters MORE now than it did, not less.
+async function liveDemoCount(
+  httpUrl: string,
+  key: string,
+  secret: string,
+  isUnified: boolean,
+): Promise<number | null> {
   try {
-    const rooms = await new RoomServiceClient(httpUrl, LIVEKIT_API_KEY, LIVEKIT_API_SECRET).listRooms();
-    return rooms.filter((r) => r.name.startsWith('demo-')).length;
+    const rooms = await new RoomServiceClient(httpUrl, key, secret).listRooms();
+    // In the unified project the demo shares a project with live customer calls, so the filter
+    // has to be exact: this garage, and the _web_ marker the portal puts on browser rooms. A
+    // loose "garage-" match would count real calls and turn prospects away for no reason.
+    const prefix = isUnified ? `garage-${DEMO_GARAGE_ID}_web_` : 'demo-';
+    return rooms.filter((r) => r.name.startsWith(prefix)).length;
   } catch (err) {
     console.error('[demo] could not list rooms for the concurrency check:', err);
     return null;
@@ -124,10 +141,28 @@ router.post('/livekit/demo-token', async (req: Request, res: Response) => {
     });
   }
 
+  // Which project this demo will run in has to be settled BEFORE the concurrency check, because
+  // the check has to count rooms in that same project. Deciding it later is what silently
+  // defeated the cap.
+  //
+  // ?agent=reg stays on the self-hosted registration-specialist worker on account 1.
+  const wantsReg = String(req.body?.agent ?? '').toLowerCase() === 'reg';
+  // Everything else goes to the unified agent, unless its credentials are missing — in which
+  // case fall back to the old self-hosted demo worker rather than handing the visitor a token
+  // for a project with nobody in it.
+  const useUnified = !wantsReg && unifiedConfigured;
+  if (!wantsReg && !unifiedConfigured) {
+    console.warn('[demo] LIVEKIT_UNIFIED_* not set — falling back to the self-hosted demo agent');
+  }
+
+  const lkUrl    = useUnified ? LIVEKIT_UNIFIED_URL        : LIVEKIT_URL;
+  const lkKey    = useUnified ? LIVEKIT_UNIFIED_API_KEY    : LIVEKIT_API_KEY;
+  const lkSecret = useUnified ? LIVEKIT_UNIFIED_API_SECRET : LIVEKIT_API_SECRET;
+
   // Concurrency ceiling. Turn people away politely rather than letting everyone get a stuttering
   // call — and rather than starving the production portal on the same two cores.
-  const httpUrlForCount = LIVEKIT_URL.replace(/^wss:/, 'https:').replace(/^ws:/, 'http:');
-  const live = await liveDemoCount(httpUrlForCount);
+  const httpUrlForCount = lkUrl.replace(/^wss:/, 'https:').replace(/^ws:/, 'http:');
+  const live = await liveDemoCount(httpUrlForCount, lkKey, lkSecret, useUnified);
   if (live !== null && live >= MAX_CONCURRENT_DEMOS) {
     console.warn(`[demo] at capacity (${live}/${MAX_CONCURRENT_DEMOS}), turning away ip=${ip}`);
     return res.status(503).json({
@@ -143,20 +178,6 @@ router.post('/livekit/demo-token', async (req: Request, res: Response) => {
   const requestedTts = String(req.body?.tts ?? '').toLowerCase();
   const expressive = req.body?.expressive === true || req.body?.expressive === 'true';
   const tts = DEMO_EXPRESSIVE_TTS.has(requestedTts) ? requestedTts : 'inworld';
-
-  // ?agent=reg stays on the self-hosted registration-specialist worker on account 1.
-  const wantsReg = String(req.body?.agent ?? '').toLowerCase() === 'reg';
-  // Everything else goes to the unified agent, unless its credentials are missing — in which
-  // case fall back to the old self-hosted demo worker rather than handing the visitor a token
-  // for a project with nobody in it.
-  const useUnified = !wantsReg && unifiedConfigured;
-  if (!wantsReg && !unifiedConfigured) {
-    console.warn('[demo] LIVEKIT_UNIFIED_* not set — falling back to the self-hosted demo agent');
-  }
-
-  const lkUrl    = useUnified ? LIVEKIT_UNIFIED_URL        : LIVEKIT_URL;
-  const lkKey    = useUnified ? LIVEKIT_UNIFIED_API_KEY    : LIVEKIT_API_KEY;
-  const lkSecret = useUnified ? LIVEKIT_UNIFIED_API_SECRET : LIVEKIT_API_SECRET;
 
   // THE ROOM NAME IS HOW THE UNIFIED AGENT FINDS THE GARAGE. It reads the id straight out of
   // "garage-<uuid>_..." (garage_id_from_room), exactly as it does for a SIP call, so the demo

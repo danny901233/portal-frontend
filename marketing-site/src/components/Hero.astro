@@ -2,6 +2,10 @@
 // Hero - CTA-led; the garage lookup typeahead lives at step 1 of the /get-started wizard.
 import { getLang, L } from '../i18n/ui';
 const lang = getLang(Astro.url);
+
+// The demo line. A dedicated number, not the 0333 front door, so it can be rate-limited and
+// attributed to ads without touching the real sales line.
+const DEMO_PHONE = import.meta.env.PUBLIC_DEMO_PHONE || '+443330411784';
 const c = {
   en: {
     badge: 'Built for UK garages',
@@ -10,6 +14,7 @@ const c = {
     getStarted: 'Start your free trial',
     seeHow: 'See how it works',
     talkToLeah: 'Hear Leah answer a call',
+    talkToLeahRings: 'Taps to ring our demo line',
     billing: '14-day free trial on Assist · then £200/mo + VAT',
     trusted: 'trusted by UK garages',
     demoPrompt: 'Not ready to sign up?',
@@ -23,6 +28,7 @@ const c = {
     getStarted: 'Démarrer votre essai gratuit',
     seeHow: 'Voir comment ça marche',
     talkToLeah: 'Écoutez Leah répondre',
+    talkToLeahRings: 'Appelle notre ligne de démo',
     billing: 'Essai gratuit 14 jours sur Assist · puis 200 £/mois + TVA',
     trusted: 'adopté par des garages au Royaume-Uni',
     demoPrompt: 'Pas encore prêt à vous inscrire ?',
@@ -70,12 +76,31 @@ const c = {
         >
           {c.seeHow}
         </a>
+        <!-- MOBILE: ring the demo line. A browser demo asks a phone visitor for microphone
+             permission before they hear anything, which is the likeliest reason ~2,300 ad clicks
+             a month produce about 40 demos — and 91.6% of those clicks are mobile. A call asks
+             for nothing, it IS the product rather than a simulation, and the caller ID gives us
+             a real number (98.4% of inbound calls arrive with one). -->
+        <a
+          href={`tel:${DEMO_PHONE}`}
+          data-demo-call="mobile"
+          class="inline-flex w-full flex-col items-center justify-center gap-0.5 rounded-xl border-2 border-brand-600 bg-white px-7 py-3 text-base font-semibold text-brand-700 transition hover:bg-brand-50 md:hidden"
+        >
+          <span class="inline-flex items-center gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path d="M2 3.5A1.5 1.5 0 013.5 2h1.148a1.5 1.5 0 011.465 1.175l.716 3.223a1.5 1.5 0 01-1.052 1.767l-.933.267c-.41.117-.643.555-.48.95a11.542 11.542 0 006.254 6.254c.395.163.833-.07.95-.48l.267-.933a1.5 1.5 0 011.767-1.052l3.223.716A1.5 1.5 0 0118 15.352V16.5a1.5 1.5 0 01-1.5 1.5H15C7.82 18 2 12.18 2 5V3.5z"/></svg>
+            {c.talkToLeah}
+          </span>
+          <span class="text-xs font-normal text-ink-500">{c.talkToLeahRings}</span>
+        </a>
+
+        <!-- DESKTOP: a tel: link is useless on a laptop, so keep the name+email gate and the
+             browser demo. Unchanged behaviour, just no longer served to phones. -->
         <button
           type="button"
           data-lead-cta="website-hero-talk-to-leah"
           data-lead-tier={c.demoTier}
           data-lead-redirect={L('/demo', lang)}
-          class="inline-flex w-full items-center justify-center gap-2 rounded-xl border-2 border-brand-600 bg-white px-7 py-3.5 text-base font-semibold text-brand-700 transition hover:bg-brand-50 sm:w-auto"
+          class="hidden w-full items-center justify-center gap-2 rounded-xl border-2 border-brand-600 bg-white px-7 py-3.5 text-base font-semibold text-brand-700 transition hover:bg-brand-50 md:inline-flex sm:w-auto"
         >
           <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path d="M2 3.5A1.5 1.5 0 013.5 2h1.148a1.5 1.5 0 011.465 1.175l.716 3.223a1.5 1.5 0 01-1.052 1.767l-.933.267c-.41.117-.643.555-.48.95a11.542 11.542 0 006.254 6.254c.395.163.833-.07.95-.48l.267-.933a1.5 1.5 0 011.767-1.052l3.223.716A1.5 1.5 0 0118 15.352V16.5a1.5 1.5 0 01-1.5 1.5H15C7.82 18 2 12.18 2 5V3.5z"/></svg>
           {c.talkToLeah}

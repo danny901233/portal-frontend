@@ -255,6 +255,37 @@ function normalisePhone(p: string): string {
   return trimmed.replace(/[^\d]/g, '');
 }
 
+// Today's date and minutes-since-midnight in London. Slot dates/times are local to the
+// branch, so comparing them against a UTC clock is wrong for half the year — and wrong
+// at the boundary that matters, the end of the working day. Mirrors chatAgentBookar.
+function londonNow(): { date: string; minutes: number } {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Europe/London',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  }).formatToParts(new Date());
+  const get = (t: string) => parts.find((p) => p.type === t)?.value || '00';
+  return {
+    date: `${get('year')}-${get('month')}-${get('day')}`,
+    minutes: (Number(get('hour')) % 24) * 60 + Number(get('minute')),
+  };
+}
+
+// A diary asked for availability "from today" returns the whole working day whatever the
+// time, so without this the agent offers slots that have already gone (and the confirm
+// cross-check waves them through). Keep a lead-in so we never offer a slot minutes away.
+const SLOT_LEAD_MINUTES = 60;
+
+function isSlotInFuture(date: string, time: string, now: { date: string; minutes: number }): boolean {
+  if (!date) return false;
+  if (date > now.date) return true;
+  if (date < now.date) return false;
+  const [h, m] = normaliseTime(time).split(':');
+  const hours = Number(h);
+  if (!Number.isFinite(hours)) return true; // unparseable — let the diary decide
+  return hours * 60 + (Number(m) || 0) >= now.minutes + SLOT_LEAD_MINUTES;
+}
+
 // Split a full display name into first + last. Poole confirm REQUIRES lastName
 // (per handover doc §4 B6). If we only have one name part, return empty
 // lastName so the caller can prompt for the surname instead of writing junk
@@ -931,9 +962,18 @@ async function executeTool(
           const known = new Set(session.servicesOptions.map((s) => s.serviceId));
           const unknown = serviceIds.filter((id) => !known.has(id));
           if (unknown.length > 0) {
+            // Name the real ids. Told only to "pick from the real id list" without being
+            // given one, the model guesses a second time and then abandons the booking.
             return {
               error: 'unknown_service_id',
-              directive: `Service id(s) ${unknown.join(', ')} were not in the last pl_list_services result. Re-check with the customer and pick from the real id list.`,
+              directive:
+                `Service id(s) ${unknown.join(', ')} do not exist for this garage. ` +
+                `The only bookable ids are: ${session.servicesOptions
+                  .map((s) => `${s.serviceId} = ${s.description || s.code}`)
+                  .join('; ')}. ` +
+                'Call pl_add_services again using ids copied exactly from that list. If the ' +
+                'customer wants something that is not on it, that service cannot be booked ' +
+                'here — use pl_take_message instead of guessing an id.',
             };
           }
         }
@@ -963,7 +1003,7 @@ async function executeTool(
             directive: 'Call pl_add_services with the customer\'s picked service ids before checking availability. Poole requires at least one service on the draft first.',
           };
         }
-        const dateFrom = String(args.date_from || todayIso());
+        const dateFrom = String(args.date_from || londonNow().date);
         const dateTo   = String(args.date_to   || addDaysIso(7));
         const days = await listAvailableSlots(creds.branchKey, creds.tenant, session.bookingRef, dateFrom, dateTo);
         session.availabilityOptions = days;
@@ -973,14 +1013,29 @@ async function executeTool(
           `[POOLE_AGENT] listAvailableSlots: ref=${session.bookingRef} ${dateFrom}→${dateTo} days=${days.length}`,
         );
 
-        // Flatten into next 6 slots for the LLM (matches Bookar style).
+        // Flatten into next 6 slots for the LLM (matches Bookar style). Slots that have
+        // already gone are dropped BEFORE the cap, or today's dead morning fills all six
+        // and the agent offers nothing bookable.
+        const now = londonNow();
         const flat: Array<{ date: string; time: string }> = [];
         for (const day of days) {
           for (const t of day.times || []) {
+            if (!isSlotInFuture(day.date, t, now)) continue;
             flat.push({ date: day.date, time: normaliseTime(t) });
             if (flat.length >= 6) break;
           }
           if (flat.length >= 6) break;
+        }
+        if (flat.length === 0) {
+          return {
+            count: 0,
+            next_slots: [],
+            searched: { from: dateFrom, to: dateTo },
+            directive:
+              'No slots left in that window — anything the diary still shows for today has ' +
+              'already passed. Call pl_list_availability again with a later date_from, or ' +
+              'offer to take a message.',
+          };
         }
         return {
           count: flat.length,
@@ -997,6 +1052,17 @@ async function executeTool(
         const date = String(args.date || '').trim();
         const time = normaliseTime(String(args.time || '').trim());
         if (!date || !time) return { error: 'date and time both required' };
+
+        // Second line of defence on time — the availability filter stops us OFFERING a
+        // slot that has gone, but a long conversation can outlive the offer.
+        if (!isSlotInFuture(date, time, londonNow())) {
+          return {
+            error: 'slot_in_past',
+            directive:
+              `${date} at ${time} has already passed. Call pl_list_availability again and ` +
+              'offer the customer a slot that is still ahead of us.',
+          };
+        }
 
         // Cross-check against last availability result.
         const found = flattenSlots(session.availabilityOptions || []).find(

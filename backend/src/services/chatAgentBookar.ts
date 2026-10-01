@@ -267,6 +267,60 @@ function normalisePhone(p: string): string {
   return trimmed.replace(/[^\d]/g, '');
 }
 
+// Bookar wants UK NATIONAL form, and nothing else works:
+//   POST /v1/bookings → 400 {"mobile_phone":["Phone number has too many digits (12)..."]}
+//   GET  /v1/customers?phone=447904660894 → 0 matches; ?phone=07904660894 → the customer.
+// WhatsApp hands us the number as 447904660894 (12 digits), so every WhatsApp booking
+// died at the final step — the LLM read the 400 as the customer's mistake, asked them to
+// read the number back, then retried with the same seeded number and failed again. Caller
+// recognition was quietly dead for the same reason. Convert +44/44/0044 to 0…; pass
+// anything we don't recognise as UK through untouched and let Bookar adjudicate.
+export function toUkNationalPhone(p: string): string {
+  const digits = String(p || '').replace(/[^\d]/g, '');
+  if (!digits) return '';
+  let d = digits;
+  if (d.startsWith('00')) d = d.slice(2);
+  if (d.startsWith('44')) {
+    const subscriber = d.slice(2);
+    // A UK subscriber number is 9 or 10 digits, giving 10 or 11 with the leading 0 —
+    // exactly the range Bookar's validator accepts.
+    if (subscriber.length === 9 || subscriber.length === 10) return '0' + subscriber;
+  }
+  return digits;
+}
+
+// Today's date and minutes-since-midnight in London. Slot dates and times from Bookar
+// are local to the garage, so comparing them against a UTC clock is wrong for half the
+// year — and wrong at the boundary that matters, the end of the working day.
+export function londonNow(): { date: string; minutes: number } {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Europe/London',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  }).formatToParts(new Date());
+  const get = (t: string) => parts.find((p) => p.type === t)?.value || '00';
+  return {
+    date: `${get('year')}-${get('month')}-${get('day')}`,
+    minutes: (Number(get('hour')) % 24) * 60 + Number(get('minute')),
+  };
+}
+
+// Bookar returns the whole of today's working day whatever time you ask, so at 16:34 the
+// first six slots came back 08:30–11:00 THAT MORNING. The agent offered them (calling them
+// "tomorrow"), and bk_confirm_slot would happily have booked one. Drop anything already
+// gone, plus a lead-in so we never offer a slot the customer cannot physically reach.
+const SLOT_LEAD_MINUTES = 60;
+
+export function isSlotInFuture(date: string, time: string, now: { date: string; minutes: number }): boolean {
+  if (!date) return false;
+  if (date > now.date) return true;
+  if (date < now.date) return false;
+  const [h, m] = normaliseTime(time).split(':');
+  const hours = Number(h);
+  if (!Number.isFinite(hours)) return true; // unparseable — let Bookar decide
+  return hours * 60 + (Number(m) || 0) >= now.minutes + SLOT_LEAD_MINUTES;
+}
+
 // ---------------------------------------------------------------------------
 // Main entry — mirrors getTyresoftChatResponse signature line-for-line
 // ---------------------------------------------------------------------------
@@ -725,7 +779,9 @@ async function executeTool(
       // ── Bookar-backed tools — need creds from here on ─────────────────
       case 'bk_find_customer_by_phone': {
         if (!client) return { error: 'Bookar API not configured for this garage' };
-        const phone = normalisePhone(String(args.phone || session.customerPhone || ''));
+        // Bookar matches ?phone= exactly, and only on the UK national form it stores —
+        // querying 447904660894 returns nothing for a customer saved as 07904660894.
+        const phone = toUkNationalPhone(String(args.phone || session.customerPhone || ''));
         if (!phone) return { found: false, message: 'No phone number provided.' };
         const cust = await client.findCustomerByPhone(phone);
         if (!cust) {
@@ -897,13 +953,25 @@ async function executeTool(
 
         // Cross-check ids against what listServices last returned — the LLM
         // occasionally invents an id when the customer paraphrases a service.
+        // The valid set is the ENABLED services only: the session cache holds the
+        // whole catalogue, so checking against all of it would let the agent book
+        // something the garage has deliberately switched off.
         if (session.servicesOptions?.length) {
-          const known = new Set(session.servicesOptions.map((s) => s.id));
+          const bookable = session.servicesOptions.filter((s) => s.enabled !== false);
+          const known = new Set(bookable.map((s) => s.id));
           const unknown = serviceIds.filter((id) => !known.has(id));
           if (unknown.length > 0) {
+            // Name the real ids. The old directive just said "pick from the real id
+            // list" without providing one, so the model guessed a second time
+            // ([3,1] then [9,1] for an MOT + Full Service) and gave up on the booking.
             return {
               error: 'unknown_service_id',
-              directive: `Service id(s) ${unknown.join(', ')} were not in the last bk_list_services result. Re-check with the customer and pick from the real id list.`,
+              directive:
+                `Service id(s) ${unknown.join(', ')} do not exist for this garage. ` +
+                `The only bookable ids are: ${bookable.map((s) => `${s.id} = ${s.name}`).join('; ')}. ` +
+                'Call bk_list_availability again using ids copied exactly from that list. ' +
+                'If the customer wants something that is not on it, that service cannot be ' +
+                'booked here — use bk_take_message instead of guessing an id.',
             };
           }
         }
@@ -916,7 +984,7 @@ async function executeTool(
           };
         }
 
-        const dateFrom = String(args.date_from || todayIso());
+        const dateFrom = String(args.date_from || londonNow().date);
         const dateTo   = String(args.date_to   || addDaysIso(14));
         const availability = await client.listAvailability(serviceIds, dateFrom, dateTo);
         session.selectedServiceIds = serviceIds;
@@ -930,14 +998,29 @@ async function executeTool(
 
         // Flatten into a short "next few slots" list for the LLM — matches the
         // voice agent's "offer 1-2 slots" style. We keep max 6 across all days.
+        // Slots that have already gone are dropped BEFORE the cap, or today's dead
+        // morning would fill all six and the agent would offer nothing bookable.
+        const now = londonNow();
         const flat: Array<{ date: string; time: string }> = [];
         for (const day of availability) {
           const times = day.slots && day.slots.length > 0 ? day.slots : (day.time ? [day.time] : []);
           for (const t of times) {
+            if (!isSlotInFuture(day.date, t, now)) continue;
             flat.push({ date: day.date, time: normaliseTime(t) });
             if (flat.length >= 6) break;
           }
           if (flat.length >= 6) break;
+        }
+        if (flat.length === 0) {
+          return {
+            count: 0,
+            next_slots: [],
+            searched: { from: dateFrom, to: dateTo, service_ids: serviceIds },
+            directive:
+              'No slots left in that window — anything the diary still shows for today has ' +
+              'already passed. Call bk_list_availability again with a later date_from, or ' +
+              'offer to take a message.',
+          };
         }
         return {
           count: flat.length,
@@ -950,6 +1033,18 @@ async function executeTool(
         const date = String(args.date || '').trim();
         const time = normaliseTime(String(args.time || '').trim());
         if (!date || !time) return { error: 'date and time both required' };
+
+        // Second line of defence on time. The availability filter stops us OFFERING a
+        // slot that has gone, but a long conversation can outlive an offer, and the
+        // session cache is whatever the diary said when we last asked.
+        if (!isSlotInFuture(date, time, londonNow())) {
+          return {
+            error: 'slot_in_past',
+            directive:
+              `${date} at ${time} has already passed. Call bk_list_availability again and ` +
+              'offer the customer a slot that is still ahead of us.',
+          };
+        }
 
         // Cross-check against the last availability result so we can't book a
         // slot the API didn't actually offer.
@@ -1156,7 +1251,9 @@ async function bookarCreateBooking(
           first_name: firstName,
           last_name: lastName || undefined,
           email: session.customerEmail,
-          phone: session.customerPhone,
+          // UK national form — Bookar's validator rejects the 12-digit international
+          // number WhatsApp seeds the session with. See toUkNationalPhone().
+          phone: toUkNationalPhone(session.customerPhone),
         },
     vehicle: { vrm: session.vrm },
     service_ids: session.selectedServiceIds,
@@ -1176,11 +1273,28 @@ async function bookarCreateBooking(
   } catch (e: any) {
     if (e instanceof BookarError) {
       console.error(`[BOOKAR_AGENT] createBooking failed (status=${e.status}):`, e.body);
+      // A 400 is a validation failure on what WE sent, not something the customer can
+      // fix by repeating themselves. Without this the LLM asked one caller to confirm
+      // his number three times, retried unchanged each time, and lost the booking.
+      const fields = e.status === 400 && e.body && typeof e.body === 'object'
+        ? Object.keys(e.body as Record<string, unknown>).join(', ')
+        : '';
       return {
         error: 'booking_failed',
         status: e.status,
         details: e.body,
         message: e.message,
+        ...(e.status === 400
+          ? {
+              directive:
+                `Bookar rejected the booking details we sent${fields ? ` (field(s): ${fields})` : ''}. ` +
+                'This is OUR data, not a mistake by the customer — do NOT ask them to repeat ' +
+                'the same detail and do NOT retry bk_create_booking unchanged. If you cannot ' +
+                'correct it from what they have already told you, apologise once, call ' +
+                'bk_take_message so the team can finish the booking, and tell them someone ' +
+                'will confirm shortly.',
+            }
+          : {}),
       };
     }
     console.error(`[BOOKAR_AGENT] createBooking failed:`, e?.message);

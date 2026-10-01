@@ -1026,7 +1026,7 @@ const completeOnboardingSchema = z.object({
   // onboarded onto the unified agent starts with provider 'none' and books nothing until
   // somebody remembers to open Agent Configurations.
   integrationProvider: z
-    .enum(['none', 'garage_hive', 'bookar', 'poole', 'tyresoft'])
+    .enum(['none', 'garage_hive', 'bookar', 'poole', 'tyresoft', 'demo'])
     .optional()
     .default('none'),
   // The Google listing staff picked in the modal. The modal has always sent this and zod has

@@ -143,7 +143,9 @@ const parseIntegrationSettings = (
     // Mirror the agent. build_diary() infers the diary from whichever credentials are present
     // when the provider still says "none", so the dropdown must read the same way — otherwise
     // it says "None" while the agent is booking into Poole.
-    const declared = (['garage_hive', 'bookar', 'poole', 'tyresoft'] as IntegrationProvider[])
+    // 'demo' must be here too, and it can ONLY come from this list: the fallback below infers a
+    // diary from credentials, and the demo diary has none, so it would always resolve to 'none'.
+    const declared = (['garage_hive', 'bookar', 'poole', 'tyresoft', 'demo'] as IntegrationProvider[])
       .find((k) => k === providerValue);
     const integrationProvider: IntegrationProvider = declared
       ?? (pooleSettings.branchKey && pooleSettings.tenant
@@ -1029,7 +1031,14 @@ router.put(
       ? cloneWeeklyOpeningHours(data.weeklyOpeningHours)
       : createDefaultWeeklyOpeningHours();
 
-    const requestedProvider: IntegrationProvider = data.integrationProvider === 'garage_hive' ? 'garage_hive' : 'none';
+    // Bookar/Poole/Tyresoft survive this collapse because the READ path re-infers them from
+    // whichever credentials are present. 'demo' has no credentials at all — that is the point
+    // of a fake diary — so if it is not preserved here it is simply lost on save, and the demo
+    // garage silently reads back as 'none' with no booking tools.
+    const requestedProvider: IntegrationProvider =
+      data.integrationProvider === 'garage_hive' ? 'garage_hive'
+      : data.integrationProvider === 'demo' ? 'demo'
+      : 'none';
     const rawGarageHive = data.garageHiveSettings ?? {};
     const garageHiveSettings = requestedProvider === 'garage_hive'
       ? cloneGarageHiveSettings({

@@ -264,7 +264,7 @@ export const upsertAgentConfigurationSchema = z.object({
   // 'none' + 'garage_hive'; Poole/Bookar/Tyresoft agents were 400-ing on save
   // because the frontend UI sent their provider name and this validator
   // rejected it. If you add another integration to the type, add it here too.
-  integrationProvider: z.enum(['none', 'garage_hive', 'bookar', 'poole', 'tyresoft']).optional(),
+  integrationProvider: z.enum(['none', 'garage_hive', 'bookar', 'poole', 'tyresoft', 'demo']).optional(),
   garageHiveSettings: garageHiveSettingsSchema,
   tyresoftSettings: tyresoftSettingsSchema,
   bookarSettings: z.object({ bookarClientId: optionalBoundedString(200), bookarClientSecret: optionalBoundedString(1000), bookarApiBase: optionalBoundedString(500) }).optional(),

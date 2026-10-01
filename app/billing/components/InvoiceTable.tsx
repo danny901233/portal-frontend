@@ -32,6 +32,8 @@ export default function InvoiceTable({ invoices }: InvoiceTableProps) {
       selectAll: 'Select all',
       selected: (n: number) => `${n} selected`,
       emailSelected: 'Email selected',
+      emailThis: 'Email',
+      emailHint: 'Tick invoices to email several at once',
       emailTitle: 'Email these invoices',
       emailToYou: 'These will be sent to you at',
       alsoSendTo: 'Also send to (optional)',
@@ -67,6 +69,8 @@ export default function InvoiceTable({ invoices }: InvoiceTableProps) {
       selectAll: 'Tout sélectionner',
       selected: (n: number) => `${n} sélectionnée(s)`,
       emailSelected: 'Envoyer par e-mail',
+      emailThis: 'Envoyer',
+      emailHint: 'Cochez des factures pour en envoyer plusieurs',
       emailTitle: 'Envoyer ces factures par e-mail',
       emailToYou: 'Elles vous seront envoyées à',
       alsoSendTo: 'Envoyer également à (facultatif)',
@@ -103,6 +107,11 @@ export default function InvoiceTable({ invoices }: InvoiceTableProps) {
   const allSelected = invoices.length > 0 && selected.size === invoices.length;
   const toggleAll = () =>
     setSelected(allSelected ? new Set() : new Set(invoices.map((i) => i.id)));
+
+  const emailJustThis = (id: string) => {
+    setSelected(new Set([id]));
+    setEmailOpen(true);
+  };
 
   const handleEmail = async () => {
     try {
@@ -345,6 +354,7 @@ export default function InvoiceTable({ invoices }: InvoiceTableProps) {
                   <span className="text-sm text-slate-500">{formatDate(invoice.createdAt)}</span>
                 </td>
                 <td className="px-6 py-4 text-right">
+                  <div className="flex items-center justify-end gap-2">
                   <button
                     onClick={() => handleDownload(invoice)}
                     disabled={downloadingId === invoice.id}
@@ -388,6 +398,21 @@ export default function InvoiceTable({ invoices }: InvoiceTableProps) {
                       </>
                     )}
                   </button>
+                  <button
+                    onClick={() => emailJustThis(invoice.id)}
+                    className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
+                  >
+                    <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
+                      />
+                    </svg>
+                    {c.emailThis}
+                  </button>
+                  </div>
                 </td>
               </tr>
             ))}

@@ -4,6 +4,7 @@ import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { prisma } from '../db.js';
 import { authenticate, authenticateApiKey, requireAdmin, forgetRevocation } from '../middleware/auth.js';
+import { sendInvoiceCopies } from '../services/invoiceCopies.js';
 import { accountForAgentScript } from '../utils/agentAccount.js';
 import { fetchPlaceDetails, placesAutocomplete } from '../utils/googlePlaces.js';
 import { industryDefaultFaqs, generateFaqsFromWebsite } from '../utils/faqGenerator.js';
@@ -253,6 +254,77 @@ router.get('/admin/health', authenticate, requireAdmin, async (_req, res) => {
  * Service continues in full until the date arrives, so notice periods work the way a customer
  * expects. Pass leavingDate: null to cancel it if they change their mind.
  */
+/**
+ * GET /api/admin/garages/:garageId/invoice-copies — what WOULD be sent.
+ *
+ * The staff member confirms the recipient and the list before anything leaves the building.
+ * Emailing a customer their billing history is not undoable, so it is a two-step action.
+ */
+router.get('/admin/garages/:garageId/invoice-copies', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const { garageId } = req.params;
+    const garage = await prisma.garage.findUnique({
+      where: { id: garageId },
+      select: { id: true, name: true },
+    });
+    if (!garage) return res.status(404).json({ error: 'Garage not found' });
+
+    const invoices = await prisma.invoice.findMany({
+      where: { garageId, status: { not: 'cancelled' } },
+      orderBy: { periodStart: 'asc' },
+      select: { id: true, periodStart: true, periodEnd: true, total: true, status: true },
+    });
+
+    // Suggest the logins that can see this garage's billing, but do not choose for them.
+    const users = await prisma.user.findMany({
+      where: { garageAccessIds: { has: garageId } },
+      select: { email: true, role: true },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    res.json({ garage, invoices, suggestedRecipients: users.map((u) => u.email) });
+  } catch (error) {
+    console.error('Error previewing invoice copies:', error);
+    res.status(500).json({ error: 'Failed to load invoice copies' });
+  }
+});
+
+/**
+ * POST /api/admin/garages/:garageId/invoice-copies — send the customer copies of their invoices.
+ *
+ * Staff-triggered only. There is no scheduled or automatic path into this: an email carrying a
+ * customer's whole billing history should go out because a person decided it should.
+ */
+router.post('/admin/garages/:garageId/invoice-copies', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const { garageId } = req.params;
+    const { to } = req.body ?? {};
+
+    if (typeof to !== 'string' || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to.trim())) {
+      return res.status(400).json({ error: 'A valid recipient email address is required' });
+    }
+
+    const result = await sendInvoiceCopies({
+      garageId,
+      to: to.trim(),
+      requestedByUserId: req.user?.userId ?? null,
+    });
+
+    if (!result.sent) {
+      console.error(`[INVOICE_COPIES] ${req.user?.email} -> ${to}: ${result.reason}`);
+      return res.status(result.reason === 'garage not found' ? 404 : 400).json(result);
+    }
+
+    console.log(
+      `[INVOICE_COPIES] ${req.user?.email} sent ${result.invoiceCount} invoice(s) for ${garageId} to ${to}`,
+    );
+    res.json(result);
+  } catch (error) {
+    console.error('Error sending invoice copies:', error);
+    res.status(500).json({ error: 'Failed to send invoice copies' });
+  }
+});
+
 router.post('/admin/garages/:garageId/schedule-leaving', authenticate, requireAdmin, async (req, res) => {
   try {
     const { garageId } = req.params;

@@ -9,6 +9,8 @@ import {
   updateBillingConfig,
   fetchUsage,
   scheduleLeaving,
+  fetchInvoiceCopiesPreview,
+  sendInvoiceCopies,
 } from '../../../lib/api';
 
 export default function GarageBillingConfigPage() {
@@ -50,6 +52,32 @@ export default function GarageBillingConfigPage() {
   // saved by accident along with a price change.
   const [leavingDate, setLeavingDate] = useState('');
   const [leavingReason, setLeavingReason] = useState('');
+
+  // Emailing a customer their billing history is not undoable, so the recipient is shown and
+  // confirmed rather than resolved behind the scenes.
+  const [copiesTo, setCopiesTo] = useState('');
+
+  const copiesQuery = useQuery({
+    queryKey: ['invoice-copies', garageId],
+    queryFn: () => fetchInvoiceCopiesPreview(garageId),
+    enabled: Boolean(garageId) && isStaff,
+  });
+
+  useEffect(() => {
+    const suggested = copiesQuery.data?.suggestedRecipients?.[0];
+    if (suggested && !copiesTo) setCopiesTo(suggested);
+  }, [copiesQuery.data, copiesTo]);
+
+  const copiesMutation = useMutation({
+    mutationFn: (to: string) => sendInvoiceCopies(garageId, to),
+    onSuccess: (res) => {
+      const failed = res.failedInvoiceIds?.length
+        ? ` ${res.failedInvoiceIds.length} invoice(s) could not be rendered and were left out.`
+        : '';
+      setFeedback(`Sent ${res.invoiceCount} invoice(s) to ${res.to}.${failed}`);
+    },
+    onError: () => setFeedback('Could not send the invoice copies'),
+  });
 
   const leavingMutation = useMutation({
     mutationFn: ({ date, reason }: { date: string | null; reason?: string }) =>
@@ -535,6 +563,67 @@ export default function GarageBillingConfigPage() {
               Select dates to preview usage and charges
             </div>
           )}
+        </section>
+
+        <section className="rounded-2xl border border-slate-200 bg-white p-6">
+          <h2 className="text-lg font-semibold text-slate-900">Email invoice copies</h2>
+          <p className="mt-1 text-sm text-slate-600">
+            Sends the customer every invoice we hold for this branch, as one email with a PDF
+            attached per invoice. Cancelled invoices are left out. The email states nothing about
+            whether anything is owed — use the arrears chaser for that.
+          </p>
+
+          {copiesQuery.data && (
+            <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-4">
+              <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                {copiesQuery.data.invoices.length} invoice(s) will be attached
+              </div>
+              <ul className="mt-2 space-y-1">
+                {copiesQuery.data.invoices.map((inv) => (
+                  <li key={inv.id} className="flex justify-between text-sm text-slate-700">
+                    <span>
+                      {new Date(inv.periodStart).toLocaleDateString('en-GB')} –{' '}
+                      {new Date(inv.periodEnd).toLocaleDateString('en-GB')}
+                    </span>
+                    <span className="tabular-nums">
+                      £{(inv.total / 100).toFixed(2)}
+                      <span className="ml-2 text-xs text-slate-500">{inv.status}</span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
+            <label className="block">
+              <span className="block text-xs font-medium text-slate-600">Send to</span>
+              <input
+                type="email"
+                value={copiesTo}
+                onChange={(e) => setCopiesTo(e.target.value)}
+                placeholder="billing@customer.co.uk"
+                className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
+              />
+            </label>
+            <button
+              type="button"
+              disabled={!copiesTo || copiesMutation.isPending || !copiesQuery.data?.invoices.length}
+              onClick={() => {
+                const count = copiesQuery.data?.invoices.length ?? 0;
+                if (
+                  window.confirm(
+                    `Email ${count} invoice(s) to ${copiesTo}?\n\nThis sends to the customer immediately and cannot be recalled.`,
+                  )
+                ) {
+                  copiesMutation.mutate(copiesTo);
+                }
+              }}
+              className="rounded-md bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-40"
+            >
+              {copiesMutation.isPending ? 'Sending…' : 'Send copies'}
+            </button>
+          </div>
         </section>
 
         <section className="rounded-xl border border-amber-200 bg-amber-50/50 p-5">

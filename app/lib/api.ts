@@ -447,6 +447,32 @@ export const updateBillingConfig = async (
  * job removes voice and messaging access, zeroes the pricing and archives them — service runs in
  * full until then. Pass null to cancel the notice if they change their mind.
  */
+export interface InvoiceCopiesPreview {
+  garage: { id: string; name: string };
+  invoices: {
+    id: string;
+    periodStart: string;
+    periodEnd: string;
+    total: number;
+    status: string;
+  }[];
+  suggestedRecipients: string[];
+}
+
+/** What would be emailed, so staff can check the recipient and the list before sending. */
+export const fetchInvoiceCopiesPreview = async (garageId: string): Promise<InvoiceCopiesPreview> => {
+  const { data } = await api.get(`/api/admin/garages/${garageId}/invoice-copies`);
+  return data;
+};
+
+export const sendInvoiceCopies = async (
+  garageId: string,
+  to: string,
+): Promise<{ sent: boolean; to?: string; invoiceCount: number; failedInvoiceIds: string[] }> => {
+  const { data } = await api.post(`/api/admin/garages/${garageId}/invoice-copies`, { to });
+  return data;
+};
+
 export const scheduleLeaving = async (
   garageId: string,
   leavingDate: string | null,

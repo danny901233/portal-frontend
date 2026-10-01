@@ -61,8 +61,14 @@ export async function ensureUnifiedSipRouting(args: {
 
     // Match the hand-made trunks: the garage id plus the number in the formats a carrier may
     // present it in. LiveKit matches on any of them.
-    const numbers = [garageId, twilioNumber, twilioNumber.replace(/^\+/, '')];
-    if (twilioNumber.startsWith('+44')) numbers.push(`0${twilioNumber.slice(3)}`);
+    //
+    // NORMALISE FIRST. Garage.twilioNumber is stored for display — "+44 333 041 1784" — and a
+    // carrier never presents it that way, so passing it through verbatim put four numbers on the
+    // trunk of which three had spaces in and none was the E.164 the INVITE actually carries. The
+    // demo line was wired that way on 2026-10-01; every hand-made trunk has clean digits.
+    const e164 = twilioNumber.replace(/[^\d+]/g, '');
+    const numbers = [garageId, e164, e164.replace(/^\+/, '')];
+    if (e164.startsWith('+44')) numbers.push(`0${e164.slice(3)}`);
 
     const trunk = await sip.createSipInboundTrunk(`${garageName} (unified-agent)`, numbers, {
       metadata: JSON.stringify({ garageId, garageName, note: 'unified-agent — created at onboarding' }),

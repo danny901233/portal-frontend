@@ -665,7 +665,18 @@ export function phoneVariants(raw: string): string[] {
 /**
  * Look up a phone number in the Garage Hive CTI phonebook. Queries each of the
  * four phone fields (OR is allowed within one field, not across fields), trying
- * all likely stored formats. Returns the first match, or null.
+ * all likely stored formats.
+ *
+ * One number can return several rows, because the same person often exists in the phonebook more
+ * than once — a contact created against the customer, and a loose contact created later by hand
+ * with no customer behind it. Only a row carrying a customerNo is any use to the caller: without
+ * one, getCallerProfile cannot ask what they drive and bails out as `matched:false`, which is
+ * indistinguishable from "not a customer". This used to take rows[0] with no $orderby, so for
+ * anyone with a duplicate contact whether we recognised them at all came down to the order BC
+ * happened to return — Speedy Spanners' first test caller had exactly this pair.
+ *
+ * So prefer a row with a customerNo, over all four fields, and keep the first bare row as a
+ * fallback: the name alone is still worth having for reconcileCallerName.
  */
 export async function lookupPhonebookByPhone(
   creds: GarageHiveCreds,
@@ -678,13 +689,37 @@ export async function lookupPhonebookByPhone(
   const company = `companies(${creds.companyId})`;
   const select = 'contactNo,customerNo,name,phoneNo,phoneNo2,mobilePhoneNo,mobilePhoneNo2';
 
+  let fallback: RawPhonebook | null = null;
+
   for (const field of ['mobilePhoneNo', 'phoneNo', 'mobilePhoneNo2', 'phoneNo2']) {
     const clause = variants.map((v) => `${field} eq '${v.replace(/'/g, "''")}'`).join(' or ');
     const url = `${base}/phoneIntegration/v2.0/${company}/gH1PhonebookList?$select=${select}&$filter=${encodeURIComponent(clause)}`;
     const rows = await get<RawPhonebook>(creds, url);
-    if (rows.length > 0) return { ...rows[0], phoneNo: rows[0].phoneNo }; // matched
+    if (rows.length === 0) continue;
+
+    const usable = rows.find((r) => (r.customerNo || '').trim());
+    if (usable) {
+      if (rows.length > 1) {
+        console.log(
+          `[GH_PHONEBOOK] ${rows.length} entries on ${field} for this caller —`
+            + ` using customerNo=${usable.customerNo} (contactNo=${usable.contactNo || 'none'});`
+            + ` the garage has duplicate phonebook records for them`,
+        );
+      }
+      return { ...usable, phoneNo: usable.phoneNo };
+    }
+
+    // Rows, but not one with a customer behind it. Remember the name and keep looking.
+    if (!fallback) fallback = { ...rows[0], phoneNo: rows[0].phoneNo };
   }
-  return null;
+
+  if (fallback) {
+    console.log(
+      '[GH_PHONEBOOK] caller is in the phonebook but no entry carries a customerNo —'
+        + ' name only, so no vehicle lookup is possible',
+    );
+  }
+  return fallback;
 }
 
 /**

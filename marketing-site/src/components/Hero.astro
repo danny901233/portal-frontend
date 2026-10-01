@@ -1,6 +1,7 @@
 ---
 // Hero - CTA-led; the garage lookup typeahead lives at step 1 of the /get-started wizard.
 import { getLang, L } from '../i18n/ui';
+import HearLeah from './HearLeah.astro';
 const lang = getLang(Astro.url);
 const c = {
   en: {
@@ -68,6 +69,11 @@ const c = {
         >
           {c.seeHow}
         </a>
+      </div>
+
+      <!-- Try it now. Rings the demo line on mobile; name+email then the browser demo on desktop. -->
+      <div class="mt-6 flex justify-center">
+        <HearLeah />
       </div>
 
       <p class="mt-5 text-sm text-ink-500">

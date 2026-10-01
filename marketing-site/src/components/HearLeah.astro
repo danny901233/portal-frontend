@@ -1,0 +1,212 @@
+---
+// "Hear Leah answer a call" — the try-it-now CTA, distinct from the hero's "Book a free demo"
+// (which opens LeadModal and books a human).
+//
+// It is TWO different CTAs behind one component, split on viewport rather than on user agent:
+//
+//   mobile  -> a tel: link straight to the demo line. 91.6% of our ad clicks are mobile, and a
+//              browser demo asks those visitors for microphone permission before they hear
+//              anything — which is the likeliest reason ~2,300 clicks a month produced ~40 demos.
+//              A phone call asks for nothing, and it IS the product rather than a simulation.
+//   desktop -> name + email, then through to the browser demo. A tel: link is useless on a
+//              laptop, and the details are worth having from someone who is clearly evaluating.
+//
+// Split with Tailwind breakpoints, not UA sniffing: same reason the portal gates its mobile nav
+// behind `md:` — a UA string is a guess and a breakpoint is a fact about the window.
+import { getLang, L } from '../i18n/ui';
+
+const lang = getLang(Astro.url);
+
+// The demo line. A dedicated number, not the 0333 front door, so it can be rate-limited and
+// attributed separately without touching the real sales line.
+const DEMO_PHONE = import.meta.env.PUBLIC_DEMO_PHONE || '+443330411784';
+// Spoken/readable form for the label.
+const DEMO_PHONE_DISPLAY = import.meta.env.PUBLIC_DEMO_PHONE_DISPLAY || '0333 041 1784';
+const PORTAL_DEMO_URL = import.meta.env.PUBLIC_PORTAL_DEMO_URL
+  || 'https://portal.receptionmate.co.uk/demo';
+const LEAD_ENDPOINT = import.meta.env.PUBLIC_LEAD_ENDPOINT
+  || 'https://portal.receptionmate.co.uk/api/public/lead';
+
+const c = {
+  en: {
+    cta: 'Hear Leah answer a call',
+    mobileHint: `Tap to ring our demo line · ${DEMO_PHONE_DISPLAY}`,
+    desktopHint: 'Takes about a minute',
+    modalTitle: 'Hear Leah answer a call',
+    modalIntro: 'Two details and we’ll open the demo. Talk to her like a customer would — book a car in, ask a price, see what she does.',
+    nameLabel: 'Your name',
+    namePlaceholder: 'Jane Smith',
+    emailLabel: 'Email address',
+    emailPlaceholder: 'you@yourgarage.co.uk',
+    submit: 'Start the demo',
+    submitting: 'Opening…',
+    mic: 'You’ll need to allow microphone access, and headphones help.',
+    close: 'Close',
+    failed: 'Something went wrong. Please try again.',
+  },
+  fr: {
+    cta: 'Écouter Leah répondre à un appel',
+    mobileHint: `Appuyez pour appeler notre ligne de démo · ${DEMO_PHONE_DISPLAY}`,
+    desktopHint: 'Environ une minute',
+    modalTitle: 'Écouter Leah répondre à un appel',
+    modalIntro: 'Deux informations et nous ouvrons la démo. Parlez-lui comme un client : réservez une voiture, demandez un prix, voyez ce qu’elle fait.',
+    nameLabel: 'Votre nom',
+    namePlaceholder: 'Jean Dupont',
+    emailLabel: 'Adresse e-mail',
+    emailPlaceholder: 'vous@votregarage.fr',
+    submit: 'Lancer la démo',
+    submitting: 'Ouverture…',
+    mic: 'Vous devrez autoriser le micro ; un casque aide.',
+    close: 'Fermer',
+    failed: 'Une erreur s’est produite. Veuillez réessayer.',
+  },
+}[lang];
+
+const demoHref = L('/demo', lang);
+---
+
+<!-- MOBILE: ring it. No form, no mic permission, no browser audio. -->
+<div class="md:hidden">
+  <a
+    href={`tel:${DEMO_PHONE}`}
+    data-demo-call="mobile"
+    class="inline-flex w-full items-center justify-center gap-2.5 rounded-full bg-gradient-to-r from-brand-600 to-brand-500 px-6 py-3.5 text-sm font-semibold text-white shadow-lg shadow-brand-600/30 transition hover:shadow-brand-600/50"
+  >
+    <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+      <path d="M2 3.5A1.5 1.5 0 0 1 3.5 2h1.148a1.5 1.5 0 0 1 1.465 1.175l.716 3.223a1.5 1.5 0 0 1-1.052 1.767l-.933.267c-.41.117-.643.555-.48.95a11.5 11.5 0 0 0 6.254 6.254c.395.163.833-.07.95-.48l.267-.933a1.5 1.5 0 0 1 1.767-1.052l3.223.716A1.5 1.5 0 0 1 18 15.352V16.5a1.5 1.5 0 0 1-1.5 1.5H15c-7.18 0-13-5.82-13-13v-1.5Z" />
+    </svg>
+    {c.cta}
+  </a>
+  <p class="mt-2 text-center text-xs text-ink-500">{c.mobileHint}</p>
+</div>
+
+<!-- DESKTOP: name + email, then the browser demo. -->
+<div class="hidden md:block">
+  <button
+    type="button"
+    id="hear-leah-open"
+    class="inline-flex items-center justify-center gap-2.5 rounded-full bg-gradient-to-r from-brand-600 to-brand-500 px-6 py-3.5 text-sm font-semibold text-white shadow-lg shadow-brand-600/30 transition hover:shadow-brand-600/50"
+  >
+    <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+      <path d="M10 2a6 6 0 0 0-6 6v3.586l-.707.707A1 1 0 0 0 4 14h12a1 1 0 0 0 .707-1.707L16 11.586V8a6 6 0 0 0-6-6Zm0 16a3 3 0 0 0 2.995-2.824L13 15H7a3 3 0 0 0 3 3Z" />
+    </svg>
+    {c.cta}
+  </button>
+  <p class="mt-2 text-xs text-ink-500">{c.desktopHint}</p>
+</div>
+
+<!-- Desktop gate. Hidden until asked for; never rendered on mobile's path. -->
+<div
+  id="hear-leah-modal"
+  class="fixed inset-0 z-[60] hidden items-center justify-center bg-ink-900/60 p-4 backdrop-blur-sm"
+  role="dialog"
+  aria-modal="true"
+  aria-labelledby="hear-leah-title"
+>
+  <div class="relative w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl">
+    <button
+      type="button"
+      id="hear-leah-close"
+      aria-label={c.close}
+      class="absolute right-3 top-3 rounded-full p-2 text-ink-400 transition hover:bg-ink-50 hover:text-ink-700"
+    >
+      <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+        <path d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z" />
+      </svg>
+    </button>
+
+    <div class="px-7 pt-8">
+      <h2 id="hear-leah-title" class="text-2xl font-bold leading-tight tracking-tight text-ink-900">{c.modalTitle}</h2>
+      <p class="mt-2 text-sm leading-relaxed text-ink-600">{c.modalIntro}</p>
+    </div>
+
+    <form id="hear-leah-form" class="space-y-3.5 p-7">
+      <div>
+        <label for="hear-leah-name" class="mb-1 block text-xs font-semibold text-ink-700">{c.nameLabel}</label>
+        <input
+          type="text" id="hear-leah-name" name="name" required minlength="2" autocomplete="name"
+          placeholder={c.namePlaceholder}
+          class="w-full rounded-xl border border-ink-300 bg-white px-3.5 py-2.5 text-sm text-ink-900 placeholder:text-ink-400 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
+        />
+      </div>
+      <div>
+        <label for="hear-leah-email" class="mb-1 block text-xs font-semibold text-ink-700">{c.emailLabel}</label>
+        <input
+          type="email" id="hear-leah-email" name="email" required autocomplete="email"
+          placeholder={c.emailPlaceholder}
+          class="w-full rounded-xl border border-ink-300 bg-white px-3.5 py-2.5 text-sm text-ink-900 placeholder:text-ink-400 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
+        />
+      </div>
+
+      <div id="hear-leah-error" class="hidden rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700 ring-1 ring-rose-200"></div>
+
+      <button
+        type="submit" id="hear-leah-submit"
+        class="mt-1.5 w-full rounded-xl bg-gradient-to-r from-brand-600 to-brand-500 px-4 py-3.5 text-sm font-semibold text-white shadow-lg shadow-brand-600/30 transition hover:shadow-brand-600/50 disabled:cursor-not-allowed disabled:opacity-70"
+      >{c.submit}</button>
+
+      <p class="text-center text-xs text-ink-500">{c.mic}</p>
+    </form>
+  </div>
+</div>
+
+<script define:vars={{ LEAD_ENDPOINT, PORTAL_DEMO_URL, demoHref, submittingLabel: c.submitting, failedLabel: c.failed }}>
+  (() => {
+    const modal = document.getElementById('hear-leah-modal');
+    const openBtn = document.getElementById('hear-leah-open');
+    const closeBtn = document.getElementById('hear-leah-close');
+    const form = document.getElementById('hear-leah-form');
+    const submit = document.getElementById('hear-leah-submit');
+    const errorBox = document.getElementById('hear-leah-error');
+    if (!modal || !openBtn || !form || !submit) return;
+
+    const open = () => {
+      modal.classList.remove('hidden');
+      modal.classList.add('flex');
+      document.body.style.overflow = 'hidden';
+      document.getElementById('hear-leah-name')?.focus();
+    };
+    const close = () => {
+      modal.classList.add('hidden');
+      modal.classList.remove('flex');
+      document.body.style.overflow = '';
+    };
+
+    openBtn.addEventListener('click', open);
+    closeBtn?.addEventListener('click', close);
+    modal.addEventListener('click', (e) => { if (e.target === modal) close(); });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && !modal.classList.contains('hidden')) close();
+    });
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      errorBox?.classList.add('hidden');
+      const name = String(document.getElementById('hear-leah-name')?.value || '').trim();
+      const email = String(document.getElementById('hear-leah-email')?.value || '').trim();
+      if (!name || !email) return;
+
+      const original = submit.textContent;
+      submit.disabled = true;
+      submit.textContent = submittingLabel;
+
+      // The lead is worth having but it must NEVER stand between them and the demo: they came to
+      // hear the thing. If this fails, or is slow, they go through anyway and we lose a contact
+      // rather than a prospect.
+      try {
+        await Promise.race([
+          fetch(LEAD_ENDPOINT, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, email, source: 'website-demo-desktop' }),
+          }),
+          new Promise((r) => setTimeout(r, 2500)),
+        ]);
+      } catch (_) {
+        /* ignore — see above */
+      }
+
+      window.location.href = PORTAL_DEMO_URL || demoHref;
+    });
+  })();
+</script>

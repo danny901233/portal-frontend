@@ -309,6 +309,8 @@ export default function OutboundPage() {
       ghNotConnectedBody: 'Once the Garage Hive connection is set up, you can turn on automatic daily reminders here.',
       autoReminders: 'Automatic daily reminders',
       autoRemindersBody: 'Every morning at 9am we pull vehicles due in Garage Hive and message the customer automatically. Delivery, read and reply status is tracked for each one.',
+      claimTitle: 'Also remind the group\u2019s unmatched customers',
+      claimBody: 'Some customers cannot be matched to a branch \u2014 no job and no health check anywhere in the group, so there is nothing to say whose customer they are. They are left alone by default. Turn this on and this branch reminds them too. Only one branch in the group can take them.',
       remindWithin: 'Remind when due within (days)',
       stagesLabel: 'Reminders',
       stagesHelp:
@@ -512,6 +514,8 @@ export default function OutboundPage() {
       ghNotConnectedBody: 'Une fois la connexion Garage Hive configurée, vous pourrez activer les rappels quotidiens automatiques ici.',
       autoReminders: 'Rappels quotidiens automatiques',
       autoRemindersBody: 'Chaque matin à 9 h, nous récupérons les véhicules à échéance dans Garage Hive et envoyons automatiquement un message au client. Le statut de livraison, de lecture et de réponse est suivi pour chacun.',
+      claimTitle: 'Relancer aussi les clients non attribu\u00e9s du groupe',
+      claimBody: 'Certains clients ne peuvent \u00eatre rattach\u00e9s \u00e0 aucune succursale \u2014 aucune intervention ni contr\u00f4le dans le groupe. Ils ne sont pas contact\u00e9s par d\u00e9faut. Activez cette option et cette succursale les relance aussi. Une seule succursale du groupe peut les prendre.',
       remindWithin: 'Rappeler si l’échéance est dans (jours)',
       stagesLabel: 'Rappels',
       stagesHelp:
@@ -667,6 +671,7 @@ export default function OutboundPage() {
   const [claiming, setClaiming] = useState(false);
   // Automatic daily reminder settings (mirrors GarageHiveConnection)
   const [autoEnabled, setAutoEnabled] = useState(false);
+  const [claimUnattributed, setClaimUnattributed] = useState(false);
   const [autoDays, setAutoDays] = useState(30);
   const [autoDueTypes, setAutoDueTypes] = useState<GhDueType[]>(['mot', 'service']);
   const [autoStages, setAutoStages] = useState<GhReminderStage[]>([{ days: 30, templateId: null }]);
@@ -713,6 +718,7 @@ export default function OutboundPage() {
   useEffect(() => {
     if (!ghSettings?.connected) return;
     setAutoEnabled(!!ghSettings.remindersEnabled);
+    setClaimUnattributed(!!ghSettings.claimUnattributed);
     setAutoDays(ghSettings.reminderDaysAhead ?? 30);
     setAutoDueTypes(ghSettings.reminderDueTypes?.length ? ghSettings.reminderDueTypes : ['mot', 'service']);
     setAutoTemplateId(ghSettings.reminderTemplateId ?? '');
@@ -1423,12 +1429,44 @@ export default function OutboundPage() {
                   </div>
                   <p className="mt-1 text-[11px] text-slate-400">{c.stagesOrder}</p>
                 </div>
+                {/* Only a branch inside a shared Garage Hive company has an unattributed pile at
+                    all — a single-site garage owns its whole company, so nothing is ever filtered
+                    and this toggle would be a no-op that only raises questions. */}
+                {ghSettings?.isBranchOfGroup && (
+                  <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <p className="text-xs font-semibold text-slate-900">{c.claimTitle}</p>
+                        <p className="mt-1 text-[11px] leading-relaxed text-slate-500">{c.claimBody}</p>
+                      </div>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={claimUnattributed}
+                        onClick={() => setClaimUnattributed((v) => !v)}
+                        className={cn(
+                          'relative mt-0.5 inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors',
+                          claimUnattributed ? 'bg-green-500' : 'bg-slate-300',
+                        )}
+                      >
+                        <span
+                          className={cn(
+                            'inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform',
+                            claimUnattributed ? 'translate-x-4' : 'translate-x-0.5',
+                          )}
+                        />
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 <button
                   type="button"
                   onClick={() =>
                     saveSettingsMutation.mutate({
                       garageId,
                       remindersEnabled: autoEnabled,
+                      claimUnattributed,
                       reminderDueTypes: autoDueTypes,
                       reminderSchedule: sortedStages,
                       // Kept in step with the first stage so anything still reading the old

@@ -192,6 +192,16 @@ model GarageHiveConnection {
   // (GREAT, ECO, CAMBERLEY...). Empty means "this company is this garage" — no filtering, which
   // is the case for every single-site garage.
   locationCode       String?
+  // Catch-all for vehicles this company cannot attribute to any branch — due, contactable, but
+  // with no job and no health check anywhere in the group, so there is nothing to say whose
+  // customer they are. Off everywhere by default: the safe behaviour is to message nobody rather
+  // than message someone on another branch's behalf.
+  //
+  // MUST be set on at most ONE branch per Business Central company. If two branches claimed the
+  // same unattributed vehicle, that customer would get the identical reminder from two of the
+  // group's garages on the same morning — the exact pattern that gets a WhatsApp number reported.
+  // The daily run re-checks that at use and claims nothing if it is ever set on more than one.
+  claimUnattributed  Boolean   @default(false)
   // Caller recognition — on an inbound call, look the caller's number up in the
   // Garage Hive phonebook so the agent confirms their vehicle instead of asking
   // for the reg. Off by default; GarageHive-agent only.

@@ -444,6 +444,10 @@ router.get('/outbound/garagehive/settings', authenticate, async (req: Request, r
       reminderChannel: conn.reminderChannel,
       callerRecognitionEnabled: conn.callerRecognitionEnabled,
       advisoryUpsellsEnabled: conn.advisoryUpsellsEnabled,
+      claimUnattributed: conn.claimUnattributed,
+      // Only meaningful for a branch inside a shared company — a single-site garage attributes
+      // nothing, so it has no unattributed pile and the toggle would be a confusing no-op.
+      isBranchOfGroup: !!conn.locationCode,
       lastRunAt: conn.lastRunAt,
       lastRunError: conn.lastRunError,
     });
@@ -467,6 +471,7 @@ router.put('/outbound/garagehive/settings', authenticate, async (req: Request, r
       reminderTemplateId,
       advisoryUpsellsEnabled,
       callerRecognitionEnabled,
+      claimUnattributed,
     } = (req.body || {}) as {
       garageId?: string;
       remindersEnabled?: boolean;
@@ -476,6 +481,7 @@ router.put('/outbound/garagehive/settings', authenticate, async (req: Request, r
       reminderTemplateId?: string | null;
       advisoryUpsellsEnabled?: boolean;
       callerRecognitionEnabled?: boolean;
+      claimUnattributed?: boolean;
     };
     if (!garageId) return res.status(400).json({ error: 'garageId required' });
 
@@ -540,9 +546,33 @@ router.put('/outbound/garagehive/settings', authenticate, async (req: Request, r
       }
     }
 
+    // At most one catch-all branch per Business Central company. Refused here with the branch
+    // named, rather than silently accepted and then quietly ignored by the daily run — two
+    // claimants means one customer gets the same reminder from two of the group's garages.
+    if (claimUnattributed === true) {
+      const clash = await prisma.garageHiveConnection.findFirst({
+        where: {
+          garageId: { not: garageId },
+          tenantId: conn.tenantId,
+          companyId: conn.companyId,
+          claimUnattributed: true,
+        },
+        select: { locationCode: true, garage: { select: { name: true } } },
+      });
+      if (clash) {
+        return res.status(400).json({
+          error: `${clash.garage?.name || clash.locationCode || 'Another branch'} is already the `
+            + 'catch-all for unattributed customers. Turn it off there first — only one branch in '
+            + 'the group can take them, or the same customer gets reminded twice.',
+          code: 'CLAIM_ALREADY_SET',
+        });
+      }
+    }
+
     const updated = await prisma.garageHiveConnection.update({
       where: { garageId },
       data: {
+        ...(typeof claimUnattributed === 'boolean' && { claimUnattributed }),
         ...(typeof remindersEnabled === 'boolean' && { remindersEnabled }),
         ...(typeof reminderDaysAhead === 'number' && { reminderDaysAhead }),
         ...(reminderDueTypes !== undefined && {
@@ -582,6 +612,7 @@ router.put('/outbound/garagehive/settings', authenticate, async (req: Request, r
     res.json({
       connected: true,
       remindersEnabled: updated.remindersEnabled,
+      claimUnattributed: updated.claimUnattributed,
       reminderDaysAhead: updated.reminderDaysAhead,
       reminderDueTypes: parseDueTypes(updated.reminderDueTypes),
       reminderSchedule: parseReminderSchedule(updated.reminderSchedule),

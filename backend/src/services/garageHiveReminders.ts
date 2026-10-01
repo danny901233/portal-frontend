@@ -21,6 +21,8 @@ export interface ReminderRunResult {
   sent?: number;
   /** Staged runs hand every send to the sweep, so nothing goes out from this job. */
   queuedForSweep?: number;
+  /** How many unattributed vehicles this branch took as the group's catch-all. */
+  claimedUnattributed?: number;
   error?: string;
 }
 
@@ -105,9 +107,23 @@ export async function runGarageReminders(conn: NonNullable<Connection>): Promise
   // The daily run chases exactly what the garage picked in the portal. Unset means both, which is
   // how every connection behaved before the setting existed.
   const dueTypes = parseDueTypes(conn.reminderDueTypes);
-  const { contacts, skipped } = await getReminderContacts(creds, daysAhead, new Date(), dueTypes);
+  const { contacts, skipped, unclaimed } = await getReminderContacts(creds, daysAhead, new Date(), dueTypes);
   base.pulled = contacts.length;
   base.skippedNoContact = skipped.length;
+
+  // The group's catch-all branch also takes whoever could not be attributed. Measured on the
+  // Ecotest/Great Hollands/Camberley company: 7-9 a week, every one with a service due and a
+  // phone number, and none of them reachable by any branch today. They are a colder list than the
+  // rest — all 15 sampled had no jobsheet anywhere in the group — so this is off unless a branch
+  // is nominated.
+  if (conn.claimUnattributed && unclaimed.length) {
+    const claimed = await claimableBy(conn);
+    if (claimed) {
+      base.claimedUnattributed = unclaimed.length;
+      contacts.push(...unclaimed);
+      base.pulled = contacts.length;
+    }
+  }
 
   if (contacts.length === 0) {
     await markRun(conn.id, null);
@@ -217,6 +233,33 @@ export async function runGarageReminders(conn: NonNullable<Connection>): Promise
   return { ...base, ok: true, sent: result.sent };
 }
 
+/**
+ * May this connection claim the company's unattributed vehicles?
+ *
+ * Only if it is the ONLY branch in its Business Central company with the flag set. Two claimants
+ * would both message the same person, from two of the group's garages, the same morning. Checked
+ * here rather than trusted at save time, because the row can be changed by anything with database
+ * access and the cost of being wrong is a spam report against the group's number.
+ */
+async function claimableBy(conn: NonNullable<Connection>): Promise<boolean> {
+  const others = await prisma.garageHiveConnection.count({
+    where: {
+      id: { not: conn.id },
+      tenantId: conn.tenantId,
+      companyId: conn.companyId,
+      claimUnattributed: true,
+    },
+  });
+  if (others > 0) {
+    console.error(
+      `[GH-REMINDERS] ${conn.garageId}: claimUnattributed is set on ${others + 1} branches of `
+      + `company ${conn.companyId} — claiming NOTHING. Exactly one branch may be the catch-all.`,
+    );
+    return false;
+  }
+  return true;
+}
+
 async function markRun(connId: string, error: string | null): Promise<void> {
   await prisma.garageHiveConnection.update({
     where: { id: connId },
@@ -234,7 +277,8 @@ export async function runDailyGarageHiveReminders(): Promise<ReminderRunResult[]
       const r = await runGarageReminders(conn);
       results.push(r);
       console.log(
-        `[GH-REMINDERS] ${conn.garageId}: pulled=${r.pulled} fresh=${r.fresh} sent=${r.sent ?? 0}` +
+        `[GH-REMINDERS] ${conn.garageId}: pulled=${r.pulled} fresh=${r.fresh} sent=${r.sent ?? 0}`
+          + (r.claimedUnattributed ? ` claimed=${r.claimedUnattributed}` : '') +
           (r.error ? ` error=${r.error}` : ''),
       );
     } catch (e) {

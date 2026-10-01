@@ -775,6 +775,10 @@ export interface GarageHiveSettings {
   reminderChannel?: string;
   callerRecognitionEnabled?: boolean;
   advisoryUpsellsEnabled?: boolean;
+  /** This branch takes the group's customers that no branch can be matched to. */
+  claimUnattributed?: boolean;
+  /** True only for a branch inside a shared Garage Hive company — where the setting applies. */
+  isBranchOfGroup?: boolean;
   lastRunAt?: string | null;
   lastRunError?: string | null;
 }
@@ -793,6 +797,7 @@ export const updateGarageHiveSettings = async (payload: {
   reminderTemplateId?: string | null;
   advisoryUpsellsEnabled?: boolean;
   callerRecognitionEnabled?: boolean;
+  claimUnattributed?: boolean;
 }): Promise<GarageHiveSettings> => {
   const { data } = await api.put('/api/outbound/garagehive/settings', payload);
   return data;

@@ -21,6 +21,20 @@ const LIVEKIT_URL        = process.env.LIVEKIT_URL ?? '';
 const LIVEKIT_API_KEY    = process.env.LIVEKIT_API_KEY ?? '';
 const LIVEKIT_API_SECRET = process.env.LIVEKIT_API_SECRET ?? '';
 
+// The browser demo now runs the REAL production agent on a fake diary, which lives in its own
+// LiveKit project (receptionmate-automotive) — the same project and the same `unified-agent`
+// worker that answers the demo phone line and 35 real garages. So the demo stops being a
+// separate agent that drifts: whatever we ship to customers is what a prospect hears.
+//
+// Account 1 is still used for ?agent=reg, whose registration-specialist worker is self-hosted
+// there and has no unified equivalent.
+const LIVEKIT_UNIFIED_URL        = process.env.LIVEKIT_UNIFIED_URL ?? '';
+const LIVEKIT_UNIFIED_API_KEY    = process.env.LIVEKIT_UNIFIED_API_KEY ?? '';
+const LIVEKIT_UNIFIED_API_SECRET = process.env.LIVEKIT_UNIFIED_API_SECRET ?? '';
+const unifiedConfigured = Boolean(
+  LIVEKIT_UNIFIED_URL && LIVEKIT_UNIFIED_API_KEY && LIVEKIT_UNIFIED_API_SECRET,
+);
+
 // Token TTL — long enough to cover a demo conversation, short enough that
 // a leaked token expires quickly. The room dies when the visitor leaves
 // regardless.
@@ -130,10 +144,31 @@ router.post('/livekit/demo-token', async (req: Request, res: Response) => {
   const expressive = req.body?.expressive === true || req.body?.expressive === 'true';
   const tts = DEMO_EXPRESSIVE_TTS.has(requestedTts) ? requestedTts : 'inworld';
 
-  const roomName = `demo-${randomBytes(8).toString('hex')}`;
+  // ?agent=reg stays on the self-hosted registration-specialist worker on account 1.
+  const wantsReg = String(req.body?.agent ?? '').toLowerCase() === 'reg';
+  // Everything else goes to the unified agent, unless its credentials are missing — in which
+  // case fall back to the old self-hosted demo worker rather than handing the visitor a token
+  // for a project with nobody in it.
+  const useUnified = !wantsReg && unifiedConfigured;
+  if (!wantsReg && !unifiedConfigured) {
+    console.warn('[demo] LIVEKIT_UNIFIED_* not set — falling back to the self-hosted demo agent');
+  }
+
+  const lkUrl    = useUnified ? LIVEKIT_UNIFIED_URL        : LIVEKIT_URL;
+  const lkKey    = useUnified ? LIVEKIT_UNIFIED_API_KEY    : LIVEKIT_API_KEY;
+  const lkSecret = useUnified ? LIVEKIT_UNIFIED_API_SECRET : LIVEKIT_API_SECRET;
+
+  // THE ROOM NAME IS HOW THE UNIFIED AGENT FINDS THE GARAGE. It reads the id straight out of
+  // "garage-<uuid>_..." (garage_id_from_room), exactly as it does for a SIP call, so the demo
+  // garage's config — diary, voice, hours, knowledge base — loads with no metadata plumbing and
+  // no agent change. The "_web_" segment is what tells the agent this is a browser call, which
+  // it uses only to make the greeting non-interruptible (laptop speaker echo reads as a barge-in).
+  const roomName = useUnified
+    ? `garage-${DEMO_GARAGE_ID}_web_${randomBytes(6).toString('hex')}`
+    : `demo-${randomBytes(8).toString('hex')}`;
   const identity = `visitor-${randomBytes(4).toString('hex')}`;
 
-  const at = new AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET, {
+  const at = new AccessToken(lkKey, lkSecret, {
     identity,
     ttl: TOKEN_TTL_SECONDS,
   });
@@ -152,7 +187,7 @@ router.post('/livekit/demo-token', async (req: Request, res: Response) => {
   // agent_name ("demo-agent"), so it only joins rooms it's dispatched to — we can't rely on
   // auto-join. Best-effort: if dispatch hiccups we still return the token, but log loudly since
   // without the agent the room is silent.
-  const httpUrl = LIVEKIT_URL.replace(/^wss:/, 'https:').replace(/^ws:/, 'http:');
+  const httpUrl = lkUrl.replace(/^wss:/, 'https:').replace(/^ws:/, 'http:');
   // The self-hosted worker registers as 'demo-agent-v2' (see demo-agent/.env AGENT_DISPATCH_NAME),
   // so that is what has to be dispatched — a dispatch to 'demo-agent' names a worker that no
   // longer registers and the visitor waits in an empty room.
@@ -160,14 +195,15 @@ router.post('/livekit/demo-token', async (req: Request, res: Response) => {
   // ?agent=reg routes to the separate registration-specialist worker (demo-agent-reg, its own
   // container). Opt-in only: the public demo is unchanged and a visitor without the URL cannot
   // reach it.
-  const wantsReg = String(req.body?.agent ?? '').toLowerCase() === 'reg';
   const agentName = wantsReg
     ? (process.env.DEMO_AGENT_NAME_REG || 'demo-agent-reg')
-    : (process.env.DEMO_AGENT_NAME || 'demo-agent-v2');
+    : useUnified
+      ? (process.env.UNIFIED_AGENT_NAME || 'unified-agent')
+      : (process.env.DEMO_AGENT_NAME || 'demo-agent-v2');
   // Create the room explicitly so LiveKit enforces the guards server-side rather than relying on
   // the browser to hang up. maxParticipants=2 is the visitor plus the agent, so a shared room link
   // cannot turn into a conference. Best-effort: without it the room is still auto-created on join.
-  const roomSvc = new RoomServiceClient(httpUrl, LIVEKIT_API_KEY, LIVEKIT_API_SECRET);
+  const roomSvc = new RoomServiceClient(httpUrl, lkKey, lkSecret);
   try {
     await roomSvc.createRoom({
       name: roomName,
@@ -186,7 +222,7 @@ router.post('/livekit/demo-token', async (req: Request, res: Response) => {
   }, MAX_DEMO_SECONDS * 1000).unref();
 
   try {
-    const dispatchClient = new AgentDispatchClient(httpUrl, LIVEKIT_API_KEY, LIVEKIT_API_SECRET);
+    const dispatchClient = new AgentDispatchClient(httpUrl, lkKey, lkSecret);
     await dispatchClient.createDispatch(roomName, agentName, {
       metadata: JSON.stringify({ kind: 'web-demo', voice, ...(expressive && { expressive: true, tts }) }),
     });
@@ -196,7 +232,7 @@ router.post('/livekit/demo-token', async (req: Request, res: Response) => {
 
   return res.json({
     token,
-    url: LIVEKIT_URL,
+    url: lkUrl,
     room: roomName,
     identity,
   });

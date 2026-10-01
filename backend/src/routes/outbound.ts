@@ -11,6 +11,8 @@ import { parseReminderSchedule, MAX_REMINDER_STAGES } from '../services/garageHi
 import { resolveCreds, getReminderContacts, parseDueTypes, getCallerProfile, getVehicleAdvisories, listCompanies, testConnection, getLastServiceSuggestion, getServicePairLabels } from '../services/garageHiveBc.js';
 import { normalisePhone, getCampaignSendContext, runCampaignSend, activeHalt } from '../services/outboundSend.js';
 import { runGarageReminders, runDailyGarageHiveReminders } from '../services/garageHiveReminders.js';
+import { diaryCapabilities } from '../utils/diaryCapabilities.js';
+import { sendAgentConfigWebhook } from './config.js';
 
 const router = Router();
 
@@ -514,17 +516,26 @@ router.put('/outbound/garagehive/settings', authenticate, async (req: Request, r
         return res.status(400).json({ error: 'Select an approved WhatsApp template before enabling automatic reminders.' });
       }
     }
-    // Caller recognition + advisory upsells are only for garages on the Garage Hive agent.
+    // Caller recognition and advisory upsells need a diary that can answer the lookup, which is a
+    // question about the integration rather than the agent. The old check here asked whether the
+    // garage was on the Garage Hive agent, which rejected every unified-agent garage — including
+    // the GarageHive ones this was meant to allow, since they run `unified-agent` now — and asked
+    // about both features together, so a Poole garage could not turn on the one its diary does
+    // support. Check each feature against the adapter that would have to serve it.
     if (advisoryUpsellsEnabled || callerRecognitionEnabled) {
       const agentCfg = await prisma.agentConfiguration.findUnique({
         where: { garageId },
-        select: { agentType: true, agentScript: true },
+        select: { agentScript: true, integrationProvider: true },
       });
-      const isGarageHiveAgent =
-        agentCfg?.agentType === 'automate' || agentCfg?.agentScript === 'GarageHive-agent';
-      if (!isGarageHiveAgent) {
+      const caps = diaryCapabilities(agentCfg?.agentScript, agentCfg?.integrationProvider);
+      if (callerRecognitionEnabled && !caps.callerRecognition) {
         return res.status(400).json({
-          error: 'Caller recognition and advisory upsells are only available on the Garage Hive agent.',
+          error: "Caller recognition needs a booking system that can look a caller up by number, and this garage's does not.",
+        });
+      }
+      if (advisoryUpsellsEnabled && !caps.advisoryUpsells) {
+        return res.status(400).json({
+          error: "Advisory upsells need a booking system that returns health-check advisories, and this garage's does not.",
         });
       }
     }
@@ -545,6 +556,29 @@ router.put('/outbound/garagehive/settings', authenticate, async (req: Request, r
         ...(typeof callerRecognitionEnabled === 'boolean' && { callerRecognitionEnabled }),
       },
     });
+
+    // These two live on BOTH tables, and the agent reads the AgentConfiguration copy — every
+    // lookup checks it (garageHiveBc.ts getCallerProfile / getVehicleAdvisories) and it is what
+    // the config webhook ships to DynamoDB. Writing only the connection row, as this route used
+    // to, left the switch looking on in the UI while the agent carried on with it off. Mirror it
+    // and push the config, so saving here does what the Booking tab's copy of the toggle does.
+    if (typeof advisoryUpsellsEnabled === 'boolean' || typeof callerRecognitionEnabled === 'boolean') {
+      await prisma.agentConfiguration
+        .update({
+          where: { garageId },
+          data: {
+            ...(typeof advisoryUpsellsEnabled === 'boolean' && { advisoryUpsellsEnabled }),
+            ...(typeof callerRecognitionEnabled === 'boolean' && { callerRecognitionEnabled }),
+          },
+        })
+        .then(() => sendAgentConfigWebhook(garageId))
+        // A garage with no agent configuration row yet is a legitimate state, and the reminder
+        // settings above have already saved. Don't fail the request over the mirror.
+        .catch((e) =>
+          console.error('[GH_BC] Could not mirror lookup toggles to the agent config:', e),
+        );
+    }
+
     res.json({
       connected: true,
       remindersEnabled: updated.remindersEnabled,

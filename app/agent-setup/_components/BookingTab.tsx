@@ -21,6 +21,8 @@ export default function BookingTab({ config, save, isSaving }: Props) {
       allowHint: 'If off, the agent always takes a message instead of attempting to book.',
       automateNote:
         'This setting only applies to Assist agents. This garage uses the GarageHive (Automate) agent, which always books against your live diary — so this toggle has no effect here.',
+      unifiedNote:
+        'This garage books against your live diary, so the agent offers whatever your diary actually has free — there is no booking switch or lead time to set. If it can’t find a slot, or it can’t reach your diary, it takes a message instead.',
       leadTimeLabel: 'Booking lead time (days)',
       leadTimeHint: 'Earliest the agent will offer to book a slot. Minimum 1 day.',
       smsLabel: 'Send SMS booking confirmation links',
@@ -53,6 +55,8 @@ export default function BookingTab({ config, save, isSaving }: Props) {
       allowHint: "Si désactivé, l'agent prend toujours un message au lieu de tenter de réserver.",
       automateNote:
         "Ce paramètre ne s'applique qu'aux agents Assist. Cette agence utilise l'agent GarageHive (Automate), qui réserve toujours sur votre agenda en temps réel — ce bouton n'a donc aucun effet ici.",
+      unifiedNote:
+        "Cette agence réserve sur son agenda en temps réel : l'agent propose ce qui est réellement libre, il n'y a donc ni bouton de réservation ni délai à régler. S'il ne trouve pas de créneau, ou s'il ne peut pas joindre votre agenda, il prend un message.",
       leadTimeLabel: 'Délai de réservation (jours)',
       leadTimeHint: "Le plus tôt où l'agent proposera de réserver un créneau. Minimum 1 jour.",
       smsLabel: 'Envoyer des liens de confirmation de réservation par SMS',
@@ -144,7 +148,7 @@ export default function BookingTab({ config, save, isSaving }: Props) {
   // Caller-recognition tool is wired into these agent codebases (each looks the caller
   // up in its own integration — GH v3/GarageHive-agent hit Garage Hive, poole-agent
   // hits AutoSage, bookar-agent hits Vitara Commerce). Assist has no such tool.
-  const supportsCallerRecognition = [
+  const scriptSupportsCallerRecognition = [
     'receptionmate-agent-v3',
     'GarageHive-agent',
     'poole-agent',
@@ -155,12 +159,46 @@ export default function BookingTab({ config, save, isSaving }: Props) {
   // integration's vehicle-lookup response for an `advisories` array and pitches
   // them into the price quote on match. Poole is pre-wired — dead code until
   // AutoSage ships the endpoint (requested but not shipped as of 2026-09-03).
-  const supportsAdvisoryUpsells = [
+  const scriptSupportsAdvisoryUpsells = [
     'receptionmate-agent-v3',
     'GarageHive-agent',
     'bookar-agent',
     'poole-agent',
   ].includes(config.agentScript);
+
+  // The unified agent reads allowBookings and bookingLeadTimeDays and does nothing with them but
+  // log them (agent.py: "Allow bookings toggle + booking lead time are Assist-agent concepts and
+  // do NOT gate this agent"). It books whatever the live diary has free and falls back to a
+  // message on its own. So these two aren't a toggle with a warning attached — they're a switch
+  // with nothing behind it, and a garage that turned bookings "off" here would still get booked
+  // into. Hide them and say what the agent actually does; the saved values ride through
+  // untouched, so anything moved back onto an Assist script keeps its old settings.
+  const isUnified = config.agentScript === 'unified-agent';
+
+  // On the unified agent the script says nothing about these two — the DIARY does. Each adapter
+  // declares its own capabilities (unified-agent/diaries/*.py) and agent.py gates the tool on
+  // `DIARY.capabilities.caller_recognition and WANT_CALLER_RECOGNITION`, so a unified garage
+  // needs the switch exactly when its adapter can act on it. Mirror that table rather than list
+  // scripts, so adding a diary can't quietly leave a garage with no way to turn this on. Keys are
+  // the portal's provider values; agent-side ALIASES maps garage_hive → garagehive.
+  const UNIFIED_DIARY_CAPABILITIES: Record<
+    string,
+    { callerRecognition: boolean; advisoryUpsells: boolean }
+  > = {
+    garage_hive: { callerRecognition: true, advisoryUpsells: true },
+    bookar: { callerRecognition: true, advisoryUpsells: true },
+    poole: { callerRecognition: true, advisoryUpsells: false }, // AutoSage exposes no advisories
+    tyresoft: { callerRecognition: false, advisoryUpsells: false },
+    none: { callerRecognition: false, advisoryUpsells: false },
+  };
+  const unifiedDiary = isUnified
+    ? UNIFIED_DIARY_CAPABILITIES[config.integrationProvider ?? 'none']
+    : undefined;
+
+  const supportsCallerRecognition =
+    scriptSupportsCallerRecognition || unifiedDiary?.callerRecognition === true;
+  const supportsAdvisoryUpsells =
+    scriptSupportsAdvisoryUpsells || unifiedDiary?.advisoryUpsells === true;
 
   // The GarageHive (Automate) agent always books against the live diary and ignores this
   // toggle — it only applies to Assist garages. Flag that clearly so it isn't mistaken for
@@ -176,36 +214,44 @@ export default function BookingTab({ config, save, isSaving }: Props) {
       onSave={handleSave}
       isSaving={isSaving}
     >
-      <Toggle
-        label={c.allowLabel}
-        hint={c.allowHint}
-        checked={allowBookings}
-        onChange={setAllowBookings}
-      />
-
-      {isAutomate && (
-        <p className="-mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-          {c.automateNote}
+      {isUnified ? (
+        <p className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+          {c.unifiedNote}
         </p>
-      )}
-
-      {allowBookings && (
-        <div>
-          <label className="mb-1 block text-sm font-medium text-slate-700">
-            {c.leadTimeLabel}
-          </label>
-          <input
-            type="number"
-            min={1}
-            max={30}
-            value={bookingLeadTimeDays}
-            onChange={(e) => setBookingLeadTimeDays(parseInt(e.target.value) || 1)}
-            className="w-24 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
+      ) : (
+        <>
+          <Toggle
+            label={c.allowLabel}
+            hint={c.allowHint}
+            checked={allowBookings}
+            onChange={setAllowBookings}
           />
-          <p className="mt-1 text-xs text-slate-500">
-            {c.leadTimeHint}
-          </p>
-        </div>
+
+          {isAutomate && (
+            <p className="-mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              {c.automateNote}
+            </p>
+          )}
+
+          {allowBookings && (
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700">
+                {c.leadTimeLabel}
+              </label>
+              <input
+                type="number"
+                min={1}
+                max={30}
+                value={bookingLeadTimeDays}
+                onChange={(e) => setBookingLeadTimeDays(parseInt(e.target.value) || 1)}
+                className="w-24 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
+              />
+              <p className="mt-1 text-xs text-slate-500">
+                {c.leadTimeHint}
+              </p>
+            </div>
+          )}
+        </>
       )}
 
       <Toggle

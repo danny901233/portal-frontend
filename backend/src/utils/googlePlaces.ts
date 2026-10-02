@@ -164,7 +164,15 @@ function normalisePeriods(periods: any[] | undefined): any[] | undefined {
 
 export const hasPlacesKey = (): boolean => Boolean(PLACES_KEY);
 
-export interface PlacePrediction { placeId: string; description: string; }
+export interface PlacePrediction {
+  placeId: string;
+  description: string;
+  // Google's two-line split ("Kwik Fit" / "London Road, Kingston"). The marketing
+  // get-started list renders them as separate lines, so pass them through rather
+  // than making the client re-split `description` on the first comma.
+  mainText?: string;
+  secondaryText?: string;
+}
 
 // Type-ahead autocomplete (UK establishments) used by the admin quick-onboard
 // modal so staff can pick the customer's Google listing and auto-fill the agent
@@ -196,7 +204,12 @@ export async function placesAutocomplete(query: string): Promise<PlacePrediction
       .map((s: any) => s?.placePrediction)
       .filter((p: any) => p?.placeId)
       .slice(0, 6)
-      .map((p: any) => ({ placeId: p.placeId, description: p.text?.text || p.structuredFormat?.mainText?.text || '' }));
+      .map((p: any) => ({
+        placeId: p.placeId,
+        description: p.text?.text || p.structuredFormat?.mainText?.text || '',
+        mainText: p.structuredFormat?.mainText?.text || undefined,
+        secondaryText: p.structuredFormat?.secondaryText?.text || undefined,
+      }));
   } catch (err) {
     console.error('[PLACES] autocomplete failed:', err);
     return [];

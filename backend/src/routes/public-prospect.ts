@@ -2,6 +2,7 @@
 //   POST  /public/prospect       — step 1 (garage chosen): create a PendingSignup + a
 //                                   HighLevel opportunity in "Abandoned checkout".
 //   PATCH /public/prospect/:id    — step 2 (contact details): enrich the contact + prospect.
+//   GET   /public/places-autocomplete — garage type-ahead for step 1, proxied server-side.
 // No account is created here — that only happens after sign + card (see webhooks/stripe.ts).
 
 import type { Request, Response } from 'express';
@@ -9,7 +10,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { randomBytes } from 'crypto';
 import { prisma } from '../db.js';
-import { fetchPlaceDetails } from '../utils/googlePlaces.js';
+import { fetchPlaceDetails, placesAutocomplete } from '../utils/googlePlaces.js';
 import { highlevelConfigured, upsertContact, updateContact, createOpportunity } from '../services/highlevel.js';
 import type { Prisma } from '@prisma/client';
 
@@ -188,6 +189,65 @@ router.patch('/public/prospect/:id', async (req: Request, res: Response) => {
   } catch (err) {
     console.error('[PROSPECT] enrich failed:', err);
     return res.status(500).json({ ok: false, error: 'server_error' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Garage type-ahead for step 1 of the get-started funnel.
+//
+// The marketing site used to load Google Maps JS in the browser with its own
+// PUBLIC_GOOGLE_MAPS_API_KEY. That key lived in a Cloud project whose billing was
+// disabled, so every autocomplete came back 403 PERMISSION_DENIED and the search box
+// silently did nothing. Swapping in this backend's key wasn't an option either: a key
+// pasted into public HTML has to be referrer-locked, and GOOGLE_PLACES_API_KEY is
+// called server-side with no referrer (signup auto-populate), so locking it would
+// break that. Proxying is the way out — the public site ships no Maps key at all.
+//
+// Deliberately unauthenticated (it sits under the open /api/public/* CORS block), so
+// it is throttled per IP and never echoes Google's errors back to the caller.
+// ---------------------------------------------------------------------------
+
+type AcBucket = { count: number; windowStart: number; last: number };
+const acByIp = new Map<string, AcBucket>();
+const AC_IP_MAX = 60, AC_IP_WINDOW = 60 * 1000;
+
+// Sweep hourly so the map can't grow without bound. unref() so it never holds the process open.
+setInterval(() => {
+  const cutoff = Date.now() - AC_IP_WINDOW;
+  for (const [k, b] of acByIp) if (b.last < cutoff) acByIp.delete(k);
+}, 60 * 60 * 1000).unref();
+
+/** Client IP — nginx sits in front and `trust proxy` is not set, so req.ip is the loopback. */
+function acClientIp(req: Request): string {
+  const forwarded = (req.headers['x-forwarded-for'] as string | undefined)?.split(',')[0]?.trim();
+  return forwarded || req.ip || 'unknown';
+}
+
+function acThrottled(ip: string): boolean {
+  const now = Date.now();
+  const b = acByIp.get(ip);
+  if (!b || now - b.windowStart >= AC_IP_WINDOW) {
+    acByIp.set(ip, { count: 1, windowStart: now, last: now });
+    return false;
+  }
+  b.last = now;
+  if (b.count >= AC_IP_MAX) return true;
+  b.count += 1;
+  return false;
+}
+
+router.get('/public/places-autocomplete', async (req: Request, res: Response) => {
+  const q = typeof req.query.q === 'string' ? req.query.q : '';
+  if (acThrottled(acClientIp(req))) {
+    // 429 with an empty list: the client treats "no predictions" as a cue to offer
+    // manual entry, so a throttled visitor still gets a working funnel.
+    res.status(429).json({ predictions: [] });
+    return;
+  }
+  try {
+    res.json({ predictions: await placesAutocomplete(q) });
+  } catch {
+    res.json({ predictions: [] });
   }
 });
 

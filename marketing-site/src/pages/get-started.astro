@@ -18,7 +18,7 @@ const LEAD_ENDPOINT    = import.meta.env.PUBLIC_LEAD_ENDPOINT    || 'https://por
 const SIGNUP_ENDPOINT  = import.meta.env.PUBLIC_SIGNUP_ENDPOINT  || 'https://portal.receptionmate.co.uk/api/public-signup';
 const PROSPECT_ENDPOINT = import.meta.env.PUBLIC_PROSPECT_ENDPOINT || 'https://portal.receptionmate.co.uk/api/public/prospect';
 const PORTAL_LOGIN_URL = import.meta.env.PUBLIC_PORTAL_LOGIN_URL || 'https://portal.receptionmate.co.uk/login?welcome=true';
-const GOOGLE_API_KEY   = import.meta.env.PUBLIC_GOOGLE_MAPS_API_KEY || '';
+const PLACES_ENDPOINT  = import.meta.env.PUBLIC_PLACES_ENDPOINT  || 'https://portal.receptionmate.co.uk/api/public/places-autocomplete';
 
 const LOGO_URL = 'https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/media/65cf28be6e4392e608cca8a9.png';
 
@@ -131,6 +131,7 @@ const c = {
 
     // Script-internal (passed via define:vars)
     js: {
+      searchUnavailable: 'Search is unavailable right now — please enter your garage details below.',
       step1of3: 'Step 1 of 3',
       step2of3: 'Step 2 of 3',
       step3of4: 'Step 3 of 4',
@@ -261,6 +262,7 @@ const c = {
 
     // Script-internal (passed via define:vars)
     js: {
+      searchUnavailable: 'La recherche est momentanément indisponible — veuillez saisir les coordonnées de votre garage ci-dessous.',
       step1of3: 'Étape 1 sur 3',
       step2of3: 'Étape 2 sur 3',
       step3of4: 'Étape 3 sur 4',
@@ -337,6 +339,8 @@ const c = {
             <input type="text" id="gs-search" autocomplete="off" placeholder={c.searchPlaceholder} class="gs-input gs-input-lg" />
           </div>
           <ul id="gs-search-results" class="mt-3 hidden max-h-72 overflow-y-auto rounded-2xl border border-ink-200 bg-white shadow-sm"></ul>
+
+          <p id="gs-search-note" role="status" class="mt-3 hidden text-sm text-ink-600"></p>
 
           <button type="button" id="gs-manual-toggle" class="mt-4 text-sm font-medium text-brand-600 hover:text-brand-700 hover:underline">
             {c.cantFind}
@@ -730,7 +734,7 @@ const c = {
   .gs-primary-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 </style>
 
-<script is:inline define:vars={{ LEAD_ENDPOINT, SIGNUP_ENDPOINT, PROSPECT_ENDPOINT, PORTAL_LOGIN_URL, GOOGLE_API_KEY, T: c.js }}>
+<script is:inline define:vars={{ LEAD_ENDPOINT, SIGNUP_ENDPOINT, PROSPECT_ENDPOINT, PORTAL_LOGIN_URL, PLACES_ENDPOINT, T: c.js }}>
   // Google Ads click id, stashed by BaseLayout on whichever page the ad landed on.
   // Also read it straight off this URL, in case someone lands directly on /get-started?gclid=...
   // before BaseLayout's script has run. Returns undefined so it drops out of the JSON body.
@@ -840,33 +844,8 @@ const c = {
   }
 
   // ====== Business lookup ======
-  let placesReady = false;
-  let placesMode = '';
-  let legacySvc = null;
-  let placesLoadPromise = null;
-
-  window.gm_authFailure = () => console.error('[get-started] Google Maps auth failed.');
-
-  function ensurePlaces() {
-    if (placesReady) return Promise.resolve();
-    if (!GOOGLE_API_KEY) return Promise.resolve();
-    if (placesLoadPromise) return placesLoadPromise;
-    placesLoadPromise = new Promise((resolve) => {
-      const setMode = () => {
-        const ns = window.google?.maps?.places;
-        if (ns?.AutocompleteSuggestion) { placesMode = 'new'; placesReady = true; }
-        else if (ns?.AutocompleteService) { placesMode = 'legacy'; legacySvc = new google.maps.places.AutocompleteService(); placesReady = true; }
-      };
-      if (window.google?.maps?.places) { setMode(); if (placesReady) return resolve(); }
-      const s = document.createElement('script');
-      s.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_API_KEY}&libraries=places&v=weekly`;
-      s.async = true; s.defer = true;
-      s.onload  = () => { setMode(); resolve(); };
-      s.onerror = () => { console.error('[get-started] Failed to load Google Maps script'); resolve(); };
-      document.head.appendChild(s);
-    });
-    return placesLoadPromise;
-  }
+  // Autocomplete is proxied through the portal (/api/public/places-autocomplete)
+  // rather than loading Google Maps JS here, so this page ships no Maps key.
 
   const $search  = document.getElementById('gs-search');
   const $results = document.getElementById('gs-search-results');
@@ -920,34 +899,50 @@ const c = {
     $results.classList.remove('hidden');
   }
 
+  const $searchNote  = document.getElementById('gs-search-note');
+  const $manualPanel = document.getElementById('gs-manual');
+
+  // When lookup can't answer, say so and open manual entry. This used to fail silently:
+  // the Maps key's billing had lapsed, so typing a garage name did nothing at all and
+  // nothing pointed at the manual fallback sitting right underneath.
+  function showSearchUnavailable() {
+    if ($searchNote) {
+      $searchNote.textContent = T.searchUnavailable;
+      $searchNote.classList.remove('hidden');
+    }
+    if ($manualPanel) $manualPanel.classList.remove('hidden');
+  }
+
+  // Only the newest query may render: a slow reply for "kwi" must never overwrite
+  // the results for "kwik fit".
   let searchDebounce;
+  let searchSeq = 0;
+
   $search.addEventListener('input', () => {
     clearTimeout(searchDebounce);
     const q = $search.value.trim();
-    if (q.length < 2) { $results.classList.add('hidden'); $results.innerHTML = ''; return; }
+    // The backend needs 3 characters before it will ask Google, so don't fire below that.
+    if (q.length < 3) { $results.classList.add('hidden'); $results.innerHTML = ''; return; }
+    const seq = ++searchSeq;
     searchDebounce = setTimeout(async () => {
-      await ensurePlaces();
-      if (!placesReady) return;
-      if (placesMode === 'new') {
-        try {
-          const { suggestions } = await google.maps.places.AutocompleteSuggestion.fetchAutocompleteSuggestions({
-            input: q, includedRegionCodes: ['gb'], language: 'en-GB', region: 'GB',
-          });
-          renderResults((suggestions || []).map((s) => ({
-            mainText:      s.placePrediction?.mainText?.toString()      || s.placePrediction?.text?.toString() || '',
-            secondaryText: s.placePrediction?.secondaryText?.toString() || '',
-            placeId:       s.placePrediction?.placeId || '',
-          })));
-        } catch (err) { console.error('[get-started] autocomplete failed', err); }
-      } else if (legacySvc) {
-        legacySvc.getPlacePredictions(
-          { input: q, componentRestrictions: { country: 'gb' } },
-          (preds) => renderResults((preds || []).map((p) => ({
-            mainText:      p.structured_formatting?.main_text      || p.description || '',
-            secondaryText: p.structured_formatting?.secondary_text || '',
-            placeId:       p.place_id || '',
-          }))),
-        );
+      try {
+        const res = await fetch(`${PLACES_ENDPOINT}?q=${encodeURIComponent(q)}`, {
+          headers: { Accept: 'application/json' },
+        });
+        if (seq !== searchSeq) return;
+        if (!res.ok) { showSearchUnavailable(); return; }
+        const data = await res.json().catch(() => ({}));
+        if (seq !== searchSeq) return;
+        if ($searchNote) $searchNote.classList.add('hidden');
+        renderResults((data.predictions || []).map((p) => ({
+          mainText:      p.mainText || p.description || '',
+          secondaryText: p.secondaryText || '',
+          placeId:       p.placeId || '',
+        })));
+      } catch (err) {
+        if (seq !== searchSeq) return;
+        console.error('[get-started] autocomplete failed', err);
+        showSearchUnavailable();
       }
     }, 200);
   });

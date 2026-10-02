@@ -209,31 +209,57 @@ router.patch('/public/prospect/:id', async (req: Request, res: Response) => {
 
 type AcBucket = { count: number; windowStart: number; last: number };
 const acByIp = new Map<string, AcBucket>();
-const AC_IP_MAX = 60, AC_IP_WINDOW = 60 * 1000;
+const AC_WINDOW = 60 * 1000;
+const AC_IP_MAX = 60;
+// Global ceiling across every caller. The per-IP bucket is keyed on a header, and any
+// header can be spoofed by someone who reaches the origin directly, so this is the only
+// limit that actually bounds the Google bill. Sized well above real funnel traffic.
+const AC_GLOBAL_MAX = 200;
+let acGlobal: AcBucket = { count: 0, windowStart: 0, last: 0 };
 
 // Sweep hourly so the map can't grow without bound. unref() so it never holds the process open.
 setInterval(() => {
-  const cutoff = Date.now() - AC_IP_WINDOW;
+  const cutoff = Date.now() - AC_WINDOW;
   for (const [k, b] of acByIp) if (b.last < cutoff) acByIp.delete(k);
 }, 60 * 60 * 1000).unref();
 
-/** Client IP — nginx sits in front and `trust proxy` is not set, so req.ip is the loopback. */
+/**
+ * Best available client IP for throttling.
+ *
+ * `trust proxy` is off, so req.ip is the loopback. x-forwarded-for can't be read from the
+ * left either: Cloudflare fronts this origin and APPENDS the real peer to whatever the
+ * caller sent, and nginx (`$proxy_add_x_forwarded_for`) then appends the Cloudflare edge —
+ * so the chain is [caller-supplied..., real client, cf edge] and chain[0] is whatever the
+ * caller typed. Reading chain[0] made the limit a no-op: 100 requests with a rotating
+ * header all returned 200 where 60 unspoofed had already started 429ing.
+ *
+ * cf-connecting-ip is the one trustworthy source — Cloudflare rejects a request that tries
+ * to set it itself (verified: 403 at the edge). Fall back to the last x-forwarded-for entry,
+ * which nginx wrote from the real peer, for anything arriving at the origin directly.
+ */
 function acClientIp(req: Request): string {
-  const forwarded = (req.headers['x-forwarded-for'] as string | undefined)?.split(',')[0]?.trim();
-  return forwarded || req.ip || 'unknown';
+  const cf = (req.headers['cf-connecting-ip'] as string | undefined)?.trim();
+  if (cf) return cf;
+  const chain = (req.headers['x-forwarded-for'] as string | undefined)?.split(',') ?? [];
+  return chain[chain.length - 1]?.trim() || req.ip || 'unknown';
+}
+
+function bump(b: AcBucket, max: number, now: number): boolean {
+  if (now - b.windowStart >= AC_WINDOW) { b.count = 1; b.windowStart = now; b.last = now; return false; }
+  b.last = now;
+  if (b.count >= max) return true;
+  b.count += 1;
+  return false;
 }
 
 function acThrottled(ip: string): boolean {
   const now = Date.now();
-  const b = acByIp.get(ip);
-  if (!b || now - b.windowStart >= AC_IP_WINDOW) {
-    acByIp.set(ip, { count: 1, windowStart: now, last: now });
-    return false;
-  }
-  b.last = now;
-  if (b.count >= AC_IP_MAX) return true;
-  b.count += 1;
-  return false;
+  // Check the global ceiling first, and don't let a throttled caller consume the global
+  // budget: a spoofing client would otherwise still spend everyone else's allowance.
+  if (bump(acGlobal, AC_GLOBAL_MAX, now)) return true;
+  let b = acByIp.get(ip);
+  if (!b) { b = { count: 0, windowStart: now, last: now }; acByIp.set(ip, b); }
+  return bump(b, AC_IP_MAX, now);
 }
 
 router.get('/public/places-autocomplete', async (req: Request, res: Response) => {

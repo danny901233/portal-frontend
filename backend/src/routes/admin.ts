@@ -1043,6 +1043,13 @@ const completeOnboardingSchema = z.object({
   // posted the choice; nothing here read it, so no garage onboarded through Quick Onboard was
   // ever linked — which is why their opportunities never moved through the pipeline stages.
   ghlOpportunityId: z.string().trim().max(100).optional(),
+  // How the customer pays. The modal has offered this choice since it was written and posted it
+  // on every onboard; it was not declared here, so zod stripped it and every quick-onboarded
+  // business was created on the 'directdebit' default. Picking "Card" changed nothing: at
+  // signing, the agreement route reads Business.billingMethod to decide whether to ask for a
+  // card, saw 'directdebit', and showed the customer the Direct Debit next-steps screen instead
+  // of the card form — and /setup-payment then sent them to GoCardless on first login.
+  billingMethod: z.enum(['directdebit', 'stripe_card', 'invoice']).optional().default('directdebit'),
 });
 
 const DEFAULT_PASSWORD = 'Nomoremissedcalls';
@@ -1138,6 +1145,9 @@ router.post('/admin/onboard', authenticateApiKey, requireAdmin, async (req, res)
     const business = await prisma.business.create({
       data: {
         name: parsed.data.businessName,
+        // Drives the payment gate: card customers get the Stripe card form at signing and on
+        // /setup-payment, Direct Debit customers get GoCardless, invoice customers get neither.
+        billingMethod: parsed.data.billingMethod,
         // One invoice for the group, branches as sections — the Direct Debit was always a
         // single combined collection, so two branches meant two documents for one payment.
         // New businesses only: existing customers keep the invoices they have.
@@ -1333,7 +1343,11 @@ router.post('/admin/onboard', authenticateApiKey, requireAdmin, async (req, res)
         email: parsed.data.userEmail.toLowerCase(),
         passwordHash,
         mustChangePassword: true,
-        mustSetupPayment: true, // ENABLED for all new users
+        // Gate them on setting up a payment method — unless they pay on invoice, where there is
+        // nothing for them to set up. /setup-payment only knows the Direct Debit and card rails,
+        // so gating an invoice customer would park them on a GoCardless screen they must never
+        // complete. (Moot until now: billingMethod was being stripped, so nobody was on invoice.)
+        mustSetupPayment: parsed.data.billingMethod !== 'invoice',
         garageAccessIds: [garage.id],
         role: parsed.data.userRole,
         branchRoles: { [garage.id]: 'MANAGER' },

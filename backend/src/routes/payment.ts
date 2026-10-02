@@ -81,7 +81,11 @@ router.post('/payment/card-setup-intent', authenticate, async (req: Request, res
     const garageIds = Array.isArray(req.user.garageIds) ? req.user.garageIds : [];
     const garage = await prisma.garage.findFirst({
       where: garageIds.length ? { id: { in: garageIds } } : { id: req.user.garageId ?? '' },
-      select: { id: true, name: true, stripeCustomerId: true, stripeSubscriptionId: true },
+      select: {
+        id: true, name: true, stripeCustomerId: true, stripeSubscriptionId: true,
+        subscriptionCostGbp: true, messagingSubscriptionCostGbp: true,
+        hasMessagingAccess: true, vatRate: true,
+      },
     });
     if (!garage) return res.status(404).json({ error: 'No garage found for this account' });
 
@@ -107,6 +111,15 @@ router.post('/payment/card-setup-intent', authenticate, async (req: Request, res
       email: req.user.email,
       businessName: garage.name,
       pendingSignupId: garage.id,     // metadata only; ties the Stripe objects back to the garage
+      // Bill what this garage was sold at, not the flat list price. A zero cost means nobody set
+      // one, so fall back to the list price rather than opening a £0 subscription.
+      pricing: (garage.subscriptionCostGbp ?? 0) > 0
+        ? {
+            voiceNetGbp: garage.subscriptionCostGbp,
+            messagingNetGbp: garage.hasMessagingAccess ? (garage.messagingSubscriptionCostGbp ?? 0) : 0,
+            vatRate: garage.vatRate ?? 0.2,
+          }
+        : undefined,
     });
     await prisma.garage.update({
       where: { id: garage.id },

@@ -15,6 +15,9 @@ import Stripe from 'stripe';
 const STRIPE_SECRET_KEY       = process.env.STRIPE_SECRET_KEY ?? '';
 // The recurring monthly Price (created on the Stripe account). £240/mo incl 20% VAT.
 const STRIPE_ASSIST_PRICE_ID  = process.env.STRIPE_ASSIST_PRICE_ID ?? '';
+// The Connect (messaging) monthly Price. £300/mo incl 20% VAT. Only used to borrow its Product
+// when a garage's own Connect price differs from the list price.
+const STRIPE_CONNECT_PRICE_ID = process.env.STRIPE_CONNECT_PRICE_ID ?? '';
 const TRIAL_DAYS              = Number(process.env.STRIPE_TRIAL_DAYS ?? 14);
 const PORTAL_URL = (process.env.PORTAL_URL || 'https://portal.receptionmate.co.uk').replace(/\/$/, '');
 
@@ -48,9 +51,78 @@ export interface CreateCheckoutSessionArgs {
   garageId?: string;
   agreementId?: string;
   pendingSignupId?: string;
+  // What this customer actually agreed to pay, per month, NET of VAT. Self-serve omits it and
+  // gets the list price. A quick-onboarded customer passes their own prices: staff set those in
+  // the modal, and billing them the flat Assist price instead would charge the wrong amount on
+  // every deal not sold at list.
+  pricing?: GarageMonthlyPricing;
+}
+
+// A garage's agreed monthly licence fees, net of VAT, straight off the Garage row.
+export interface GarageMonthlyPricing {
+  voiceNetGbp: number;
+  // Connect/messaging, when they bought it. Becomes a second line on the subscription.
+  messagingNetGbp?: number;
+  // The garage's own VAT rate (0.2 for standard). The list Prices are stored VAT-INCLUSIVE
+  // (£200 net → £240 unit_amount), so an ad-hoc price has to be grossed up the same way or a
+  // bespoke-priced customer would be billed 20% light.
+  vatRate: number;
 }
 
 export const STRIPE_TRIAL_DAYS = TRIAL_DAYS;
+
+// Net £ → gross pence, matching how the list Prices were created.
+function grossPence(netGbp: number, vatRate: number): number {
+  return Math.round(netGbp * (1 + vatRate) * 100);
+}
+
+// The Product behind a list Price. Cached: it never changes, and an ad-hoc price has to hang off
+// a Product or it shows up on the customer's invoice as an unnamed line.
+const productIdCache = new Map<string, string>();
+async function productForPrice(priceId: string): Promise<string> {
+  const cached = productIdCache.get(priceId);
+  if (cached) return cached;
+  const price = await getStripeClient().prices.retrieve(priceId);
+  const product = typeof price.product === 'string' ? price.product : price.product.id;
+  productIdCache.set(priceId, product);
+  return product;
+}
+
+// The subscription's line items. Without `pricing` this is exactly what it always was — the one
+// flat Assist price — so self-serve is untouched. With it, each line is an ad-hoc price at the
+// agreed amount, on the same Product as the list price it replaces.
+async function buildSubscriptionItems(
+  pricing?: GarageMonthlyPricing,
+): Promise<Stripe.SubscriptionCreateParams.Item[]> {
+  if (!pricing) return [{ price: STRIPE_ASSIST_PRICE_ID }];
+
+  const items: Stripe.SubscriptionCreateParams.Item[] = [
+    {
+      price_data: {
+        currency: 'gbp',
+        product: await productForPrice(STRIPE_ASSIST_PRICE_ID),
+        unit_amount: grossPence(pricing.voiceNetGbp, pricing.vatRate),
+        recurring: { interval: 'month' },
+      },
+    },
+  ];
+
+  // Connect is a separate Product, so it gets its own line and reads as its own charge on the
+  // invoice. Skipped when they didn't buy it, or when STRIPE_CONNECT_PRICE_ID isn't configured —
+  // a missing Connect price must not take down a voice-only signup.
+  if ((pricing.messagingNetGbp ?? 0) > 0 && STRIPE_CONNECT_PRICE_ID) {
+    items.push({
+      price_data: {
+        currency: 'gbp',
+        product: await productForPrice(STRIPE_CONNECT_PRICE_ID),
+        unit_amount: grossPence(pricing.messagingNetGbp!, pricing.vatRate),
+        recurring: { interval: 'month' },
+      },
+    });
+  }
+
+  return items;
+}
 
 // Subscription checkout with a 14-day free trial. Card is required (payment_method_collection:
 // 'always') but nothing is charged until the trial ends. garageId is carried in BOTH the session
@@ -127,7 +199,7 @@ export async function createAssistTrialSubscription(args: CreateCheckoutSessionA
 
   const subscription = await stripe.subscriptions.create({
     customer: customer.id,
-    items: [{ price: STRIPE_ASSIST_PRICE_ID }],
+    items: await buildSubscriptionItems(args.pricing),
     trial_period_days: TRIAL_DAYS,
     payment_behavior: 'default_incomplete',
     payment_settings: { save_default_payment_method: 'on_subscription' },

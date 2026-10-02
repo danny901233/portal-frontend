@@ -38,6 +38,7 @@ import {
   sendDiaryGettingReady,
 } from '../services/diaryConnect.js';
 import { createAssistTrialSubscription, stripeConfigured, STRIPE_TRIAL_DAYS } from '../services/stripe.js';
+import type { GarageMonthlyPricing } from '../services/stripe.js';
 import {
   renderAgreementHtml,
   TEMPLATE_VERSION,
@@ -456,6 +457,9 @@ async function finaliseSignature(opts: {
   // How the deal is billed is the actual answer, so ask that first: never request a card when
   // the customer is paying by Direct Debit or on invoice, whatever their password state.
   let wantsTrialCard = false;
+  // The prices this garage was actually sold at, for the subscription below. Left null for a
+  // self-serve signup, who is on the list price by definition.
+  let trialPricing: GarageMonthlyPricing | null = null;
   if (user && stripeConfigured()) {
     const gid = user.garageAccessIds?.[0] ?? null;
     const g = gid
@@ -463,11 +467,23 @@ async function finaliseSignature(opts: {
           where: { id: gid },
           select: {
             stripeSubscriptionId: true, trialEndsAt: true, trialEndDate: true,
+            subscriptionCostGbp: true, messagingSubscriptionCostGbp: true,
+            hasMessagingAccess: true, vatRate: true,
             business: { select: { billingMethod: true } },
           },
         })
       : null;
     const billingMethod = g?.business?.billingMethod ?? null;
+    // A staff-onboarded customer is billed what staff agreed with them, not the list price. A
+    // zero or missing subscription cost means nobody set one, so fall back to the list price
+    // rather than putting them on a £0 subscription.
+    if (g && billingMethod === 'stripe_card' && (g.subscriptionCostGbp ?? 0) > 0) {
+      trialPricing = {
+        voiceNetGbp: g.subscriptionCostGbp,
+        messagingNetGbp: g.hasMessagingAccess ? (g.messagingSubscriptionCostGbp ?? 0) : 0,
+        vatRate: g.vatRate ?? 0.2,
+      };
+    }
     // Null covers self-serve signups, whose billing method is not set until later.
     const cardBilled = billingMethod !== 'directdebit' && billingMethod !== 'invoice';
     if (cardBilled) {
@@ -494,6 +510,7 @@ async function finaliseSignature(opts: {
           businessName: agreement.clientName,
           garageId,
           agreementId: agreement.id,
+          pricing: trialPricing ?? undefined,
         });
         checkoutClientSecret = trial.clientSecret;
         // Store the Stripe refs now so the setup_intent.succeeded webhook can map the confirmed

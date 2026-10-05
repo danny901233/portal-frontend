@@ -648,6 +648,34 @@ export function isAskingAboutExistingBooking(message: string): boolean {
  * beyond…"), matched on the "11". Neither answer told her the truth, which is that 8:30 is the
  * only time this garage publishes.
  */
+/**
+ * Does this reply promise that a HUMAN will follow up?
+ *
+ * The moment the agent says "the team will be in touch", a person has to act — and take_message is
+ * the only thing in this agent that puts the conversation in front of one. The model composes that
+ * promise freely, from any step, without calling the tool: Andrew Stolagiewicz asked JDK what a B
+ * service would cost on 5 Oct 2026, was told three times that the team would be in touch, and
+ * nothing was recorded, nothing flagged, no email sent. The garage never knew he existed.
+ *
+ * Deliberately narrow: it wants an explicit commitment that somebody will make contact, not merely
+ * a mention of the team. "The team will go through everything with you before any work goes ahead"
+ * is reassurance about a booking that already exists; "the team will get back to you" is a debt.
+ */
+export function promisesHumanFollowUp(reply: string): boolean {
+  const t = String(reply || '');
+  // Someone will make contact.
+  if (/\b(the team|they|someone|a member of the team|my colleague|we)\b[^.!?]{0,40}?\b(will|'ll|\u2019ll)\b[^.!?]{0,40}?\b(be in touch|get back to you|come back to you|contact you|call you|ring you|message you|reach out|give you a (call|ring))\b/i.test(t)) {
+    return true;
+  }
+  // The agent is handing it over itself.
+  // Both apostrophes: WhatsApp replies come through with a curly one, and /i'?ll/ silently missed
+  // every "I\u2019ll let the team know" the model actually writes.
+  if (/\b(i['\u2019]?ll|i will|let me)\b[^.!?]{0,30}?\b(let the team know|pass (this|that|it) on|ask (the team|someone)|get someone to|get the team to|have someone)\b/i.test(t)) {
+    return true;
+  }
+  return false;
+}
+
 export function unsatisfiableTimeRequest(
   pref: string,
   timeslots: Array<{ date: string; time: string }>,
@@ -878,8 +906,16 @@ export async function getChatAgentResponse(
     if (res?.content?.includes('£')) {
       res.content = await redactUnverifiedPrices(res.content, session, garageId, message);
     }
-    if (session.step === Step.MESSAGE_ONLY && !session.messageTaken
-        && session.customerNameFirst && session.contactPhone) {
+    // Two ways a conversation reaches a human. The first is the step: the agent has decided this
+    // is message-only and simply never called the tool. The second is the promise: it is still on
+    // the booking path, cannot answer, and tells the customer someone will come back to them — the
+    // case that was silently dropping leads, because this net used to test the step alone.
+    const promisedFollowUp = !!res?.content
+      && session.step !== Step.CONFIRMED && session.step !== Step.DONE
+      && promisesHumanFollowUp(res.content);
+    const inMessageOnly = session.step === Step.MESSAGE_ONLY
+      && !!session.customerNameFirst && !!session.contactPhone;
+    if (!session.messageTaken && !!session.contactPhone && (inMessageOnly || promisedFollowUp)) {
       const summary = [
         session.serviceHint || '',
         session.notes || '',
@@ -888,7 +924,8 @@ export async function getChatAgentResponse(
       ].filter(Boolean).join('. ');
       session.messageTaken = true;
       await handleTakeMessage({ message: summary, phone: session.contactPhone }, session, conversationId);
-      console.log('[MESSAGE_TAKEN_SAFETY_NET] take_message was not called by the model — recorded and flagged here');
+      console.log('[MESSAGE_TAKEN_SAFETY_NET] take_message was not called by the model — recorded '
+        + `and flagged here (${inMessageOnly ? 'step=message_only' : `promised follow-up at step=${session.step}`})`);
       // Keep the model's wording, which is warmer than the canned line, but report the handoff.
       return { ...res, needsHumanAssistance: true };
     }

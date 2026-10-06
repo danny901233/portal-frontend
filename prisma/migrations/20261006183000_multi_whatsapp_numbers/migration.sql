@@ -9,3 +9,7 @@ ALTER TABLE "SocialMediaConnection"
 
 CREATE INDEX IF NOT EXISTS "SocialMediaConnection_garageId_platform_isPrimary_idx"
   ON "SocialMediaConnection" ("garageId", "platform", "isPrimary");
+
+-- Prisma's @@unique landed as a unique INDEX, not a table constraint, so DROP CONSTRAINT above
+-- silently skipped it and the uniqueness was still enforced. Drop the index by name as well.
+DROP INDEX IF EXISTS "SocialMediaConnection_garageId_platform_key";

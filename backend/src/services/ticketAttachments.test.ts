@@ -50,13 +50,47 @@ test('an executable is rejected even when it claims to be a PDF', () => {
   assert.match(result.ok === false ? result.error : '', /not an allowed/i);
 });
 
-test('a disallowed content type is rejected', () => {
+test('a blocked extension is rejected', () => {
   const result = validateUpload({
     filename: 'script.js',
     contentType: 'application/javascript',
     size: 1000,
   });
   assert.equal(result.ok, false);
+});
+
+test('an allowed extension carrying an unrecognised content type is rejected', () => {
+  // The extension allowlist is the main gate, but it is not the only one: a type we do
+  // not expect for this extension is a mismatch, not a curiosity to wave through.
+  const result = validateUpload({
+    filename: 'notes.pdf',
+    contentType: 'text/html',
+    size: 1000,
+  });
+  assert.equal(result.ok, false);
+  assert.match(result.ok === false ? result.error : '', /says it is/i);
+});
+
+test('a generic octet-stream is accepted — browsers send it for legitimate files', () => {
+  const result = validateUpload({
+    filename: 'invoice.pdf',
+    contentType: 'application/octet-stream',
+    size: 1000,
+  });
+  assert.equal(result.ok, true);
+});
+
+test('a missing content type falls back to the extension', () => {
+  assert.equal(validateUpload({ filename: 'invoice.pdf', contentType: '', size: 1000 }).ok, true);
+});
+
+test('a CSV typed as Excel is accepted — Windows reports it that way', () => {
+  const result = validateUpload({
+    filename: 'export.csv',
+    contentType: 'application/vnd.ms-excel',
+    size: 1000,
+  });
+  assert.equal(result.ok, true);
 });
 
 test('a spreadsheet is accepted', () => {

@@ -48,12 +48,25 @@ const ALLOWED: Record<string, readonly string[]> = {
   webp: ['image/webp'],
   heic: ['image/heic', 'image/heif'],
   txt: ['text/plain'],
-  csv: ['text/csv', 'application/csv', 'text/plain'],
+  // Windows with Excel installed reports a .csv as an Excel type, so it is listed here
+  // too — rejecting it would refuse the commonest export a garage sends us.
+  csv: ['text/csv', 'application/csv', 'text/plain', 'application/vnd.ms-excel'],
   doc: ['application/msword'],
   docx: ['application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
   xls: ['application/vnd.ms-excel'],
   xlsx: ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'],
 };
+
+/**
+ * Types that carry no information, which browsers send for plenty of legitimate files.
+ * Accepted on the strength of the extension; anything else must match the extension.
+ */
+const GENERIC_TYPES = new Set([
+  '',
+  'application/octet-stream',
+  'binary/octet-stream',
+  'application/download',
+]);
 
 export type Validation = { ok: true } | { ok: false; error: string };
 
@@ -91,14 +104,11 @@ export function validateUpload(file: {
     };
   }
 
-  // A type we do not recognise at all is let through on the strength of the extension —
-  // browsers send 'application/octet-stream' for plenty of legitimate files. A type that
-  // belongs to a DIFFERENT allowed extension is not: that is a mismatch worth refusing.
+  // The type must either match the extension or carry no information at all. An earlier
+  // version only refused a type belonging to some OTHER allowed extension, which let
+  // anything unrecognised — text/html on a .pdf, say — through on the extension alone.
   const type = (file.contentType || '').split(';')[0].trim().toLowerCase();
-  const claimedElsewhere = Object.entries(ALLOWED).some(
-    ([otherExt, types]) => otherExt !== ext && types.includes(type) && !allowedTypes.includes(type),
-  );
-  if (type && claimedElsewhere) {
+  if (!GENERIC_TYPES.has(type) && !allowedTypes.includes(type)) {
     return { ok: false, error: `That file says it is ${type} but is named .${ext}.` };
   }
 

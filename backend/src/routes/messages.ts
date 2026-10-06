@@ -469,6 +469,11 @@ router.get(
         return res.status(404).json({ error: 'Conversation not found' });
       }
 
+      if (!await userCanAccessGarage(req.user?.userId, conversation.garageId)) {
+        // 404, not 403: whether a conversation id exists is itself another garage's business.
+        return res.status(404).json({ error: 'Conversation not found' });
+      }
+
       // If this conversation has a customer, fetch ALL conversations with same customer
       let allMessages = conversation.messages;
       let allConversations = [conversation];
@@ -597,6 +602,11 @@ router.post(
       });
 
       if (!conversation) {
+        return res.status(404).json({ error: 'Conversation not found' });
+      }
+
+      if (!await userCanAccessGarage(req.user?.userId, conversation.garageId)) {
+        // 404, not 403: whether a conversation id exists is itself another garage's business.
         return res.status(404).json({ error: 'Conversation not found' });
       }
 
@@ -798,6 +808,11 @@ router.post(
         return res.status(404).json({ error: 'Conversation not found' });
       }
 
+      if (!await userCanAccessGarage(req.user?.userId, conversation.garageId)) {
+        // 404, not 403: whether a conversation id exists is itself another garage's business.
+        return res.status(404).json({ error: 'Conversation not found' });
+      }
+
       // Upload to S3
       const awsAccessKey = process.env.S3_ACCESS_KEY_ID || process.env.AWS_ACCESS_KEY_ID;
       const awsSecretKey = process.env.S3_SECRET_ACCESS_KEY || process.env.AWS_SECRET_ACCESS_KEY;
@@ -884,12 +899,25 @@ router.patch(
         return res.status(400).json({ error: 'Invalid request', details: result.error.flatten() });
       }
 
-      const conversation = await prisma.chatConversation.update({
+      const conversation = await prisma.chatConversation.findUnique({
+        where: { id: conversationId },
+        select: { garageId: true },
+      });
+      if (!conversation) {
+        return res.status(404).json({ error: 'Conversation not found' });
+      }
+
+      if (!await userCanAccessGarage(req.user?.userId, conversation.garageId)) {
+        // 404, not 403: whether a conversation id exists is itself another garage's business.
+        return res.status(404).json({ error: 'Conversation not found' });
+      }
+
+      const updated = await prisma.chatConversation.update({
         where: { id: conversationId },
         data: result.data,
       });
 
-      res.json({ success: true, conversation });
+      res.json({ success: true, conversation: updated });
     } catch (error) {
       console.error('Failed to update conversation:', error);
       res.status(500).json({ error: 'Failed to update conversation' });
@@ -919,7 +947,20 @@ router.patch(
         return res.status(400).json({ error: 'Invalid request', details: result.error.flatten() });
       }
 
-      const conversation = await prisma.chatConversation.update({
+      const conversation = await prisma.chatConversation.findUnique({
+        where: { id: conversationId },
+        select: { garageId: true },
+      });
+      if (!conversation) {
+        return res.status(404).json({ error: 'Conversation not found' });
+      }
+
+      if (!await userCanAccessGarage(req.user?.userId, conversation.garageId)) {
+        // 404, not 403: whether a conversation id exists is itself another garage's business.
+        return res.status(404).json({ error: 'Conversation not found' });
+      }
+
+      const updated = await prisma.chatConversation.update({
         where: { id: conversationId },
         data: {
           messageType: result.data.messageType,
@@ -931,7 +972,7 @@ router.patch(
         },
       });
 
-      res.json({ success: true, conversation });
+      res.json({ success: true, conversation: updated });
     } catch (error) {
       console.error('Failed to update conversation tags:', error);
       res.status(500).json({ error: 'Failed to update conversation tags' });
@@ -963,6 +1004,11 @@ router.patch(
       });
 
       if (!conversation) {
+        return res.status(404).json({ error: 'Conversation not found' });
+      }
+
+      if (!await userCanAccessGarage(req.user?.userId, conversation.garageId)) {
+        // 404, not 403: whether a conversation id exists is itself another garage's business.
         return res.status(404).json({ error: 'Conversation not found' });
       }
 
@@ -1029,6 +1075,11 @@ router.patch(
       });
 
       if (!conversation) {
+        return res.status(404).json({ error: 'Conversation not found' });
+      }
+
+      if (!await userCanAccessGarage(req.user?.userId, conversation.garageId)) {
+        // 404, not 403: whether a conversation id exists is itself another garage's business.
         return res.status(404).json({ error: 'Conversation not found' });
       }
 

@@ -244,6 +244,15 @@ function AgreementSignInner() {
         setCardClientSecret(clientSecret);
         return;
       }
+      // Direct Debit self-serve (the Blend show funnel): no card step, and no welcome email
+      // was ever sent — so send them to choose a password, which auto-logs them in and then
+      // routes them on to /setup-payment for their mandate. Without this they would sit on the
+      // "check your email" screen below waiting for an email that never arrives.
+      const setupToken = (result as { passwordSetupToken?: string | null }).passwordSetupToken;
+      if (token && setupToken) {
+        setTimeout(() => router.replace(`/reset-password?token=${encodeURIComponent(setupToken)}&setup=1`), 1500);
+        return;
+      }
       // For signed-in users (no magic-link token), continue onboarding without
       // a re-login: DD setup if still needed, otherwise the dashboard.
       if (!token) {

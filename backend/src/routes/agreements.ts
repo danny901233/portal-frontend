@@ -175,7 +175,9 @@ function clientIp(req: Request): string {
   return forwarded || req.ip || '';
 }
 
-async function issueSignLinkToken(userId: string, agreementId: string): Promise<string> {
+// Exported for routes/show-signup.ts, which issues its own sign link rather than emailing one:
+// the Blend funnel hands the customer straight to the signing page.
+export async function issueSignLinkToken(userId: string, agreementId: string): Promise<string> {
   const token = randomBytes(32).toString('base64url');
   await prisma.signLinkToken.create({
     data: {
@@ -537,15 +539,24 @@ async function finaliseSignature(opts: {
   // token now and clear the Direct-Debit gate (they pay by Stripe card, not DD). Once the card is
   // confirmed the sign page sends them to /reset-password?token=… . Manually-onboarded customers
   // never hit this path, so they keep the welcome-email flow untouched.
+  //
+  // A Direct Debit self-serve signer needs the same token for the opposite reason. The Blend
+  // show funnel (routes/show-signup.ts) creates the account silently and emails them nothing,
+  // so without this they signed and landed on the "check your email" screen waiting for a
+  // welcome email that was never sent. They KEEP mustSetupPayment — the GoCardless mandate is
+  // the next gate, and nextStep below sends them to it.
   let passwordSetupToken: string | null = null;
-  if (opts.consumeTokenId && checkoutClientSecret && user) {
+  const selfServeSigner = !!opts.consumeTokenId && !!user?.mustChangePassword;
+  if (opts.consumeTokenId && user && (checkoutClientSecret || selfServeSigner)) {
     const resetToken = randomBytes(32).toString('hex');
     await prisma.user.update({
       where: { id: user.id },
       data: {
         resetToken,
         resetTokenExpiry: new Date(Date.now() + 60 * 60 * 1000),
-        mustSetupPayment: false, // paid via Stripe card — skip the GoCardless DD gate
+        // Only the card path clears the Direct Debit gate — it has already been paid for by
+        // card. A DD signer must still complete their mandate.
+        ...(checkoutClientSecret ? { mustSetupPayment: false } : {}),
       },
     });
     passwordSetupToken = resetToken;

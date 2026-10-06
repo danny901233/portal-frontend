@@ -27,7 +27,9 @@ router.get(
 
       const connections = await prisma.socialMediaConnection.findMany({
         where: { garageId },
-        orderBy: { createdAt: 'desc' },
+        // Primary first, so a garage with two WhatsApp numbers sees the one that sends at the top
+        // rather than whichever was added most recently.
+        orderBy: [{ isPrimary: 'desc' }, { createdAt: 'desc' }],
       });
 
       res.json({ success: true, connections });

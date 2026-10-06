@@ -15,6 +15,8 @@ interface SocialConnection {
   platform: string;
   isActive: boolean;
   whatsappPhoneNumberId?: string;
+  /** The number outbound campaigns and reminders send from. Others receive only. */
+  isPrimary?: boolean;
   pageId?: string;
   instagramAccountId?: string;
   accountName?: string;
@@ -70,6 +72,8 @@ export default function IntegrationsPage({ embedded = false }: { embedded?: bool
       tabSocial: 'Social media',
       tabWidget: 'Website widget',
       connected: 'Connected',
+      waSends: 'sends campaigns',
+      waAddAnother: 'Add another number',
       since: (date: string) => `since ${date}`,
       disconnect: 'Disconnect',
       setUpNew: 'Set up new',
@@ -111,6 +115,8 @@ export default function IntegrationsPage({ embedded = false }: { embedded?: bool
       tabSocial: 'Réseaux sociaux',
       tabWidget: 'Widget de site web',
       connected: 'Connecté',
+      waSends: 'envoie les campagnes',
+      waAddAnother: 'Ajouter un autre num\u00e9ro',
       since: (date: string) => `depuis le ${date}`,
       disconnect: 'Déconnecter',
       setUpNew: 'Configurer un nouveau',
@@ -438,6 +444,11 @@ export default function IntegrationsPage({ embedded = false }: { embedded?: bool
       <div className="space-y-4">
         {platforms.map((platform) => {
           const connection = connections.find((conn) => conn.platform === platform.id);
+          // WhatsApp can hold more than one number — a garage that moves to a new number keeps the
+          // old one connected so customers who still have it are answered. Everything else is 1:1.
+          const waConnections = platform.id === 'whatsapp'
+            ? connections.filter((conn) => conn.platform === 'whatsapp')
+            : [];
           const Icon = platform.icon;
           const pt = c.platforms[platform.id];
 
@@ -457,7 +468,35 @@ export default function IntegrationsPage({ embedded = false }: { embedded?: bool
                     </h3>
                     <p className="text-sm text-slate-500 mb-3">{pt?.description ?? platform.description}</p>
 
-                    {connection && (
+                    {platform.id === 'whatsapp' ? (
+                      waConnections.map((wa) => (
+                        <div key={wa.id} className="mt-1 flex items-center gap-2 text-sm flex-wrap">
+                          <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-200">
+                            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
+                            {c.connected}
+                          </span>
+                          {wa.accountName && (
+                            <span className="text-slate-700 font-medium">{wa.accountName}</span>
+                          )}
+                          {/* Which number campaigns and reminders go out from. The others only receive. */}
+                          {wa.isPrimary && (
+                            <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-semibold text-blue-700 ring-1 ring-blue-200">
+                              {c.waSends}
+                            </span>
+                          )}
+                          <span className="text-slate-300">·</span>
+                          <span className="text-slate-500">
+                            {c.since(new Date(wa.createdAt).toLocaleDateString())}
+                          </span>
+                          <button
+                            onClick={() => disconnectPlatform(wa.id)}
+                            className="text-xs text-slate-400 hover:text-rose-600 hover:underline"
+                          >
+                            {c.disconnect}
+                          </button>
+                        </div>
+                      ))
+                    ) : connection && (
                       <div className="flex items-center gap-2 text-sm flex-wrap">
                         <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-200">
                           <span className="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
@@ -476,7 +515,7 @@ export default function IntegrationsPage({ embedded = false }: { embedded?: bool
                 </div>
 
                 <div className="ml-14 md:ml-4 shrink-0">
-                  {connection ? (
+                  {connection && platform.id !== 'whatsapp' ? (
                     <button
                       onClick={() => disconnectPlatform(connection.id)}
                       className="px-4 py-2 text-sm border border-slate-300 bg-white hover:border-rose-300 hover:bg-rose-50 hover:text-rose-700 text-slate-700 rounded-md transition-colors"
@@ -493,7 +532,7 @@ export default function IntegrationsPage({ embedded = false }: { embedded?: bool
                           'hover:opacity-90'
                         )}
                       >
-                        {c.setUpNew}
+                        {waConnections.length ? c.waAddAnother : c.setUpNew}
                       </button>
                       <button
                         onClick={() => {

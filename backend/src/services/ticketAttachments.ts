@@ -165,7 +165,22 @@ export function attachmentS3Key(id: string, filename: string): string {
 const bucket = () =>
   process.env.S3_ATTACHMENT_BUCKET || process.env.S3_MEDIA_BUCKET || process.env.S3_BUCKET || 'receptionmate-recordings';
 
-const s3 = () => new S3Client({ region: process.env.AWS_REGION || 'eu-west-2' });
+/**
+ * Explicit credentials, exactly as chatMedia.ts and the WhatsApp media upload do.
+ *
+ * NOT the default credential chain: on the box that resolves to a deliberately narrow IAM
+ * user with read-only access to this bucket, so a client built without credentials can
+ * presign and fetch but cannot write. The S3_* key is the one with PutObject.
+ */
+const s3 = () => {
+  const accessKeyId = process.env.S3_ACCESS_KEY_ID || process.env.AWS_ACCESS_KEY_ID;
+  const secretAccessKey = process.env.S3_SECRET_ACCESS_KEY || process.env.AWS_SECRET_ACCESS_KEY;
+  const region = process.env.S3_REGION || process.env.AWS_REGION || 'eu-west-2';
+  return new S3Client({
+    region,
+    ...(accessKeyId && secretAccessKey ? { credentials: { accessKeyId, secretAccessKey } } : {}),
+  });
+};
 
 /**
  * Store an uploaded file and record it as staged — belonging to no entry yet.

@@ -11,7 +11,14 @@ export default defineConfig({
     defaultLocale: 'en',
     routing: { prefixDefaultLocale: false },
   },
-  integrations: [sitemap()],
+  integrations: [
+    sitemap({
+      // Pages that set noindex must not also be advertised in the sitemap — it asks Google to
+      // crawl something we then tell it to drop. /blend is the Blend show offer: time-limited,
+      // reached by QR, and not something that should outlive the offer in search results.
+      filter: (page) => !/\/blend\/?$/.test(new URL(page).pathname),
+    }),
+  ],
   vite: {
     plugins: [tailwindcss()],
   },

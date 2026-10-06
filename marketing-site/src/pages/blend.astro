@@ -1,0 +1,878 @@
+---
+// Blend show signup funnel (Garage Hive Blend, October 2026) — the flyer QR points here.
+//
+// Offer: Automate, £399 per branch per month, and you pay nothing until the AI has booked
+// 4 customers for you.
+//
+// Path:
+//   Garage search (Places) → HighLevel lead → "which booking system?"
+//     ├─ Garage Hive / Bookar / Tyresoft / AutoSage → Automate offer → details
+//     │     → POST /public/show-signup creates the account + agreement
+//     │     → straight to the portal to sign → password → Direct Debit mandate
+//     └─ Something else → "which one?" → recommend Assist (14-day free trial)
+//           → POST /public-signup (the live Assist self-serve endpoint)
+//           → portal to sign → card → trial starts
+//           …and the team is told which system they run, so we know what to build next.
+//
+// Nobody leaves empty-handed: a garage we cannot plug into today can still start on Assist,
+// which books off a lead-time grid rather than their diary and needs no integration.
+//
+// Deliberately a separate page from get-started.astro rather than another branch inside it:
+// that funnel is live and converting Assist signups, and a trade show is a bad week to be
+// editing its state machine. The two share the same endpoints and the same design system.
+//
+// English only. The FR locale exists for the main site, but this is a UK trade show.
+
+import BaseLayout from '../layouts/BaseLayout.astro';
+
+const PROSPECT_ENDPOINT = import.meta.env.PUBLIC_PROSPECT_ENDPOINT || 'https://portal.receptionmate.co.uk/api/public/prospect';
+const SHOW_SIGNUP_ENDPOINT = import.meta.env.PUBLIC_SHOW_SIGNUP_ENDPOINT || 'https://portal.receptionmate.co.uk/api/public/show-signup';
+const LEAD_ENDPOINT = import.meta.env.PUBLIC_LEAD_ENDPOINT || 'https://portal.receptionmate.co.uk/api/public/lead';
+// The live Assist self-serve endpoint — the same one /get-started posts to. Reused rather than
+// reimplemented: it already creates the PendingSignup, the 14-day Stripe trial and the sign link.
+const SIGNUP_ENDPOINT = import.meta.env.PUBLIC_SIGNUP_ENDPOINT || 'https://portal.receptionmate.co.uk/api/public-signup';
+const PLACES_ENDPOINT = import.meta.env.PUBLIC_PLACES_ENDPOINT || 'https://portal.receptionmate.co.uk/api/public/places-autocomplete';
+
+// Kept in step with SHOW_TERMS in backend/src/routes/show-signup.ts. The backend is the
+// authority — these are display copy only, and the agreement renders from the server side.
+const PRICE_GBP = 399;
+const INCLUDED_MINUTES = 600;
+const BOOKINGS_FREE = 4;
+
+// Assist, for the no-integration path. Matches ASSIST_DEFAULTS in backend/src/routes/
+// public-signup.ts and the public pricing page; STRIPE_TRIAL_DAYS defaults to 14.
+const ASSIST_PRICE_GBP = 200;
+const ASSIST_MINUTES = 400;
+const ASSIST_TRIAL_DAYS = 14;
+
+const GMS_OPTIONS = [
+  { key: 'garagehive', label: 'Garage Hive', note: 'We plug straight in.' },
+  { key: 'bookar', label: 'Bookar', note: 'We plug straight in.' },
+  { key: 'tyresoft', label: 'Tyresoft', note: 'We plug straight in.' },
+  { key: 'autosage', label: 'AutoSage', note: 'We plug straight in.' },
+];
+
+const c = {
+  metaTitle: 'Blend offer — ReceptionMate',
+  metaDesc: `Pay nothing until our AI receptionist books ${BOOKINGS_FREE} customers for your garage.`,
+};
+---
+
+<BaseLayout title={c.metaTitle} description={c.metaDesc} noindex={true} landing={true}>
+  <div class="relative min-h-screen overflow-hidden bg-ink-50/40">
+    <div class="pointer-events-none absolute inset-x-0 -top-32 -z-0 h-72 bg-gradient-to-b from-brand-100/40 via-brand-50/20 to-transparent"></div>
+    <div class="pointer-events-none absolute -left-32 top-40 -z-0 h-72 w-72 rounded-full bg-brand-200/30 blur-3xl"></div>
+    <div class="pointer-events-none absolute -right-32 top-96 -z-0 h-72 w-72 rounded-full bg-emerald-200/20 blur-3xl"></div>
+
+    <div class="relative z-10 mx-auto max-w-2xl px-4 py-12 sm:px-6 sm:py-16 lg:py-20">
+
+      <div class="mb-8 flex items-center justify-between gap-3">
+        <button id="bl-back" type="button" class="invisible inline-flex items-center gap-1.5 rounded-full border border-ink-200 bg-white px-3 py-1.5 text-sm font-medium text-ink-700 shadow-sm hover:bg-ink-50">
+          <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+          Back
+        </button>
+        <div class="flex items-center gap-1.5" id="bl-dots">
+          <span class="gs-dot" data-i="1"></span>
+          <span class="gs-dot" data-i="2"></span>
+          <span class="gs-dot" data-i="3"></span>
+          <span class="gs-dot" data-i="4"></span>
+        </div>
+      </div>
+      <p id="bl-step-label" class="sr-only">Step 1 of 4</p>
+
+      <!-- ===== STEP 1: GARAGE ===== -->
+      <section id="step-business" class="bl-step">
+        <span class="bl-eyebrow">Blend show offer</span>
+        <h1 class="mt-3 text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">
+          Pay nothing until we book you {BOOKINGS_FREE} customers.
+        </h1>
+        <p class="mt-3 text-base text-ink-600">
+          Start with your garage name — we'll pull your details from Google so there's less to type.
+        </p>
+
+        <div class="mt-8">
+          <div class="gs-input-wrap">
+            <svg class="gs-input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></svg>
+            <input type="text" id="bl-search" autocomplete="off" placeholder="e.g. Acme Auto Centre" class="gs-input gs-input-lg" />
+          </div>
+          <ul id="bl-results" class="mt-3 hidden max-h-72 overflow-y-auto rounded-2xl border border-ink-200 bg-white shadow-sm"></ul>
+
+          <p id="bl-search-note" role="status" class="mt-3 hidden text-sm text-ink-600"></p>
+
+          <button type="button" id="bl-manual-toggle" class="mt-4 text-sm font-medium text-brand-600 hover:text-brand-700 hover:underline">
+            Can't find your garage?
+          </button>
+
+          <div id="bl-manual" class="mt-4 hidden space-y-3 rounded-2xl border border-ink-200 bg-white p-5">
+            <div>
+              <label class="mb-1.5 block text-sm font-medium text-ink-800" for="bl-manual-name">Business name</label>
+              <input type="text" id="bl-manual-name" class="gs-input" placeholder="Acme Auto Centre" />
+            </div>
+            <div>
+              <label class="mb-1.5 block text-sm font-medium text-ink-800" for="bl-manual-addr">Town or city</label>
+              <input type="text" id="bl-manual-addr" class="gs-input" placeholder="Telford" />
+            </div>
+            <button type="button" id="bl-manual-confirm" class="gs-primary-btn w-full">Continue</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== STEP 2: GMS ===== -->
+      <section id="step-gms" class="bl-step hidden">
+        <p class="text-sm text-ink-500">Setting up <span id="bl-business-readback" class="font-semibold text-ink-900">your garage</span></p>
+        <h1 class="mt-2 text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">
+          Which booking system do you use?
+        </h1>
+        <p class="mt-3 text-base text-ink-600">
+          This is how the AI books jobs into your diary on the call, so it's the one thing we have to get right.
+        </p>
+
+        <div class="mt-8 space-y-3">
+          {GMS_OPTIONS.map((g) => (
+            <button type="button" class="gs-choice gs-choice-rich" data-gms={g.key}>
+              <div class="flex items-center justify-between gap-4">
+                <div class="min-w-0 flex-1">
+                  <span class="text-base font-semibold text-ink-900">{g.label}</span>
+                  <p class="mt-0.5 text-sm text-ink-600">{g.note}</p>
+                </div>
+                <span class="shrink-0 rounded-full bg-emerald-50 px-2.5 py-1 text-[0.625rem] font-bold uppercase tracking-wide text-emerald-700">Supported</span>
+              </div>
+            </button>
+          ))}
+
+          <button type="button" class="gs-choice gs-choice-rich" data-gms="other">
+            <div class="min-w-0 flex-1">
+              <span class="text-base font-semibold text-ink-900">Something else / not sure</span>
+              <p class="mt-0.5 text-sm text-ink-600">Tell us what you run and we'll find you the best way in.</p>
+            </div>
+          </button>
+        </div>
+      </section>
+
+      <!-- ===== STEP 3: THE OFFER ===== -->
+      <section id="step-offer" class="bl-step hidden">
+        <p class="text-sm text-ink-500">
+          <span id="bl-offer-business" class="font-semibold text-ink-900">Your garage</span>
+          · <span id="bl-offer-gms" class="font-semibold text-ink-900">Garage Hive</span>
+        </p>
+        <h1 class="mt-2 text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">
+          Automate, free until it books {BOOKINGS_FREE} customers.
+        </h1>
+        <p class="mt-3 text-base text-ink-600">
+          Your AI receptionist answers every call you miss and books the job straight into your
+          diary. You pay nothing until it has booked {BOOKINGS_FREE} customers for you.
+        </p>
+
+        <div class="mt-8 rounded-2xl border-[1.5px] border-brand-200 bg-white p-6 shadow-sm">
+          <div class="flex flex-wrap items-baseline justify-between gap-2">
+            <span class="text-base font-semibold text-ink-900">Automate</span>
+            <div class="text-right">
+              <span class="text-3xl font-bold text-ink-900">£{PRICE_GBP}</span>
+              <span class="text-sm font-medium text-ink-500">/month + VAT</span>
+            </div>
+          </div>
+          <p class="mt-1 text-xs text-ink-500">Per branch · {INCLUDED_MINUTES} minutes included · £0.25 per extra minute</p>
+
+          <div class="mt-5 rounded-xl bg-emerald-50 p-4">
+            <p class="text-sm font-semibold text-emerald-900">Nothing to pay until booking {BOOKINGS_FREE}</p>
+            <p class="mt-1 text-sm text-emerald-800">
+              We set up your Direct Debit today, but we don't take a penny until the AI has booked
+              {BOOKINGS_FREE} customers into your diary. If it never does, you never pay.
+            </p>
+          </div>
+
+          <ul class="mt-5 space-y-2 text-sm text-ink-600">
+            <li class="flex items-start gap-2"><svg class="mt-0.5 h-3.5 w-3.5 shrink-0 text-brand-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Books MOTs, services and repairs into your diary on the call</li>
+            <li class="flex items-start gap-2"><svg class="mt-0.5 h-3.5 w-3.5 shrink-0 text-brand-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Quotes from your own service menu — never an invented price</li>
+            <li class="flex items-start gap-2"><svg class="mt-0.5 h-3.5 w-3.5 shrink-0 text-brand-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Your number stays yours — calls forward to us after 5–7 rings</li>
+            <li class="flex items-start gap-2"><svg class="mt-0.5 h-3.5 w-3.5 shrink-0 text-brand-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Every call recorded, transcribed and searchable in your portal</li>
+            <li class="flex items-start gap-2"><svg class="mt-0.5 h-3.5 w-3.5 shrink-0 text-brand-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Rolling monthly — 30 days' notice, no tie-in</li>
+          </ul>
+        </div>
+
+        <button type="button" id="bl-offer-continue" class="gs-primary-btn mt-6 w-full">
+          Claim the offer
+        </button>
+        <p class="mt-3 text-center text-xs text-ink-500">Next: your details, then the agreement to sign.</p>
+      </section>
+
+      <!-- ===== STEP 4: DETAILS → ACCOUNT ===== -->
+      <section id="step-details" class="bl-step hidden">
+        <p class="text-sm text-ink-500">
+          <span id="bl-details-business" class="font-semibold text-ink-900">Your garage</span> · Automate
+        </p>
+        <h1 class="mt-2 text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">
+          Last bit — who are we setting this up for?
+        </h1>
+        <p class="mt-3 text-base text-ink-600">
+          We'll create your account and take you straight to the agreement.
+        </p>
+
+        <form id="bl-form-details" class="mt-8 space-y-4" novalidate>
+          <div>
+            <label class="mb-1.5 block text-sm font-medium text-ink-800" for="bl-name">Your name</label>
+            <input type="text" id="bl-name" name="name" required autocomplete="name" class="gs-input" placeholder="Jane Smith" />
+          </div>
+          <div>
+            <label class="mb-1.5 block text-sm font-medium text-ink-800" for="bl-email">Work email</label>
+            <input type="email" id="bl-email" name="email" required autocomplete="email" inputmode="email" class="gs-input" placeholder="jane@acmeauto.co.uk" />
+            <p class="mt-1.5 text-xs text-ink-500">This becomes your portal login.</p>
+          </div>
+          <div>
+            <label class="mb-1.5 block text-sm font-medium text-ink-800" for="bl-phone">Mobile number</label>
+            <input type="tel" id="bl-phone" name="phone" required autocomplete="tel" inputmode="tel" class="gs-input" placeholder="07700 900123" />
+          </div>
+
+          <p id="bl-details-error" role="alert" class="hidden rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700"></p>
+
+          <button type="submit" class="gs-primary-btn w-full">
+            <span data-state="idle">Continue to the agreement</span>
+            <span data-state="loading" style="display:none" class="items-center gap-2">
+              <svg class="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/></svg>
+              Setting up your account…
+            </span>
+          </button>
+          <p class="text-center text-xs text-ink-500">
+            No payment is taken today. You'll set up a Direct Debit, but billing only starts once
+            the AI has booked {BOOKINGS_FREE} customers.
+          </p>
+        </form>
+      </section>
+
+      <!-- ===== STEP: WHICH OTHER GMS ===== -->
+      <section id="step-gms-other" class="bl-step hidden">
+        <p class="text-sm text-ink-500">Setting up <span id="bl-other-business" class="font-semibold text-ink-900">your garage</span></p>
+        <h1 class="mt-2 text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">
+          Which one do you use?
+        </h1>
+        <p class="mt-3 text-base text-ink-600">
+          Tell us and we'll know what to build next — integrations get prioritised by how many
+          garages ask for them.
+        </p>
+
+        <div class="mt-8">
+          <label class="mb-1.5 block text-sm font-medium text-ink-800" for="bl-gms-name">Your booking system</label>
+          <input type="text" id="bl-gms-name" class="gs-input" autocomplete="off" placeholder="e.g. CAM, Autowork, a diary on the wall" />
+          <button type="button" id="bl-gms-other-continue" class="gs-primary-btn mt-5 w-full">Continue</button>
+          <button type="button" id="bl-gms-other-skip" class="mt-3 w-full text-sm font-medium text-brand-600 hover:text-brand-700 hover:underline">
+            I'm not sure what we use
+          </button>
+        </div>
+      </section>
+
+      <!-- ===== STEP: RECOMMEND ASSIST ===== -->
+      <section id="step-recommend" class="bl-step hidden">
+        <p class="text-sm text-ink-500">
+          <span id="bl-rec-business" class="font-semibold text-ink-900">Your garage</span>
+          · <span id="bl-rec-gms" class="font-semibold text-ink-900">your system</span>
+        </p>
+        <h1 class="mt-2 text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">
+          Start with Assist — free for {ASSIST_TRIAL_DAYS} days.
+        </h1>
+        <p class="mt-3 text-base text-ink-600">
+          We can't book straight into <span id="bl-rec-gms-inline" class="font-medium text-ink-800">your system</span> yet,
+          so Automate isn't an option today. Assist is: it answers every call you miss and takes
+          the booking using the lead time you set, then drops it into your portal inbox for your
+          team to pop in the diary. No integration needed — you can be live this afternoon.
+        </p>
+
+        <div class="mt-8 rounded-2xl border-[1.5px] border-emerald-200 bg-white p-6 shadow-sm">
+          <div class="flex flex-wrap items-baseline justify-between gap-2">
+            <span class="text-base font-semibold text-ink-900">Assist</span>
+            <div class="text-right">
+              <span class="text-3xl font-bold text-ink-900">£{ASSIST_PRICE_GBP}</span>
+              <span class="text-sm font-medium text-ink-500">/month + VAT</span>
+            </div>
+          </div>
+          <p class="mt-1 text-xs text-ink-500">{ASSIST_MINUTES} minutes included · £0.25 per extra minute</p>
+
+          <div class="mt-5 rounded-xl bg-emerald-50 p-4">
+            <p class="text-sm font-semibold text-emerald-900">{ASSIST_TRIAL_DAYS} days free</p>
+            <p class="mt-1 text-sm text-emerald-800">
+              You'll add a card to start the trial, but nothing is charged for {ASSIST_TRIAL_DAYS} days.
+              Cancel before then and you pay nothing.
+            </p>
+          </div>
+
+          <ul class="mt-5 space-y-2 text-sm text-ink-600">
+            <li class="flex items-start gap-2"><svg class="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Live in minutes — nothing to integrate</li>
+            <li class="flex items-start gap-2"><svg class="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Takes bookings using the lead time you set</li>
+            <li class="flex items-start gap-2"><svg class="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Every call recorded, transcribed and searchable</li>
+            <li class="flex items-start gap-2"><svg class="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Move up to Automate the day we support your system</li>
+          </ul>
+        </div>
+
+        <button type="button" id="bl-recommend-continue" class="gs-primary-btn mt-6 w-full">
+          Start my {ASSIST_TRIAL_DAYS}-day free trial
+        </button>
+        <button type="button" id="bl-recommend-enquire" class="mt-3 w-full text-sm font-medium text-brand-600 hover:text-brand-700 hover:underline">
+          I'd rather someone talked me through it
+        </button>
+      </section>
+
+      <!-- ===== STEP: ASSIST DETAILS → ACCOUNT ===== -->
+      <section id="step-assist" class="bl-step hidden">
+        <p class="text-sm text-ink-500">
+          <span id="bl-assist-business" class="font-semibold text-ink-900">Your garage</span> · Assist
+        </p>
+        <h1 class="mt-2 text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">
+          Last bit — who are we setting this up for?
+        </h1>
+        <p class="mt-3 text-base text-ink-600">
+          We'll create your account and take you straight to the agreement.
+        </p>
+
+        <form id="bl-form-assist" class="mt-8 space-y-4" novalidate>
+          <div>
+            <label class="mb-1.5 block text-sm font-medium text-ink-800" for="bl-assist-name">Your name</label>
+            <input type="text" id="bl-assist-name" name="name" required autocomplete="name" class="gs-input" placeholder="Jane Smith" />
+          </div>
+          <div>
+            <label class="mb-1.5 block text-sm font-medium text-ink-800" for="bl-assist-email">Work email</label>
+            <input type="email" id="bl-assist-email" name="email" required autocomplete="email" inputmode="email" class="gs-input" placeholder="jane@acmeauto.co.uk" />
+            <p class="mt-1.5 text-xs text-ink-500">This becomes your portal login.</p>
+          </div>
+          <div>
+            <label class="mb-1.5 block text-sm font-medium text-ink-800" for="bl-assist-phone">Mobile number</label>
+            <input type="tel" id="bl-assist-phone" name="phone" required autocomplete="tel" inputmode="tel" class="gs-input" placeholder="07700 900123" />
+          </div>
+
+          <p id="bl-assist-error" role="alert" class="hidden rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700"></p>
+
+          <button type="submit" class="gs-primary-btn w-full">
+            <span data-state="idle">Continue to the agreement</span>
+            <span data-state="loading" style="display:none" class="items-center gap-2">
+              <svg class="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/></svg>
+              Setting up your account…
+            </span>
+          </button>
+          <p class="text-center text-xs text-ink-500">
+            Nothing is charged today. You'll add a card on the next screen to start your
+            {ASSIST_TRIAL_DAYS}-day free trial.
+          </p>
+        </form>
+      </section>
+
+      <!-- ===== STEP: UNSUPPORTED GMS → LEAD ===== -->
+      <section id="step-lead" class="bl-step hidden">
+        <p class="text-sm text-ink-500">
+          <span id="bl-lead-business" class="font-semibold text-ink-900">Your garage</span>
+        </p>
+        <h1 class="mt-2 text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">
+          No problem — we'll come to you.
+        </h1>
+        <p class="mt-3 text-base text-ink-600">
+          Leave us your details and we'll talk you through it properly, at the stand or after the show.
+        </p>
+
+        <form id="bl-form-lead" class="mt-8 space-y-4" novalidate>
+          <div>
+            <label class="mb-1.5 block text-sm font-medium text-ink-800" for="bl-lead-name">Your name</label>
+            <input type="text" id="bl-lead-name" name="name" required autocomplete="name" class="gs-input" placeholder="Jane Smith" />
+          </div>
+          <div>
+            <label class="mb-1.5 block text-sm font-medium text-ink-800" for="bl-lead-email">Email</label>
+            <input type="email" id="bl-lead-email" name="email" required autocomplete="email" inputmode="email" class="gs-input" placeholder="jane@acmeauto.co.uk" />
+          </div>
+          <div>
+            <label class="mb-1.5 block text-sm font-medium text-ink-800" for="bl-lead-phone">Mobile number</label>
+            <input type="tel" id="bl-lead-phone" name="phone" required autocomplete="tel" inputmode="tel" class="gs-input" placeholder="07700 900123" />
+          </div>
+
+          <p id="bl-lead-error" role="alert" class="hidden rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700"></p>
+
+          <button type="submit" class="gs-primary-btn w-full">
+            <span data-state="idle">Send it over</span>
+            <span data-state="loading" style="display:none" class="items-center gap-2">
+              <svg class="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/></svg>
+              Sending…
+            </span>
+          </button>
+        </form>
+      </section>
+
+      <!-- ===== STEP: LEAD SENT ===== -->
+      <section id="step-lead-done" class="bl-step hidden">
+        <div class="rounded-3xl border border-emerald-200 bg-white p-8 text-center shadow-sm">
+          <div class="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-emerald-100">
+            <svg class="h-6 w-6 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+          </div>
+          <h1 class="mt-4 text-2xl font-bold text-ink-900">Got it — thank you.</h1>
+          <p class="mt-2 text-sm text-ink-600">
+            We'll be in touch. If you're still at Blend, come and say hello — we'd rather show you
+            than email you.
+          </p>
+        </div>
+      </section>
+
+      <!-- ===== STEP: REDIRECTING ===== -->
+      <section id="step-redirecting" class="bl-step hidden">
+        <div class="rounded-3xl border border-ink-200 bg-white p-8 text-center shadow-sm">
+          <svg class="mx-auto h-8 w-8 animate-spin text-brand-600" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/></svg>
+          <h1 class="mt-4 text-xl font-semibold text-ink-900">Your account is ready.</h1>
+          <p class="mt-2 text-sm text-ink-600">Taking you to your agreement…</p>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</BaseLayout>
+
+<style>
+  .bl-step { animation: bl-in 0.25s ease; }
+  @keyframes bl-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+  .bl-eyebrow {
+    display: inline-flex; align-items: center; border-radius: 9999px;
+    background: #3426cf; padding: 0.3rem 0.75rem;
+    font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.06em;
+    text-transform: uppercase; color: #fff;
+    box-shadow: 0 6px 16px -6px rgba(52,38,207,0.5);
+  }
+
+  /* Shared with get-started.astro's funnel. Duplicated rather than extracted: the two pages
+     are deliberately independent, and a shared stylesheet would couple a live funnel to a
+     page written for one weekend. */
+  .gs-input-wrap { position: relative; display: flex; align-items: center; }
+  .gs-input-icon { position: absolute; left: 1rem; height: 1.25rem; width: 1.25rem; color: #94a3b8; pointer-events: none; transition: color 0.15s ease; }
+  .gs-input { width: 100%; border-radius: 0.875rem; border: 1px solid #cbd5e1; background: #fff; padding: 0.875rem 1rem; font-size: 1rem; color: #0f172a; transition: border-color 0.15s ease, box-shadow 0.15s ease; }
+  .gs-input::placeholder { color: #94a3b8; }
+  .gs-input:hover { border-color: #94a3b8; }
+  .gs-input:focus { outline: none; border-color: #3426cf; box-shadow: 0 0 0 4px rgba(52, 38, 207, 0.12); }
+  .gs-input-wrap:focus-within .gs-input-icon { color: #3426cf; }
+  .gs-input-wrap .gs-input { padding-left: 2.75rem; }
+  .gs-input-lg { padding: 1.125rem 1.125rem 1.125rem 2.75rem; font-size: 1.0625rem; border-radius: 1rem; }
+
+  .gs-choice { display: block; width: 100%; text-align: left; cursor: pointer; border-radius: 1rem; border: 1.5px solid #e2e8f0; background: #fff; padding: 1.125rem 1.25rem; transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.1s ease; }
+  .gs-choice:hover { border-color: #3426cf; box-shadow: 0 8px 24px -16px rgba(52,38,207,0.4); transform: translateY(-1px); }
+  .gs-choice-rich { padding: 1.25rem; position: relative; }
+
+  .gs-dot { display: inline-block; height: 0.375rem; width: 1.5rem; border-radius: 9999px; background: #e2e8f0; transition: all 0.25s ease; }
+  .gs-dot[data-state="active"] { background: #3426cf; width: 2.25rem; }
+  .gs-dot[data-state="done"] { background: #3426cf; }
+
+  .gs-primary-btn { display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem; border-radius: 0.875rem; background: #3426cf; padding: 0.875rem 1.25rem; font-size: 0.9375rem; font-weight: 600; color: #fff; box-shadow: 0 8px 24px -10px rgba(52,38,207,0.6); transition: background 0.15s ease, opacity 0.15s ease, transform 0.1s ease; }
+  .gs-primary-btn:hover:not(:disabled) { background: #2a1ea8; transform: translateY(-1px); }
+  .gs-primary-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+</style>
+
+<script is:inline define:vars={{ PROSPECT_ENDPOINT, SHOW_SIGNUP_ENDPOINT, SIGNUP_ENDPOINT, LEAD_ENDPOINT, PLACES_ENDPOINT, BOOKINGS_FREE }}>
+  const state = {
+    businessName: '',
+    address: '',
+    googlePlaceId: '',
+    gms: '',
+    gmsName: '',
+    prospectId: '',
+    history: [],
+  };
+
+  const GMS_LABEL = {
+    garagehive: 'Garage Hive',
+    bookar: 'Bookar',
+    tyresoft: 'Tyresoft',
+    autosage: 'AutoSage',
+    other: 'Something else',
+  };
+
+  // Which dot the trail sits on for each step. The lead/done screens are terminal, so they
+  // keep the last dot rather than inventing a fifth.
+  const STEP_DOT = {
+    business: 1,
+    gms: 2,
+    // Naming the system is still part of answering "which diary?", so it shares dot 2 rather
+    // than making the no-integration path look longer than the Automate one.
+    'gms-other': 2,
+    offer: 3,
+    recommend: 3,
+    details: 4,
+    assist: 4,
+    lead: 4,
+    'lead-done': 4,
+    redirecting: 4,
+  };
+
+  const $ = (id) => document.getElementById(id);
+  const $back = $('bl-back');
+
+  function setStep(name, pushHistory) {
+    document.querySelectorAll('.bl-step').forEach((s) => s.classList.add('hidden'));
+    const el = $(`step-${name}`);
+    if (el) el.classList.remove('hidden');
+
+    if (pushHistory) state.history.push(name);
+    // Back is only offered where going back is meaningful. Once the account exists there is
+    // nothing to go back to, so the terminal screens hide it.
+    const canGoBack = state.history.length > 1 && !['redirecting', 'lead-done'].includes(name);
+    $back.classList.toggle('invisible', !canGoBack);
+
+    const dot = STEP_DOT[name] || 1;
+    document.querySelectorAll('#bl-dots .gs-dot').forEach((d) => {
+      const i = Number(d.getAttribute('data-i'));
+      d.setAttribute('data-state', i < dot ? 'done' : i === dot ? 'active' : '');
+    });
+    const label = $('bl-step-label');
+    if (label) label.textContent = `Step ${dot} of 4`;
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  $back.addEventListener('click', () => {
+    if (state.history.length < 2) return;
+    state.history.pop();
+    setStep(state.history[state.history.length - 1], false);
+  });
+
+  // ====== Step 1: garage search ======
+  const $search = $('bl-search');
+  const $results = $('bl-results');
+  const $searchNote = $('bl-search-note');
+  const $manual = $('bl-manual');
+
+  function showSearchUnavailable() {
+    // Google has failed us twice in production — once when the Maps key's billing lapsed — and
+    // both times the box just did nothing. Say so, and open manual entry.
+    $searchNote.textContent = "We couldn't reach Google just now. Type your details in below instead.";
+    $searchNote.classList.remove('hidden');
+    $manual.classList.remove('hidden');
+  }
+
+  function renderResults(items) {
+    $results.innerHTML = '';
+    if (!items.length) { $results.classList.add('hidden'); return; }
+    items.slice(0, 6).forEach((item) => {
+      const li = document.createElement('li');
+      li.className = 'flex cursor-pointer items-start gap-3 border-b border-ink-100 px-4 py-3 last:border-b-0 hover:bg-ink-50';
+      const main = document.createElement('p');
+      main.className = 'truncate text-sm font-semibold text-ink-900';
+      main.textContent = item.mainText;
+      const sub = document.createElement('p');
+      sub.className = 'truncate text-xs text-ink-500';
+      sub.textContent = item.secondaryText;
+      const wrap = document.createElement('div');
+      wrap.className = 'min-w-0 flex-1';
+      wrap.append(main, sub);
+      li.append(wrap);
+      // textContent rather than innerHTML throughout: these strings come from Google, and a
+      // garage with an apostrophe or an angle bracket in its name should not be able to shape
+      // the markup.
+      li.addEventListener('click', () => pickBusiness(item.mainText, item.secondaryText, item.placeId));
+      $results.appendChild(li);
+    });
+    $results.classList.remove('hidden');
+  }
+
+  // Only the newest query may render: a slow reply for "kwi" must never overwrite "kwik fit".
+  let searchDebounce;
+  let searchSeq = 0;
+
+  $search.addEventListener('input', () => {
+    clearTimeout(searchDebounce);
+    const q = $search.value.trim();
+    if (q.length < 3) { $results.classList.add('hidden'); $results.innerHTML = ''; return; }
+    const seq = ++searchSeq;
+    searchDebounce = setTimeout(async () => {
+      try {
+        const res = await fetch(`${PLACES_ENDPOINT}?q=${encodeURIComponent(q)}`, { headers: { Accept: 'application/json' } });
+        if (seq !== searchSeq) return;
+        if (!res.ok) { showSearchUnavailable(); return; }
+        const data = await res.json().catch(() => ({}));
+        if (seq !== searchSeq) return;
+        $searchNote.classList.add('hidden');
+        renderResults((data.predictions || []).map((p) => ({
+          placeId: p.placeId || '',
+          mainText: p.mainText || p.description || '',
+          secondaryText: p.secondaryText || '',
+        })));
+      } catch (err) {
+        if (seq !== searchSeq) return;
+        console.error('[blend] autocomplete failed', err);
+        showSearchUnavailable();
+      }
+    }, 200);
+  });
+
+  $('bl-manual-toggle').addEventListener('click', () => $manual.classList.toggle('hidden'));
+  $('bl-manual-confirm').addEventListener('click', () => {
+    const name = $('bl-manual-name').value.trim();
+    const addr = $('bl-manual-addr').value.trim();
+    if (name.length < 2) return;
+    pickBusiness(name, addr, '');
+  });
+
+  function pickBusiness(name, address, placeId) {
+    state.businessName = name;
+    state.address = address || '';
+    state.googlePlaceId = placeId || '';
+
+    const label = state.address ? `${state.businessName} · ${state.address}` : state.businessName;
+    ['bl-business-readback', 'bl-offer-business', 'bl-details-business', 'bl-lead-business',
+     'bl-other-business', 'bl-rec-business', 'bl-assist-business'].forEach((id) => {
+      const el = $(id);
+      if (el) el.textContent = label;
+    });
+
+    $results.classList.add('hidden');
+    createProspect();
+    setStep('gms', true);
+  }
+
+  // The HighLevel lead, created the moment they pick a garage — before we know their name. It
+  // lands in "Abandoned checkout" so a prospect who wanders off the stand is still followable.
+  // Fire-and-forget: a CRM wobble must never block the funnel.
+  function createProspect() {
+    fetch(PROSPECT_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        businessName: state.businessName,
+        googlePlaceId: state.googlePlaceId || undefined,
+        address: state.address || undefined,
+        source: 'blend-show',
+      }),
+    })
+      .then((r) => r.json().catch(() => ({})))
+      .then((d) => { if (d && d.prospectId) state.prospectId = d.prospectId; else if (d && d.id) state.prospectId = d.id; })
+      .catch(() => {});
+  }
+
+  // ====== Step 2: GMS ======
+  document.querySelectorAll('#step-gms [data-gms]').forEach((card) => {
+    card.addEventListener('click', () => {
+      state.gms = card.getAttribute('data-gms') || '';
+      if (state.gms === 'other') {
+        // Don't claim Automate on the CRM record for a garage we cannot integrate — they are
+        // headed for Assist. public-signup sets product 'assist' when they complete.
+        setStep('gms-other', true);
+        return;
+      }
+      // Tell HighLevel what they run as soon as we know, so the opportunity is useful even if
+      // they go no further.
+      enrichProspect({ product: 'automate' });
+      const el = $('bl-offer-gms');
+      if (el) el.textContent = GMS_LABEL[state.gms] || state.gms;
+      setStep('offer', true);
+    });
+  });
+
+  function enrichProspect(fields) {
+    if (!state.prospectId) return;
+    fetch(`${PROSPECT_ENDPOINT}/${encodeURIComponent(state.prospectId)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(fields),
+    }).catch(() => {});
+  }
+
+  // ====== "Something else": which one, then recommend Assist ======
+  function toRecommend() {
+    const label = state.gmsName || 'your system';
+    ['bl-rec-gms', 'bl-rec-gms-inline'].forEach((id) => {
+      const el = $(id);
+      if (el) el.textContent = label;
+    });
+    // Tell the team which system this garage runs, so integrations get prioritised by demand
+    // rather than by whoever shouted last. Fire-and-forget.
+    fireIntegrationLead();
+    setStep('recommend', true);
+  }
+
+  $('bl-gms-name').addEventListener('input', (e) => { state.gmsName = e.target.value.trim(); });
+  $('bl-gms-name').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); toRecommend(); } });
+  $('bl-gms-other-continue').addEventListener('click', toRecommend);
+  $('bl-gms-other-skip').addEventListener('click', () => { state.gmsName = ''; toRecommend(); });
+
+  // A lead so we know the demand even if they never finish the Assist signup. Deliberately
+  // separate from the prospect row: this one records the integration we are missing.
+  function fireIntegrationLead() {
+    fetch(LEAD_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: state.businessName,
+        companyName: state.businessName,
+        // public-lead needs an email or a phone; we have neither yet at this point in the
+        // funnel, so a unique placeholder keeps the record creatable and it is overwritten
+        // by the real signup if they go on to complete one.
+        email: `blend-${Date.now()}@pending.receptionmate.co.uk`,
+        phone: '0000000000',
+        source: 'blend-show-integration-wanted',
+        notes: `Blend show. Wants Automate but runs: ${state.gmsName || 'not sure'}. Routed to Assist. Address: ${state.address || 'n/a'}.`,
+      }),
+    }).catch(() => {});
+  }
+
+  $('bl-recommend-continue').addEventListener('click', () => setStep('assist', true));
+  $('bl-recommend-enquire').addEventListener('click', () => setStep('lead', true));
+
+  // ====== Step 3: offer ======
+  $('bl-offer-continue').addEventListener('click', () => setStep('details', true));
+
+  // ====== Step 4: details → account + agreement ======
+  function busy(form, on) {
+    const btn = form.querySelector('button[type="submit"]');
+    const idle = form.querySelectorAll('[data-state="idle"]');
+    const load = form.querySelector('[data-state="loading"]');
+    btn.disabled = on;
+    idle.forEach((el) => el.classList.toggle('hidden', on));
+    load.style.display = on ? 'inline-flex' : 'none';
+  }
+
+  $('bl-form-details').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const form = e.currentTarget;
+    const err = $('bl-details-error');
+    err.classList.add('hidden');
+    err.textContent = '';
+
+    const name = $('bl-name').value.trim();
+    const email = $('bl-email').value.trim();
+    const phone = $('bl-phone').value.trim();
+
+    if (name.length < 2 || !email.includes('@') || phone.length < 6) {
+      err.textContent = 'Please fill in your name, email and mobile number.';
+      err.classList.remove('hidden');
+      return;
+    }
+
+    busy(form, true);
+    try {
+      const res = await fetch(SHOW_SIGNUP_ENDPOINT, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prospectId: state.prospectId || undefined,
+          businessName: state.businessName,
+          googlePlaceId: state.googlePlaceId || undefined,
+          address: state.address || undefined,
+          name,
+          email,
+          phone,
+          gms: state.gms,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (res.status === 201 && data.success && data.signUrl) {
+        setStep('redirecting', false);
+        setTimeout(() => { window.location.href = data.signUrl; }, 700);
+        return;
+      }
+      if (res.status === 409) {
+        err.innerHTML = '';
+        err.textContent = 'That email already has a ReceptionMate account. Sign in instead, or use a different address.';
+        err.classList.remove('hidden');
+        busy(form, false);
+        return;
+      }
+      throw new Error('signup_failed');
+    } catch (e2) {
+      console.error('[blend] signup failed', e2);
+      err.textContent = "Something went wrong setting up your account. Grab one of us at the stand and we'll sort it on the spot.";
+      err.classList.remove('hidden');
+      busy(form, false);
+    }
+  });
+
+  // ====== Assist signup (no-integration path) ======
+  //
+  // Posts to the SAME endpoint /get-started uses, so this inherits the whole live Assist flow:
+  // PendingSignup, the 14-day Stripe trial, and a sign link whose page shows the card form.
+  $('bl-form-assist').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const form = e.currentTarget;
+    const err = $('bl-assist-error');
+    err.classList.add('hidden');
+    err.textContent = '';
+
+    const name = $('bl-assist-name').value.trim();
+    const email = $('bl-assist-email').value.trim();
+    const phone = $('bl-assist-phone').value.trim();
+
+    if (name.length < 2 || !email.includes('@') || phone.length < 6) {
+      err.textContent = 'Please fill in your name, email and mobile number.';
+      err.classList.remove('hidden');
+      return;
+    }
+
+    busy(form, true);
+    try {
+      const res = await fetch(SIGNUP_ENDPOINT, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prospectId: state.prospectId || undefined,
+          businessName: state.businessName,
+          googlePlaceId: state.googlePlaceId || undefined,
+          address: state.address || undefined,
+          name,
+          email,
+          phone,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (res.status === 201 && data.success && data.signUrl) {
+        setStep('redirecting', false);
+        setTimeout(() => { window.location.href = data.signUrl; }, 700);
+        return;
+      }
+      if (res.status === 409) {
+        err.textContent = 'That email already has a ReceptionMate account. Sign in instead, or use a different address.';
+        err.classList.remove('hidden');
+        busy(form, false);
+        return;
+      }
+      throw new Error('signup_failed');
+    } catch (e2) {
+      console.error('[blend] assist signup failed', e2);
+      err.textContent = "Something went wrong setting up your account. Grab one of us at the stand and we'll sort it on the spot.";
+      err.classList.remove('hidden');
+      busy(form, false);
+    }
+  });
+
+  // ====== Unsupported GMS → HighLevel lead ======
+  $('bl-form-lead').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const form = e.currentTarget;
+    const err = $('bl-lead-error');
+    err.classList.add('hidden');
+
+    const name = $('bl-lead-name').value.trim();
+    const email = $('bl-lead-email').value.trim();
+    const phone = $('bl-lead-phone').value.trim();
+    const gmsName = state.gmsName;
+
+    if (name.length < 2 || !email.includes('@') || phone.length < 6) {
+      err.textContent = 'Please fill in your name, email and mobile number.';
+      err.classList.remove('hidden');
+      return;
+    }
+
+    busy(form, true);
+    try {
+      const res = await fetch(LEAD_ENDPOINT, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name,
+          email,
+          phone,
+          companyName: state.businessName,
+          source: 'blend-show-unsupported-gms',
+          notes: `Blend show — asked to be talked through it. Booking system: ${gmsName || 'not given'}. Address: ${state.address || 'n/a'}.`,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && (data.ok || data.success)) { setStep('lead-done', false); return; }
+      throw new Error('lead_failed');
+    } catch (e2) {
+      console.error('[blend] lead failed', e2);
+      err.textContent = "We couldn't send that just now. Come and find us at the stand instead.";
+      err.classList.remove('hidden');
+      busy(form, false);
+    }
+  });
+
+  setStep('business', true);
+</script>

@@ -11,6 +11,9 @@ interface Props {
   // Focused landing-page mode: logo-only header + minimal footer, no exit links.
   // Used by campaign pages (e.g. /mot) to keep visitors in the funnel.
   landing?: boolean;
+  // Keep a page out of search results. For a time-limited offer (e.g. /blend, the Blend show
+  // sign-up) an indexed page outlives the offer and strands people on terms we withdrew.
+  noindex?: boolean;
 }
 
 const lang = getLang(Astro.url);
@@ -39,6 +42,7 @@ const {
   description = defaultDescription,
   ogImage = '/og.png',
   landing = false,
+  noindex = false,
 } = Astro.props;
 const footerYear = 2026;
 ---
@@ -55,6 +59,7 @@ const footerYear = 2026;
 
     <title>{title}</title>
     <meta name="description" content={description} />
+    {noindex && <meta name="robots" content="noindex, nofollow" />}
     <link rel="canonical" href={canonicalHref} />
 
     <meta property="og:type" content="website" />

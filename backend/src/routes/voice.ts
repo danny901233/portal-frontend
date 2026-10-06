@@ -3,6 +3,7 @@ import { Router } from 'express';
 import { prisma } from '../db.js';
 import { raisesTickets, raiseTicketFromScreenedCall } from '../services/callTickets.js';
 import { sendCallSummaryEmail, sendPaymentSetupReminderEmail } from '../utils/email.js';
+import { isBlockedCaller } from '../utils/callerBlocklist.js';
 
 const router = Router();
 
@@ -69,6 +70,18 @@ router.post('/voice', async (req: Request, res: Response) => {
 
   if (!garageId || typeof garageId !== 'string') {
     return res.status(400).send('<?xml version="1.0" encoding="UTF-8"?><Response><Say>Invalid request</Say></Response>');
+  }
+
+  // Callers this line refuses — see callerBlocklist.ts for why it is scoped per garage.
+  // First thing in the handler on purpose: <Reject> never answers the call, so Twilio does not
+  // bill it and no agent, LLM or TTS minute is spent. "busy" is indistinguishable from a busy
+  // line, which discourages a repeat better than silence does.
+  const from = typeof req.body?.From === 'string' ? req.body.From : null;
+  if (isBlockedCaller(from, garageId)) {
+    console.warn(`[VOICE] Refusing blocked caller ${from || 'withheld'} on ${garageId}`);
+    return res
+      .type('text/xml')
+      .send('<?xml version="1.0" encoding="UTF-8"?><Response><Reject reason="busy"/></Response>');
   }
 
   // Fetch garage configuration to determine routing (agent type + which LK account)

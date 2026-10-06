@@ -33,6 +33,19 @@ import { sendTicketEmail } from '../services/ticketEmail.js';
 import { fileTicketMail } from '../services/outlookMailbox.js';
 import { verifyPushReplyToken } from '../services/pushReplyToken.js';
 import { staleWhere, REMIND_AFTER_DAYS } from '../services/ticketStaleSweep.js';
+import multer from 'multer';
+import {
+  MAX_ATTACHMENTS,
+  MAX_ATTACHMENT_BYTES,
+  claimAttachments,
+  loadEntryAttachments,
+  loadStagedAttachments,
+  presignAttachment,
+  stageAttachment,
+  toEmailAttachments,
+  validateTotalSize,
+  validateUpload,
+} from '../services/ticketAttachments.js';
 
 const router = Router();
 
@@ -90,6 +103,9 @@ const ccSchema = z.array(z.string().trim().email().transform((v) => v.toLowerCas
 // conversation defaults to yes; replying to one defaults to no.
 const chaseSchema = z.boolean().optional();
 
+/** Ids from the upload endpoint. Staged files belonging to the sender, not yet on any entry. */
+const attachmentIdsSchema = z.array(z.string().uuid()).max(MAX_ATTACHMENTS).optional();
+
 const composeSchema = z.object({
   to: z.string().trim().email().transform((v) => v.toLowerCase()),
   cc: ccSchema,
@@ -97,6 +113,7 @@ const composeSchema = z.object({
   name: z.string().trim().max(120).optional(),
   subject: z.string().trim().min(1).max(300),
   body: z.string().trim().min(1).max(20000),
+  attachmentIds: attachmentIdsSchema,
 });
 
 const replySchema = z.object({
@@ -104,6 +121,7 @@ const replySchema = z.object({
   isDraft: z.boolean().optional(),  // AI-drafted, not yet approved (default false = staff typed & sent)
   cc: ccSchema,
   chase: chaseSchema,
+  attachmentIds: attachmentIdsSchema,
 });
 
 const statusChangeSchema = z.object({
@@ -294,6 +312,8 @@ router.get('/admin/tickets/:id', authenticate, requireAdmin, async (req: Request
     include: {
       authorUser:    { select: { id: true, email: true } },
       authorContact: { select: { id: true, email: true, name: true } },
+      attachments:   { select: { id: true, filename: true, size: true, contentType: true },
+                       orderBy: { createdAt: 'asc' } },
     },
   });
 
@@ -377,6 +397,7 @@ router.post('/admin/tickets/compose', authenticate, requireAdmin, async (req: Re
     cc: parsed.data.cc,
     // We wrote to them out of the blue; an answer is the whole point.
     chase: parsed.data.chase ?? true,
+    attachmentIds: parsed.data.attachmentIds,
   });
 
   const fresh = await prisma.ticket.findUnique({ where: { id: ticket.id } });
@@ -419,6 +440,9 @@ async function postPublicReply(args: {
    *  Undefined leaves the ticket as it is, which is how a lock-screen reply
    *  and an AI draft behave: neither can express the intent. */
   chase?: boolean;
+  /** Staged uploads to send with this message. Scoped to `userId` when loaded, so a
+   *  bare uuid from someone else's compose box cannot be attached here. */
+  attachmentIds?: string[];
 }): Promise<{ status: number; entry?: unknown; error?: string }> {
   const ticket = await prisma.ticket.findUnique({
     where: { id: args.ticketId },
@@ -427,6 +451,18 @@ async function postPublicReply(args: {
   if (!ticket) return { status: 404, error: 'Ticket not found' };
 
   const now = new Date();
+
+  // Resolved before anything is sent or recorded, so a bad id fails the whole reply
+  // rather than quietly sending it with fewer files than the sender chose.
+  const staged = await loadStagedAttachments(args.attachmentIds ?? [], args.userId);
+  if (staged.length !== (args.attachmentIds?.length ?? 0)) {
+    return {
+      status: 400,
+      error: 'One of those attachments is no longer available — remove it and attach the file again.',
+    };
+  }
+  const sizeCheck = validateTotalSize(staged.map((a) => a.size));
+  if (!sizeCheck.ok) return { status: 400, error: sizeCheck.error };
 
   // Draft path: no email leaves the building, no timestamps bumped, no threading
   // headers generated. The UI still shows the draft.
@@ -440,6 +476,9 @@ async function postPublicReply(args: {
         isDraft: true,
       },
     });
+    // Held against the draft so approving it later sends the same files. Claiming them
+    // now also takes them out of reach of the unsent-upload sweep.
+    await claimAttachments(staged.map((a) => a.id), entry.id);
     return { status: 201, entry };
   }
 
@@ -462,6 +501,11 @@ async function postPublicReply(args: {
     };
   }
 
+  // Approving a draft sends what the draft was holding as well as anything added on the
+  // way out, so a file chosen when the draft was written is not quietly dropped.
+  const alreadyOnEntry = args.reuseEntryId ? await loadEntryAttachments(args.reuseEntryId) : [];
+  const outgoing = [...alreadyOnEntry, ...staged];
+
   // Never copy the recipient on their own email.
   const cc = args.cc?.filter((a) => a && a !== ticket.contact.email) ?? [];
   const { sendOk, outboundMessageId, threadingHeaders } = await sendTicketEmail({
@@ -471,6 +515,7 @@ async function postPublicReply(args: {
     to: ticket.contact.email as string,
     body: args.body,
     cc,
+    attachments: outgoing.length ? await toEmailAttachments(outgoing) : undefined,
   });
 
   const sendMeta: Record<string, unknown> = {
@@ -481,6 +526,7 @@ async function postPublicReply(args: {
     // On the entry so the thread can show who else got it, and so the next
     // reply box can prefill with the same people.
     ...(cc.length ? { cc } : {}),
+    ...(outgoing.length ? { attachments: outgoing.map((a) => a.filename) } : {}),
     ...(sendOk ? {} : { sendFailed: true }),
   };
 
@@ -505,6 +551,10 @@ async function postPublicReply(args: {
           meta: sendMeta as Prisma.InputJsonValue,
         },
       });
+
+  // Attached to the entry whether or not the send succeeded: the files are part of
+  // what staff composed, and an unsent entry is something they will retry from.
+  await claimAttachments(staged.map((a) => a.id), (entry as { id: string }).id);
 
   await prisma.ticket.update({
     where: { id: ticket.id },
@@ -539,11 +589,85 @@ router.post('/admin/tickets/:id/reply', authenticate, requireAdmin, async (req: 
     cc: parsed.data.cc,
     // A draft is not sent, so it says nothing about who we are waiting on.
     chase: parsed.data.isDraft ? undefined : (parsed.data.chase ?? false),
+    attachmentIds: parsed.data.attachmentIds,
   });
 
   return res.status(result.status).json(
     result.error ? { entry: result.entry, error: result.error } : { entry: result.entry },
   );
+});
+
+
+// ─── ATTACHMENTS ───────────────────────────────────────────────────────────
+//
+// Upload is its own request, separate from sending, so the compose box can carry files
+// before the ticket it belongs to exists. An upload is "staged" until a reply names its id;
+// unclaimed ones are swept after a day (services/ticketAttachments.ts).
+
+const attachmentUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: MAX_ATTACHMENT_BYTES, files: 1 },
+});
+
+/** Wrap multer so an oversized file answers 413 rather than a generic 500. */
+const acceptOneFile = (req: Request, res: Response, next: (err?: unknown) => void) => {
+  attachmentUpload.single('file')(req as never, res as never, (err: unknown) => {
+    if (err) {
+      const code = (err as { code?: string }).code;
+      if (code === 'LIMIT_FILE_SIZE') {
+        return res.status(413).json({
+          error: `That file is too large — the limit is ${Math.round(MAX_ATTACHMENT_BYTES / 1024 / 1024)}MB.`,
+        });
+      }
+      console.error('[TICKETS] attachment upload failed:', err);
+      return res.status(400).json({ error: 'That upload could not be read.' });
+    }
+    next();
+  });
+};
+
+router.post('/admin/tickets/attachments', authenticate, requireAdmin, acceptOneFile, async (req: Request, res: Response) => {
+  if (!req.user) return res.status(401).json({ error: 'Unauthorised' });
+  const file = (req as Request & { file?: { originalname: string; mimetype: string; size: number; buffer: Buffer } }).file;
+  if (!file) return res.status(400).json({ error: 'No file uploaded.' });
+
+  const check = validateUpload({
+    filename: file.originalname,
+    contentType: file.mimetype,
+    size: file.size,
+  });
+  if (!check.ok) return res.status(400).json({ error: check.error });
+
+  try {
+    const staged = await stageAttachment({
+      filename: file.originalname,
+      contentType: file.mimetype,
+      bytes: file.buffer,
+      uploadedByUserId: req.user.userId,
+    });
+    console.log(`[TICKETS] ${req.user.email} staged attachment ${staged.filename} (${staged.size} bytes)`);
+    return res.status(201).json({ attachment: staged });
+  } catch (err) {
+    console.error('[TICKETS] could not store attachment:', err);
+    return res.status(502).json({ error: 'That file could not be stored. Try again.' });
+  }
+});
+
+/**
+ * A short-lived download link for one attachment.
+ *
+ * A URL rather than the bytes: the object is in a private bucket, and presigning keeps the
+ * file out of the portal's own response path exactly as call recordings and chat media do.
+ */
+router.get('/admin/tickets/attachments/:id/url', authenticate, requireAdmin, async (req: Request, res: Response) => {
+  try {
+    const signed = await presignAttachment(req.params.id);
+    if (!signed) return res.status(404).json({ error: 'Attachment not found' });
+    return res.json(signed);
+  } catch (err) {
+    console.error('[TICKETS] could not presign attachment:', err);
+    return res.status(502).json({ error: 'That attachment could not be fetched.' });
+  }
 });
 
 

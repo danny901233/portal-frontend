@@ -29,6 +29,12 @@ import {
   type TicketListFilters,
   type TicketStatus,
 } from '../../lib/api';
+import {
+  AttachButton,
+  PendingAttachments,
+  SentAttachments,
+  useAttachmentUploads,
+} from '../../components/TicketAttachments';
 
 const POLL_MS = 20_000;
 
@@ -133,6 +139,10 @@ export default function AdminTicketsPage() {
   const [chaseReply, setChaseReply] = useState(false);
   const [chaseCompose, setChaseCompose] = useState(true);
   const [composeError, setComposeError] = useState<string | null>(null);
+  // Files staged for the message being written. Separate holders: a part-written reply
+  // and a part-written new email must not hand each other their attachments.
+  const replyUploads = useAttachmentUploads();
+  const composeUploads = useAttachmentUploads();
 
   useEffect(() => {
     if (!isReceptionMateStaff()) {
@@ -224,6 +234,12 @@ export default function AdminTicketsPage() {
     if (selectedId) requestAnimationFrame(() => listEndRef.current?.scrollIntoView({ behavior: 'smooth' }));
   }, [entries.length, selectedId]);
 
+  // Moving to another ticket drops anything staged for the one being left, so a file
+  // cannot follow the reply box onto a conversation it was never meant for. Keyed on
+  // the selection and NOT done in loadThread, which the poll calls every few seconds.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { replyUploads.reset(); }, [selectedId]);
+
   /** Load an AI draft into the reply box rather than sending it outright.
    *  The extra read-and-press is the point: whoever sends it is then the author,
    *  and a fluent-but-wrong draft gets caught before it leaves. */
@@ -246,7 +262,8 @@ export default function AdminTicketsPage() {
       if (draftMode === 'reply') {
         const bad = invalidCc(replyCc);
         if (bad.length) { setError(`Not a valid email address: ${bad.join(', ')}`); setSending(false); return; }
-        await replyToTicket(selectedId, draft.trim(), false, parseCc(replyCc), chaseReply);
+        await replyToTicket(selectedId, draft.trim(), false, parseCc(replyCc), chaseReply, replyUploads.ids);
+        replyUploads.reset();
       }
       else await addTicketNote(selectedId, draft.trim());
       setDraft('');
@@ -308,6 +325,7 @@ export default function AdminTicketsPage() {
   };
 
   const openCompose = () => {
+    composeUploads.reset();
     setSelectedId(null);
     setSelected(null);
     setComposeError(null);
@@ -329,8 +347,10 @@ export default function AdminTicketsPage() {
         body: compose.body.trim(),
         cc: parseCc(compose.cc),
         chase: chaseCompose,
+        attachmentIds: composeUploads.ids,
       });
       setCompose({ to: '', name: '', subject: '', body: '', cc: '' });
+      composeUploads.reset();
       setComposing(false);
       // Sent tickets are Pending, which the default New filter hides — show it
       // anyway so the sender sees it went.
@@ -657,6 +677,14 @@ export default function AdminTicketsPage() {
                     className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
                   />
                 </label>
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-medium text-slate-700">Attachments</span>
+                    <AttachButton uploads={composeUploads} disabled={sending} />
+                    <span className="text-[10px] text-slate-400">PDF, image, Word, Excel or CSV · 10MB each</span>
+                  </div>
+                  <PendingAttachments uploads={composeUploads} />
+                </div>
                 <label className="flex items-center gap-2 text-xs text-slate-700">
                   <input
                     type="checkbox"
@@ -828,6 +856,9 @@ export default function AdminTicketsPage() {
                       Cc{replyCc.trim() ? ` (${parseCc(replyCc).length})` : ''}
                     </button>
                   )}
+                  {/* An attachment is an email concept too, so like Cc it is offered on a
+                      reply and not on an internal note. */}
+                  {draftMode === 'reply' && <AttachButton uploads={replyUploads} disabled={sending} />}
                   {draftMode === 'reply' && (
                     <label
                       className="flex items-center gap-1.5 rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600"
@@ -856,6 +887,7 @@ export default function AdminTicketsPage() {
                     className="mb-2 w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-900 placeholder:text-slate-400 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
                   />
                 )}
+                {draftMode === 'reply' && <PendingAttachments uploads={replyUploads} />}
                 <div className="flex items-end gap-2">
                   <textarea
                     value={draft}
@@ -996,6 +1028,7 @@ function EntryBubble({ e, onUseDraft }: { e: TicketEntry; onUseDraft?: (body: st
         }`}
       >
         <p className="whitespace-pre-wrap break-words">{e.body}</p>
+        <SentAttachments attachments={e.attachments ?? []} tone={isStaff ? 'dark' : 'light'} />
         <p className={`mt-1 text-[10px] ${isStaff ? 'text-brand-100' : 'text-slate-500'}`}>
           {isAutomatic ? 'Automatic' : isStaff ? (e.authorUser?.email ?? 'Staff') : (e.authorContact?.name ?? e.authorContact?.email ?? 'Customer')}
           {' · '}{time}

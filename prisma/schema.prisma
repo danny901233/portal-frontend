@@ -347,6 +347,7 @@ model User {
   supportContacts    Contact[]      @relation("SupportContactUser")
   supportTicketsOwned Ticket[]      @relation("SupportTicketAssignee")
   supportTicketEntries TicketEntry[] @relation("TicketEntryStaffAuthor")
+  ticketAttachments    TicketAttachment[] @relation("TicketAttachmentUploader")
 
   // Garage-side Messages inbox: a garage's team member can own conversations
   // from their garage's customers. Assignment is per-garage — a multi-branch
@@ -1383,11 +1384,49 @@ model TicketEntry {
   meta            Json?
   createdAt       DateTime @default(now())
 
+  // Files sent with this entry. Empty for everything except a public_reply that carried one.
+  attachments     TicketAttachment[]
+
   @@index([ticketId, createdAt])
   @@index([outboundMessageId])
   // "Everything X replied to" — would otherwise seq-scan (Dan's PR #381 review, minor #5).
   @@index([authorUserId])
   @@index([authorContactId])
+}
+
+// A file staff attached to an outbound ticket email.
+//
+// Uploaded before the message it belongs to exists, so `ticketEntryId` starts null and is
+// filled in when the reply actually sends. A null one is "staged": uploaded, validated, sitting
+// in S3, not yet part of any conversation. That is what lets the New-email box carry
+// attachments, since there is no ticket to hang them on until it is sent.
+//
+// Staged rows are swept after 24h (services/ticketAttachments.ts). Claimed ones live as long as
+// the entry does — the timeline shows what we actually sent someone, and an invoice or a price
+// list we emailed is exactly the thing a billing question comes back about later.
+model TicketAttachment {
+  id               String       @id @default(uuid())
+  // Null = staged, not yet sent. Set on send, and never changed after.
+  ticketEntryId    String?
+  ticketEntry      TicketEntry? @relation(fields: [ticketEntryId], references: [id], onDelete: Cascade)
+  // Where the bytes are, in the private media bucket. Never served directly — reads go
+  // through a short-lived presigned URL.
+  s3Key            String
+  // As sanitised at upload: basename only, control characters stripped, length capped.
+  // This is what the recipient sees, so it is stored as sent rather than re-derived.
+  filename         String
+  contentType      String
+  size             Int
+  // Who uploaded it. Also scopes the staged lookup, so one person's pending upload cannot
+  // be attached to another person's reply by guessing its id.
+  uploadedByUserId String?
+  uploadedBy       User?        @relation("TicketAttachmentUploader", fields: [uploadedByUserId], references: [id], onDelete: SetNull)
+  createdAt        DateTime     @default(now())
+
+  // Rendering a ticket timeline fetches every attachment on its entries.
+  @@index([ticketEntryId])
+  // The sweep looks for old staged rows.
+  @@index([ticketEntryId, createdAt])
 }
 
 // ── Support-hub enums (PR #381 review #3: strict values, not free-text) ──

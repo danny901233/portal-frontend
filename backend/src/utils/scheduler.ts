@@ -17,6 +17,7 @@ import { runBillingWatchdog } from '../services/billingWatchdog.js';
 import { retryFailedPayments } from '../services/paymentRetry.js';
 import { chaseOverdueInvoices } from '../services/invoiceChase.js';
 import { sweepTransferredCalls } from '../services/transferTranscript.js';
+import { sweepStagedAttachments } from '../services/ticketAttachments.js';
 
 const prisma = new PrismaClient();
 
@@ -39,6 +40,13 @@ export const initializeScheduledReports = (): void => {
   cron.schedule('5 0 * * *', async () => {
     try { await resetRecurringTasks('daily'); }
     catch (error) { console.error('Ops board daily reset failed:', error); }
+  }, { timezone: 'Europe/London' });
+
+  // Files staff uploaded to a ticket reply and never sent. An abandoned compose box
+  // should not leave objects in the bucket for ever.
+  cron.schedule('40 0 * * *', async () => {
+    try { await sweepStagedAttachments(); }
+    catch (error) { console.error('Staged ticket-attachment sweep failed:', error); }
   }, { timezone: 'Europe/London' });
 
   // Leavers whose notice has expired: switch the service off first thing, so nobody has to

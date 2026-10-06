@@ -1208,6 +1208,16 @@ export interface TicketEntry {
   createdAt: string;
   authorUser: { id: string; email: string } | null;
   authorContact: { id: string; email: string | null; name: string | null } | null;
+  /** Files sent with this message. Present only on replies that carried one. */
+  attachments?: TicketAttachment[];
+}
+
+/** A file staff attached to an outbound ticket email. */
+export interface TicketAttachment {
+  id: string;
+  filename: string;
+  size: number;
+  contentType: string;
 }
 
 /** One message we sent, for the Sent view. */
@@ -1289,9 +1299,29 @@ export const createTicket = async (input: CreateTicketInput): Promise<{ ticket: 
 };
 
 export const replyToTicket = async (
-  id: string, body: string, isDraft = false, cc?: string[], chase = false,
+  id: string, body: string, isDraft = false, cc?: string[], chase = false, attachmentIds?: string[],
 ): Promise<{ entry: TicketEntry }> => {
-  const { data } = await api.post(`/api/admin/tickets/${id}/reply`, { body, isDraft, chase, ...(cc?.length ? { cc } : {}) });
+  const { data } = await api.post(`/api/admin/tickets/${id}/reply`, {
+    body, isDraft, chase,
+    ...(cc?.length ? { cc } : {}),
+    ...(attachmentIds?.length ? { attachmentIds } : {}),
+  });
+  return data;
+};
+
+/** Upload one file and get back the id to name on a reply or a composed email.
+ *  Deliberately separate from sending, so the New-email box can carry files
+ *  before the ticket they belong to exists. */
+export const uploadTicketAttachment = async (file: File): Promise<{ attachment: TicketAttachment }> => {
+  const form = new FormData();
+  form.append('file', file);
+  const { data } = await api.post('/api/admin/tickets/attachments', form);
+  return data;
+};
+
+/** A short-lived download link. Not stored anywhere — fetched on click. */
+export const getTicketAttachmentUrl = async (id: string): Promise<{ url: string; filename: string }> => {
+  const { data } = await api.get(`/api/admin/tickets/attachments/${id}/url`);
   return data;
 };
 
@@ -1315,6 +1345,8 @@ export interface ComposeTicketInput {
   /** We are waiting on an answer, so chase if none comes. Defaults to true
    *  here: writing to someone out of the blue is asking for a reply. */
   chase?: boolean;
+  /** Staged uploads to send with it, from uploadTicketAttachment. */
+  attachmentIds?: string[];
 }
 
 /** Start a conversation from our side: a new ticket whose first message we send

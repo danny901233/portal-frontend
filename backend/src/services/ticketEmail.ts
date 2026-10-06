@@ -12,6 +12,7 @@ import { randomBytes } from 'crypto';
 import { TicketEntryKind } from '@prisma/client';
 import { prisma } from '../db.js';
 import { sendEmail, SUPPORT_MAILGUN_DOMAIN } from '../utils/email.js';
+import type { EmailAttachment } from '../utils/email.js';
 import { ticketSubjectTag, stripTicketTag } from './ticketRef.js';
 
 const OUTBOUND_MSGID_DOMAIN = process.env.MAILGUN_DOMAIN || 'receptionmate.co.uk';
@@ -180,6 +181,10 @@ export async function sendTicketEmail(args: {
    *  subject tag like any other, so a colleague or a third party stays part of
    *  the same conversation rather than starting a second one. */
   cc?: string[];
+  /** Files staff attached. Already validated and fetched by the caller — this
+   *  only has to put them on the message. sendEmail switches to a multipart
+   *  body when any are present, and carries the threading headers across. */
+  attachments?: EmailAttachment[];
 }): Promise<TicketEmailResult> {
   const outboundMessageId = generateOutboundMessageId(args.ticketNumber);
   const threadingHeaders = await buildThreadingHeaders(args.ticketId, outboundMessageId);
@@ -199,6 +204,7 @@ export async function sendTicketEmail(args: {
     subject,
     text,
     html,
+    ...(args.attachments?.length ? { attachments: args.attachments } : {}),
     headers: threadingHeaders,
   });
   return { sendOk, outboundMessageId, threadingHeaders, subject };

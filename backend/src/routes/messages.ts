@@ -3,6 +3,9 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../db.js';
 import { authenticate } from '../middleware/auth.js';
+import { withAiContext } from '../utils/aiUsage.js';
+import { isEnglish, translateForCustomer, translateThreadToEnglish } from '../services/translate.js';
+import { userCanAccessGarage } from '../utils/garageAccess.js';
 import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { randomUUID } from 'crypto';
@@ -567,6 +570,9 @@ router.post(
 
       const schema = z.object({
         content: z.string().min(1),
+        // Set when the staff member typed English at a customer who does not read it. The
+        // customer receives this language; `content` on the row is what actually went out.
+        translateTo: z.string().min(2).max(30).optional(),
       });
 
       const result = schema.safeParse(req.body);
@@ -574,7 +580,7 @@ router.post(
         return res.status(400).json({ error: 'Invalid request', details: result.error.flatten() });
       }
 
-      const { content } = result.data;
+      const { content, translateTo } = result.data;
 
       // Get conversation
       const conversation = await prisma.chatConversation.findUnique({
@@ -594,12 +600,32 @@ router.post(
         return res.status(404).json({ error: 'Conversation not found' });
       }
 
+      // Translate BEFORE writing the row, so `content` is always what actually went over the
+      // wire and the English the staff member typed is kept beside it. A failure here aborts
+      // the send: a garage told its Polish reply went out, when English did, has been lied to.
+      let outbound = content;
+      let typedEnglish: string | null = null;
+      if (translateTo && !isEnglish(translateTo)) {
+        try {
+          outbound = await withAiContext(
+            { garageId: conversation.garageId, conversationId, channel: conversation.platform, agent: 'translate' },
+            () => translateForCustomer(content, translateTo),
+          );
+          typedEnglish = content;
+        } catch (err) {
+          console.error('[TRANSLATE] outbound translation failed:', err);
+          return res.status(502).json({ error: 'Could not translate that message — nothing was sent.' });
+        }
+      }
+
       // Save message to DB
       const message = await prisma.chatMessage.create({
         data: {
           conversationId,
           role: 'assistant',
-          content,
+          content: outbound,
+          translatedContent: typedEnglish,
+          translatedFrom: typedEnglish ? 'English' : null,
           staffUserId: req.user?.userId ?? null,
           staffUserEmail: req.user?.email ?? null,
         },
@@ -621,7 +647,7 @@ router.post(
       );
 
       if (connection) {
-        await sendMessage(conversation, content, connection);
+        await sendMessage(conversation, outbound, connection);
       }
 
       res.json({ success: true, message });
@@ -631,6 +657,108 @@ router.post(
       }
       console.error('Failed to send message:', error);
       res.status(500).json({ error: 'Failed to send message' });
+    }
+  }
+);
+
+// POST /api/conversations/:conversationId/translate - Translate a non-English thread to English
+//
+// Lazy and cached: the first call pays for the thread, later calls only pay for whatever has
+// arrived since. Returns the translations rather than rewriting any message content.
+router.post(
+  '/conversations/:conversationId/translate',
+  authenticate,
+  async (req: Request, res: Response) => {
+    try {
+      const { conversationId } = req.params;
+
+      const conversation = await prisma.chatConversation.findUnique({
+        where: { id: conversationId },
+        select: { id: true, garageId: true, platform: true, customerLanguage: true },
+      });
+      if (!conversation) {
+        return res.status(404).json({ error: 'Conversation not found' });
+      }
+
+      if (!await userCanAccessGarage(req.user?.userId, conversation.garageId)) {
+        // 404, not 403: whether a conversation id exists is itself another garage's business.
+        return res.status(404).json({ error: 'Conversation not found' });
+      }
+
+      await withAiContext(
+        {
+          garageId: conversation.garageId,
+          conversationId,
+          channel: conversation.platform,
+          agent: 'translate',
+        },
+        () => translateThreadToEnglish(conversationId),
+      );
+
+      const messages = await prisma.chatMessage.findMany({
+        where: { conversationId },
+        orderBy: { createdAt: 'asc' },
+        select: { id: true, translatedContent: true, translatedFrom: true },
+      });
+
+      res.json({
+        language: conversation.customerLanguage,
+        translations: messages.filter((m) => m.translatedContent),
+      });
+    } catch (error) {
+      console.error('Failed to translate conversation:', error);
+      res.status(500).json({ error: 'Could not translate this conversation' });
+    }
+  }
+);
+
+// POST /api/conversations/:conversationId/translate-draft - Preview a staff reply
+//
+// So a staff member can see the Polish before it goes out. Sending text you cannot read to a
+// customer, with no way to look at it first, is not something a garage should be asked to do.
+router.post(
+  '/conversations/:conversationId/translate-draft',
+  authenticate,
+  async (req: Request, res: Response) => {
+    try {
+      const { conversationId } = req.params;
+      const parsed = z.object({ content: z.string().min(1).max(4000) }).safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: 'Invalid request' });
+      }
+
+      const conversation = await prisma.chatConversation.findUnique({
+        where: { id: conversationId },
+        select: { garageId: true, platform: true, customerLanguage: true },
+      });
+      if (!conversation) {
+        return res.status(404).json({ error: 'Conversation not found' });
+      }
+
+      if (!await userCanAccessGarage(req.user?.userId, conversation.garageId)) {
+        // 404, not 403: whether a conversation id exists is itself another garage's business.
+        return res.status(404).json({ error: 'Conversation not found' });
+      }
+
+      const language = conversation.customerLanguage;
+      if (!language || isEnglish(language)) {
+        return res.status(400).json({ error: 'This conversation is already in English' });
+      }
+
+      const translated = await withAiContext(
+        {
+          garageId: conversation.garageId,
+          conversationId,
+          channel: conversation.platform,
+          agent: 'translate',
+        },
+        () => translateForCustomer(parsed.data.content, language),
+      );
+
+      res.json({ language, translated });
+    } catch (error) {
+      console.error('Failed to translate draft:', error);
+      res.status(500).json({ error: 'Could not translate that draft' });
     }
   }
 );

@@ -16,11 +16,30 @@ interface Message {
   mediaUrl?: string;
   mediaType?: string;
   staffUserEmail?: string | null;
+  // `content` is always what went over the wire. These hold the staff-side English for a
+  // non-English thread, filled in lazily the first time anyone translates it.
+  translatedContent?: string | null;
+  translatedFrom?: string | null;
+}
+
+/**
+ * Does this thread need the translate control at all?
+ *
+ * Mirrors isEnglish() in backend/src/services/translate.ts. A thread whose language we never
+ * detected is treated as English, so it looks exactly as it did before this feature existed.
+ */
+const ENGLISH_LANGUAGES = new Set(['en', 'eng', 'engb', 'enus', 'english']);
+function needsTranslation(language?: string | null): boolean {
+  if (!language) return false;
+  const normalised = language.toLowerCase().replace(/[^a-z]/g, '');
+  return normalised.length > 0 && !ENGLISH_LANGUAGES.has(normalised);
 }
 
 interface Conversation {
   id: string;
   platform: string;
+  /** English name of the language the customer writes in ("Polish"); null = not detected. */
+  customerLanguage?: string | null;
   platforms?: string[];
   customerPhone?: string;
   customerId?: string;
@@ -367,6 +386,12 @@ export default function MessagesPage() {
   const [messageInput, setMessageInput] = useState('');
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
+  // Translation UI. `showTranslated` is the thread toggle; `draftPreview` holds the customer's
+  // language rendering of whatever the staff member has typed, so they can see it before it goes.
+  const [showTranslated, setShowTranslated] = useState(false);
+  const [translating, setTranslating] = useState(false);
+  const [draftPreview, setDraftPreview] = useState<string | null>(null);
+  const [previewing, setPreviewing] = useState(false);
   const [selectedGarageId, setSelectedGarageId] = useState<string | null>(null);
   const [showFilterDropdown, setShowFilterDropdown] = useState(false);
   const [showPauseDropdown, setShowPauseDropdown] = useState(false);
@@ -548,6 +573,13 @@ export default function MessagesPage() {
 
   // Deep link from elsewhere in the portal — e.g. an outbound campaign's results table, where
   // "Booked" should be able to take you to the conversation that produced the booking.
+  // Translation view is per-thread: opening another conversation must not inherit the last
+  // one's toggle, and a draft preview must never outlive the draft it was made from.
+  useEffect(() => {
+    setShowTranslated(false);
+    setDraftPreview(null);
+  }, [selectedConversation?.id]);
+
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const wanted = new URLSearchParams(window.location.search).get('conversation');
@@ -578,6 +610,66 @@ export default function MessagesPage() {
     }
   };
 
+  /**
+   * Translate the thread into English and show it. Cached server-side, so toggling back and
+   * forth after the first call costs nothing.
+   */
+  const toggleTranslation = async () => {
+    if (!selectedConversation) return;
+    if (showTranslated) {
+      setShowTranslated(false);
+      return;
+    }
+
+    const alreadyHave = (selectedConversation.messages || []).some((m) => m.translatedContent);
+    if (alreadyHave) {
+      setShowTranslated(true);
+      return;
+    }
+
+    setTranslating(true);
+    try {
+      const token = getSessionToken();
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/api/conversations/${selectedConversation.id}/translate`,
+        { method: 'POST', headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (!response.ok) throw new Error('Failed to translate');
+      await fetchConversationDetail(selectedConversation.id);
+      setShowTranslated(true);
+    } catch (error) {
+      console.error('Error translating conversation:', error);
+      alert('Could not translate this conversation. Please try again.');
+    } finally {
+      setTranslating(false);
+    }
+  };
+
+  /** Show the staff member what their reply looks like in the customer's language. */
+  const previewDraft = async () => {
+    if (!selectedConversation || !messageInput.trim()) return;
+    setPreviewing(true);
+    try {
+      const token = getSessionToken();
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/api/conversations/${selectedConversation.id}/translate-draft`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ content: messageInput }),
+        }
+      );
+      if (!response.ok) throw new Error('Failed to translate draft');
+      const data = await response.json();
+      setDraftPreview(data.translated);
+    } catch (error) {
+      console.error('Error translating draft:', error);
+      alert('Could not translate that just now. You can still send it.');
+    } finally {
+      setPreviewing(false);
+    }
+  };
+
   const sendMessage = async () => {
     if (!selectedConversation || !messageInput.trim()) return;
 
@@ -592,18 +684,30 @@ export default function MessagesPage() {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${token}`,
           },
-          body: JSON.stringify({ content: messageInput }),
+          body: JSON.stringify({
+            content: messageInput,
+            // The customer gets their own language; the English stays on the row beside it.
+            ...(needsTranslation(selectedConversation.customerLanguage)
+              ? { translateTo: selectedConversation.customerLanguage }
+              : {}),
+          }),
         }
       );
 
-      if (!response.ok) throw new Error('Failed to send message');
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(body?.error || 'Failed to send message');
+      }
 
       setMessageInput('');
+      setDraftPreview(null);
       await fetchConversationDetail(selectedConversation.id);
       await fetchConversations();
     } catch (error) {
       console.error('Error sending message:', error);
-      alert(c.failedSendMessage);
+      // Surface the real reason when there is one — a failed translation means nothing was
+      // sent, and "failed to send" alone would leave staff unsure whether it went.
+      alert(error instanceof Error && error.message ? error.message : c.failedSendMessage);
     } finally {
       setSending(false);
     }
@@ -1567,6 +1671,38 @@ export default function MessagesPage() {
                   )}
                 </div>
 
+                {/* Translate — only on threads whose customer does not write English, so the
+                    control never appears on the threads that don't need it. */}
+                {needsTranslation(selectedConversation.customerLanguage) && (
+                  <button
+                    type="button"
+                    onClick={toggleTranslation}
+                    disabled={translating}
+                    title={
+                      showTranslated
+                        ? `Show the original ${selectedConversation.customerLanguage}`
+                        : `This customer writes in ${selectedConversation.customerLanguage} — show it in English`
+                    }
+                    className={cn(
+                      'flex items-center gap-1.5 rounded-md border px-2 py-1.5 text-xs font-medium transition-colors disabled:opacity-60',
+                      showTranslated
+                        ? 'border-brand-300 bg-brand-50 text-brand-700 hover:border-brand-500'
+                        : 'border-slate-300 bg-white text-slate-600 hover:border-slate-500 hover:text-brand-700'
+                    )}
+                  >
+                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="m10.5 21 5.25-11.25L21 21m-9-3h7.5M3 5.621a48.474 48.474 0 0 1 6-.371m0 0c1.12 0 2.233.038 3.334.114M9 5.25V3m3.334 2.364C11.176 10.658 7.69 15.08 3 17.502m9.334-12.138c.896.061 1.785.147 2.666.257m-4.589 8.495a18.023 18.023 0 0 1-3.827-5.802" />
+                    </svg>
+                    <span>
+                      {translating
+                        ? 'Translating…'
+                        : showTranslated
+                          ? `Show ${selectedConversation.customerLanguage}`
+                          : 'Translate'}
+                    </span>
+                  </button>
+                )}
+
                 {/* Thumbs-down feedback — mirrors the /calls pattern so ops
                     review negatives with the same audit process across both
                     channels. Filled red thumb when a down rating exists, hollow
@@ -1736,9 +1872,31 @@ export default function MessagesPage() {
                         }}
                       />
                     )}
-                    {message.content && message.content !== '[Image]' && (
-                      <p className="text-sm">{message.content}</p>
-                    )}
+                    {message.content && message.content !== '[Image]' && (() => {
+                      // Only ever SHOW the translation — `content` stays the record of what was
+                      // actually sent, and the badge makes clear which one is on screen.
+                      const translated = showTranslated && message.translatedContent;
+                      return (
+                        <>
+                          <p className="text-sm">{translated ? message.translatedContent : message.content}</p>
+                          {translated && (
+                            <p
+                              className={cn(
+                                'text-[11px] mt-1 italic',
+                                message.role === 'user' ? 'text-slate-400' : 'text-purple-200'
+                              )}
+                            >
+                              {/* A staff reply stores the English that was TYPED, not a
+                                  translation of it — "Translated from English" would be
+                                  nonsense. Say what actually happened in each direction. */}
+                              {needsTranslation(message.translatedFrom)
+                                ? `Translated from ${message.translatedFrom}`
+                                : `Your English — sent in ${selectedConversation.customerLanguage}`}
+                            </p>
+                          )}
+                        </>
+                      );
+                    })()}
                     <p className={cn('text-xs mt-1', message.role === 'user' ? 'text-slate-500' : 'text-purple-200')}>
                       {formatTime(message.createdAt)}
                     </p>
@@ -1789,6 +1947,31 @@ export default function MessagesPage() {
                         </button>
                       </div>
                     )}
+                    {/* Non-English thread: say what language the reply goes out in, and let staff
+                        see it first. Sending words you cannot read, unseen, is not something a
+                        garage should have to do on trust. */}
+                    {needsTranslation(selectedConversation.customerLanguage) && (
+                      <div className="mb-2 rounded-lg border border-brand-200 bg-brand-50 px-3 py-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-xs text-brand-800">
+                            Type in English — this is sent in {selectedConversation.customerLanguage}.
+                          </p>
+                          <button
+                            type="button"
+                            onClick={previewDraft}
+                            disabled={previewing || !messageInput.trim()}
+                            className="shrink-0 rounded-md border border-brand-300 bg-white px-2 py-1 text-xs font-medium text-brand-700 hover:border-brand-500 disabled:opacity-50"
+                          >
+                            {previewing ? 'Translating…' : 'Preview'}
+                          </button>
+                        </div>
+                        {draftPreview && (
+                          <p className="mt-2 border-t border-brand-200 pt-2 text-sm text-slate-800">
+                            {draftPreview}
+                          </p>
+                        )}
+                      </div>
+                    )}
                     <div className="rounded-xl border border-slate-300 bg-white transition focus-within:border-brand-600 focus-within:ring-1 focus-within:ring-brand-600">
                       <input
                         ref={imageInputRef}
@@ -1800,7 +1983,7 @@ export default function MessagesPage() {
                       <input
                         type="text"
                         value={messageInput}
-                        onChange={(e) => setMessageInput(e.target.value)}
+                        onChange={(e) => { setMessageInput(e.target.value); if (draftPreview) setDraftPreview(null); }}
                         onKeyPress={(e) => e.key === 'Enter' && !e.shiftKey && (selectedImage ? sendImage() : sendMessage())}
                         placeholder={selectedImage ? c.addCaption : c.writeMessage}
                         maxLength={1600}

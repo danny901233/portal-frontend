@@ -12,6 +12,8 @@ import { handleSupportWhatsappInbound } from '../../services/supportWhatsappInbo
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { randomUUID } from 'crypto';
 import { buildTemplateFields } from '../../services/outboundSend.js';
+import { withAiContext } from '../../utils/aiUsage.js';
+import { ensureConversationLanguage } from '../../services/translate.js';
 import { splitPersonName } from '../../utils/personName.js';
 
 const router = Router();
@@ -447,6 +449,21 @@ router.post('/meta-whatsapp', async (req: Request, res: Response) => {
               metaMid: metaMid ?? null,
             },
           });
+
+          // Work out once what language this customer writes in, so the inbox knows whether to
+          // offer staff a translation. Fire-and-forget and a no-op after the first detection:
+          // taking a customer's message must never wait on, or fail because of, this.
+          if (messageText && !conversation.customerLanguage) {
+            void withAiContext(
+              {
+                garageId: conversation.garageId,
+                conversationId: conversation.id,
+                channel: 'whatsapp',
+                agent: 'translate',
+              },
+              () => ensureConversationLanguage(conversation.id, messageText, conversation.customerLanguage),
+            );
+          }
 
           // Messaging notifications (scope 'all') — alert the garage about the new
           // inbound message. No-op unless enabled. Fire-and-forget.

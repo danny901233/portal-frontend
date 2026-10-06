@@ -10,6 +10,7 @@
     "migrate": "prisma migrate deploy --schema ../prisma/schema.prisma",
     "migrate:dev": "prisma migrate dev --schema ../prisma/schema.prisma",
     "prisma:generate": "prisma generate --schema ../prisma/schema.prisma",
+    "test": "tsx --test src/**/*.test.ts",
     "seed": "tsx prisma/seed.ts"
   },
   "dependencies": {

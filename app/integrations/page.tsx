@@ -523,34 +523,20 @@ export default function IntegrationsPage({ embedded = false }: { embedded?: bool
                       {c.disconnect}
                     </button>
                   ) : platform.id === 'whatsapp' ? (
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => connectWhatsAppEmbedded()}
-                        className={cn(
-                          'px-3 py-2 text-sm text-white rounded-md transition-colors shadow-sm',
-                          platform.color,
-                          'hover:opacity-90'
-                        )}
-                      >
-                        {waConnections.length ? c.waAddAnother : c.setUpNew}
-                      </button>
-                      <button
-                        onClick={() => {
-                          const token = getSessionToken();
-                          fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/oauth/meta/initiate`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                            body: JSON.stringify({ platform: 'whatsapp', garageId: selectedGarageId }),
-                          })
-                            .then(r => r.json())
-                            .then(data => { if (data.authUrl) window.location.href = data.authUrl; })
-                            .catch(() => alert(c.failedConnectShort));
-                        }}
-                        className="px-3 py-2 text-sm text-slate-700 bg-white hover:bg-slate-50 rounded-md transition-colors border border-slate-300 shadow-sm"
-                      >
-                        {c.connectExisting}
-                      </button>
-                    </div>
+                    // Embedded Signup only. The old "Connect existing" button went through plain
+                    // Facebook OAuth, which cannot enumerate a customer-owned WABA — its only
+                    // outcomes were a pending_setup placeholder written over a working connection,
+                    // or nothing. It took both of MMH's live numbers down on 6 Oct 2026.
+                    <button
+                      onClick={() => connectWhatsAppEmbedded()}
+                      className={cn(
+                        'px-4 py-2 text-sm text-white rounded-md transition-colors shadow-sm',
+                        platform.color,
+                        'hover:opacity-90'
+                      )}
+                    >
+                      {waConnections.length ? c.waAddAnother : c.setUpNew}
+                    </button>
                   ) : (
                     <button
                       onClick={() => connectPlatform(platform.id)}

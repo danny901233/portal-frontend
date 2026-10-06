@@ -398,6 +398,29 @@ router.get('/oauth/meta/callback', async (req: Request, res: Response) => {
     });
 
     // Check if connection already exists
+    // A WhatsApp connect that resolved NO phone number is not a connection — it is a placeholder,
+    // and writing it over a working row is purely destructive. MMH lost both of its live numbers
+    // this way on 6 Oct 2026: a wrong button, no WABA visible to the token, and a 'pending_setup'
+    // saved on top of two numbers that were answering customers. Refuse and keep what works.
+    if (platform === 'whatsapp' && connectionData.whatsappPhoneNumberId === 'pending_setup') {
+      const working = await prisma.socialMediaConnection.findFirst({
+        where: {
+          garageId,
+          platform: 'whatsapp',
+          whatsappPhoneNumberId: { not: 'pending_setup' },
+        },
+      });
+      if (working) {
+        console.error(
+          `[OAuth] Refusing to overwrite ${working.accountName || working.whatsappPhoneNumberId} `
+          + `with pending_setup for garage ${garageId} — no WhatsApp number was resolved.`,
+        );
+        return res.redirect(
+          `${process.env.FRONTEND_URL || 'http://localhost:3000'}/integrations?error=no_whatsapp_number_found`,
+        );
+      }
+    }
+
     const existing = await prisma.socialMediaConnection.findFirst({
       where: { garageId, platform },
     });

@@ -7,6 +7,8 @@ interface Props {
   title?: string;
   description?: string;
   ogImage?: string;
+  /** Keep a page out of search results — used by time-limited landing pages (e.g. /blend). */
+  noindex?: boolean;
 }
 
 const lang = getLang(Astro.url);
@@ -26,6 +28,7 @@ const {
   title = defaultTitle,
   description = defaultDescription,
   ogImage = '/og.png',
+  noindex = false,
 } = Astro.props;
 ---
 
@@ -41,6 +44,7 @@ const {
 
     <title>{title}</title>
     <meta name="description" content={description} />
+    {noindex && <meta name="robots" content="noindex, nofollow" />}
 
     <meta property="og:type" content="website" />
     <meta property="og:title" content={title} />

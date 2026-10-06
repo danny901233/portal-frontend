@@ -838,7 +838,8 @@ const c = {
   function renderResults(items) {
     $results.innerHTML = '';
     if (!items.length) { $results.classList.add('hidden'); return; }
-    items.slice(0, 6).forEach(({ mainText, secondaryText }) => {
+    items.slice(0, 6).forEach((item) => {
+      const { mainText, secondaryText } = item;
       const li = document.createElement('li');
       li.className = 'flex cursor-pointer items-start gap-3 border-b border-ink-100 px-4 py-3 last:border-b-0 hover:bg-ink-50';
       li.innerHTML = `

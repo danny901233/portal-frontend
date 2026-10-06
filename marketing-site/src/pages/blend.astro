@@ -59,6 +59,26 @@ const c = {
 ---
 
 <BaseLayout title={c.metaTitle} description={c.metaDesc} noindex={true} landing={true}>
+  <!--
+    Focused landing header: the logo and nothing else.
+
+    BaseLayout's default nav is a full site header — How it works, Pricing, Blog, Sign in, Book a
+    demo, Get started, EN/FR. On a page reached by scanning a QR code at a stand, every one of
+    those is a way out of the funnel before the garage has told us anything. The `landing` prop
+    only trims the FOOTER (its "logo-only header" comment is stale); the header is a named slot,
+    and overriding it is how /mot does the same thing.
+
+    The logo is a span rather than a link on purpose — there is deliberately no way off this page
+    except forward through the funnel.
+  -->
+  <header slot="nav" class="border-b border-ink-100 bg-white">
+    <div class="mx-auto flex max-w-6xl items-center justify-center px-5 py-4 sm:justify-start">
+      <span class="inline-flex h-20 items-center justify-center rounded-2xl bg-brand-600 px-5 py-3 sm:h-24 sm:px-6 md:h-28 md:px-7 md:py-4">
+        <img src="https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/media/65cf28be6e4392e608cca8a9.png" alt="ReceptionMate" class="h-14 w-auto sm:h-16 md:h-20" />
+      </span>
+    </div>
+  </header>
+
   <div class="relative min-h-screen overflow-hidden bg-ink-50/40">
     <div class="pointer-events-none absolute inset-x-0 -top-32 -z-0 h-72 bg-gradient-to-b from-brand-100/40 via-brand-50/20 to-transparent"></div>
     <div class="pointer-events-none absolute -left-32 top-40 -z-0 h-72 w-72 rounded-full bg-brand-200/30 blur-3xl"></div>

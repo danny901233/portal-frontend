@@ -181,11 +181,23 @@ router.post('/oauth/whatsapp/embedded-signup', authenticate, async (req: Request
       accountName,
       isActive: true,
     };
-    const existing = await prisma.socialMediaConnection.findFirst({ where: { garageId, platform: 'whatsapp' } });
+    // Match the row for THIS number, not "the garage's WhatsApp row". A garage can now hold more
+    // than one (a current number plus a retired one kept answering), and findFirst on garage alone
+    // would overwrite whichever row came back — silently disconnecting the other number. Falls back
+    // to an unfinished pending_setup row so a half-done signup is completed rather than duplicated.
+    const existing =
+      (await prisma.socialMediaConnection.findFirst({
+        where: { garageId, platform: 'whatsapp', whatsappPhoneNumberId: resolvedPhoneId },
+      }))
+      || (await prisma.socialMediaConnection.findFirst({
+        where: { garageId, platform: 'whatsapp', whatsappPhoneNumberId: 'pending_setup' },
+      }));
     if (existing) {
       await prisma.socialMediaConnection.update({ where: { id: existing.id }, data: connectionData });
     } else {
-      await prisma.socialMediaConnection.create({ data: connectionData });
+      // First number for this garage is the primary; any later one is added alongside it.
+      const count = await prisma.socialMediaConnection.count({ where: { garageId, platform: 'whatsapp' } });
+      await prisma.socialMediaConnection.create({ data: { ...connectionData, isPrimary: count === 0 } });
     }
     console.log(`[WA-Signup] Stored WhatsApp connection for garage ${garageId} (WABA ${resolvedWabaId}, phone ${resolvedPhoneId}, ${accountName})`);
     return res.json({ success: true, phoneNumberId: resolvedPhoneId, wabaId: resolvedWabaId, accountName });

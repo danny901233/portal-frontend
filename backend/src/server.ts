@@ -10,6 +10,7 @@ import agentWebhookRouter from './routes/agentWebhook.js';
 import adminRouter from './routes/admin.js';
 import adminFbConnectionRouter from './routes/admin-fb-connection.js';
 import voiceRouter from './routes/voice.js';
+import showcallRouter from './routes/showcall.js';
 import voicePreviewRouter from './routes/voicePreview.js';
 import twilioRouter from './routes/twilio.js';
 import onboardingRouter from './routes/onboarding.js';
@@ -205,6 +206,7 @@ app.use('/api', emailLogRouter);
 app.use('/api/webhooks', mailgunInboundWebhook);
 app.use('/webhooks', agentWebhookRouter);
 app.use('/webhooks', voiceRouter);
+app.use('/webhooks', showcallRouter);
 
 // Faults with no request behind them used to vanish silently. Install before anything starts
 // listening so a throw during startup is reported too.

@@ -158,6 +158,10 @@ export async function runReminderSweep(): Promise<{ garages: number; sent: numbe
     });
     const waRow = await prisma.socialMediaConnection.findFirst({
       where: { garageId: garage.id, platform: 'whatsapp', isActive: true },
+      // Primary first: a garage may keep a retired number connected so inbound to it is still
+      // answered, and sending from that one would go out on the wrong number — or, as with MMH's
+      // old account, one whose billing is dead.
+      orderBy: { isPrimary: 'desc' },
       select: { whatsappPhoneNumberId: true, accessToken: true },
     });
     // Prefer the shared, non-expiring credential — the stored one is an Embedded Signup token

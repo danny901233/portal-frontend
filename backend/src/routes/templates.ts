@@ -206,6 +206,8 @@ router.post(
       // Get the WhatsApp connection for this garage
       const connection = await prisma.socialMediaConnection.findFirst({
         where: { garageId, platform: 'whatsapp', isActive: true },
+        // Templates belong to the WABA we actually send from — the primary number.
+        orderBy: { isPrimary: 'desc' },
       });
 
       if (!connection) {
@@ -405,6 +407,8 @@ router.post(
 
       const connection = await prisma.socialMediaConnection.findFirst({
         where: { garageId, platform: 'whatsapp', isActive: true },
+        // Templates belong to the WABA we actually send from — the primary number.
+        orderBy: { isPrimary: 'desc' },
       });
 
       if (!connection) {
@@ -475,6 +479,8 @@ router.delete(
       if (template.metaTemplateId) {
         const connection = await prisma.socialMediaConnection.findFirst({
           where: { garageId, platform: 'whatsapp', isActive: true },
+        // Templates belong to the WABA we actually send from — the primary number.
+        orderBy: { isPrimary: 'desc' },
         });
 
         if (connection) {

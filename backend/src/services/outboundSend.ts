@@ -128,6 +128,10 @@ export async function getCampaignSendContext(campaignId: string): Promise<SendCo
     }),
     prisma.socialMediaConnection.findFirst({
       where: { garageId: campaign.garageId, platform: 'whatsapp', isActive: true },
+      // Primary first: a garage may keep a retired number connected so inbound to it is still
+      // answered, and sending from that one would go out on the wrong number — or, as with MMH's
+      // old account, one whose billing is dead.
+      orderBy: { isPrimary: 'desc' },
       select: { whatsappPhoneNumberId: true, accessToken: true },
     }),
     campaign.messageTemplateId
@@ -213,7 +217,15 @@ function nextWindowOpen(): Date {
  * Meta errors that mean "stop", not "retry". These are the ones that precede a number being
  * disabled, so they halt the whole garage rather than just the current batch.
  */
-const HALT_CODES: Record<number, string> = {
+/**
+ * Errors that mean STOP, not "try the next number".
+ *
+ * Exported because they do not only arrive on the send call. Meta accepts a template with a 200,
+ * then rejects it asynchronously on the delivery-status webhook — which is how MMH sent 34 messages
+ * on 6 Oct 2026, every one accepted and every one rejected for 131042, while the halt below sat
+ * unreached because nothing ever threw.
+ */
+export const HALT_CODES: Record<number, string> = {
   131048: 'WhatsApp flagged these messages as spam and stopped delivering them.',
   368: 'WhatsApp has temporarily blocked this number for a policy violation.',
   131042: 'WhatsApp reports a billing or business-eligibility problem on this account.',

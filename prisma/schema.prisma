@@ -763,6 +763,10 @@ model ChatConversation {
   // App-code enum: parts | sales | booking | complaint | general. Nullable
   // so historical rows and cases we can't classify remain untouched.
   enquiryType              String?
+  // English NAME of the language the customer writes in ("Polish"), detected once from their
+  // first inbound message. Null means "not detected", which the app treats as English — so an
+  // undetected thread behaves exactly as it did before this existed.
+  customerLanguage         String?
   // Optional owner within the garage. FK to User; onDelete SetNull so a
   // staff member losing garage access drops their conversations back into
   // the shared "unassigned" pool rather than orphaning them.
@@ -796,6 +800,12 @@ model ChatMessage {
   metaMid        String?          @unique
   staffUserId    String?
   staffUserEmail String?
+  // Staff-side translation cache. `content` is ALWAYS what went over the wire, in the language
+  // it was sent in — these never replace it. For an inbound message `translatedContent` is the
+  // English the staff member reads; for a staff reply sent in the customer's language it is the
+  // English they actually typed. Generated once, lazily, then reused.
+  translatedContent String?
+  translatedFrom    String?
   createdAt      DateTime         @default(now())
 
   @@index([conversationId, createdAt])
@@ -878,10 +888,17 @@ model SocialMediaConnection {
   accountName           String?
   accessToken           String
   isActive              Boolean  @default(true)
+  // A garage can hold more than one WhatsApp number — a new one it has moved to, plus the old one
+  // kept alive so customers who still have it are answered rather than ignored. Inbound already
+  // routes by whatsappPhoneNumberId, so extra rows cost nothing there; OUTBOUND is the ambiguity,
+  // which is what this flag settles. Every existing row is primary, so nothing changes until a
+  // second number is deliberately added as a secondary.
+  isPrimary             Boolean  @default(true)
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
 
-  @@unique([garageId, platform])
+  // Was @@unique([garageId, platform]) — dropped so a garage can keep a retired number connected.
+  @@index([garageId, platform, isPrimary])
   @@index([garageId])
 }
 

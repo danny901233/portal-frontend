@@ -34,6 +34,10 @@ router.get('/connect/setup-status/:garageId', authenticate, async (req: Request,
       prisma.garage.findUnique({ where: { id: garageId }, select: { hasMessagingAccess: true, hasVoiceAccess: true } }),
       prisma.socialMediaConnection.findFirst({
         where: { garageId, platform: 'whatsapp', isActive: true },
+        // Primary first: a garage may keep a retired number connected so inbound to it is still
+        // answered, and sending from that one would go out on the wrong number — or, as with MMH's
+        // old account, one whose billing is dead.
+        orderBy: { isPrimary: 'desc' },
         select: { id: true, accountName: true, whatsappPhoneNumberId: true },
       }),
       prisma.messageTemplate.findMany({ where: { garageId }, select: { name: true, status: true } }),

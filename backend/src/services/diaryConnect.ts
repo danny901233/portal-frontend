@@ -670,6 +670,13 @@ export const sendDiaryConnectRequest = async (businessId: string): Promise<boole
  * Built inline once and drifted from every preview written by hand, which is the usual way
  * wording gets checked against something that is no longer true.
  */
+// A garage name reaches these emails from self-serve signup, where it is typed by whoever is
+// signing up — so it is untrusted, and these emails go to our integration partners from our
+// domain. Unescaped it was markup: a name containing a tag could put a link or a form of the
+// sender's choosing inside a message Garage Hive or Tyresoft reasonably trusts.
+const esc = (v: string): string =>
+  v.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
 export const buildConnectRequestEmail = (
   provider: ProviderKey,
   businessName: string,
@@ -677,14 +684,19 @@ export const buildConnectRequestEmail = (
   link: string,
 ): { html: string; text: string } => {
   const spec = PROVIDERS[provider];
-  const name = businessName;
-  const branches = branchNames;
+  // `name`/`branches`/`folders` are HTML-escaped and used in the HTML body; the *Text variants
+  // stay raw, because text/plain has no markup to inject and an escaped ampersand would simply
+  // read as "&amp;" to whoever opens it.
+  const name = esc(businessName);
+  const nameText = businessName;
+  const branches = branchNames.map(esc);
   // Tyresoft is the one provider with a second track: the tyre stock CSV, pushed over SFTP to a
   // folder whose name must match slugifyBranchName(branchName) EXACTLY. The webhook 404s silently
   // when it does not, which is how Lurgan Tyre Centre came to have a folder called "lurgan-tyre"
   // against an expected "lurgan-tyre-centre" and would have served no tyres at all. Naming the
   // folder here is the difference between that being obvious and being invisible.
-  const folders = branchNames.map((b) => slugifyBranchName(b));
+  const folders = branchNames.map((b) => esc(slugifyBranchName(b)));
+  const foldersText = branchNames.map((b) => slugifyBranchName(b));
   const stockBlock =
     provider === 'tyresoft'
       ? `<p style="margin:0 0 12px;font-size:15px;line-height:1.55;color:#475569;">Separately, their tyre stock CSV goes to the usual ReceptionMate SFTP account (the same login as your other garages), in ` +
@@ -713,12 +725,12 @@ export const buildConnectRequestEmail = (
   return {
     html: brandedEmailShell(body),
     text:
-      `${name} is being onboarded to ReceptionMate and books into ${spec.label}.\n\n` +
+      `${nameText} is being onboarded to ReceptionMate and books into ${spec.label}.\n\n` +
       `Open the link below and fill in their ${spec.label} details. Submitting the form connects the diary.\n\n` +
       `${link}\n\nLink valid 14 days.` +
       (provider === 'tyresoft'
         ? `\n\nSeparately, their tyre stock CSV goes to the usual ReceptionMate SFTP account (the same ` +
-          `login as your other garages), in ${folders.length > 1 ? `these folders: ${folders.map((x) => x + '/').join(', ')}` : `a folder named exactly ${folders[0]}/`}, ` +
+          `login as your other garages), in ${foldersText.length > 1 ? `these folders: ${foldersText.map((x) => x + '/').join(', ')}` : `a folder named exactly ${foldersText[0]}/`}, ` +
           `as "Products Branch 1.csv". The folder name has to match exactly.` +
           `\n\nOne other thing: please make sure they have a "Misc" service. The agent books anything ` +
           `that does not match one of their standard services under it, so without one those callers get ` +
@@ -779,7 +791,7 @@ export const buildGettingReadyEmail = (
   const spec = PROVIDERS[provider];
   const body =
     `<tr><td style="padding: 32px;">` +
-    `<h1 style="margin:0 0 14px;font-size:20px;color:#0f172a;font-weight:700;">${spec.gettingReady.heading(garageName)}</h1>` +
+    `<h1 style="margin:0 0 14px;font-size:20px;color:#0f172a;font-weight:700;">${spec.gettingReady.heading(esc(garageName))}</h1>` +
     `<p style="margin:0 0 12px;font-size:15px;line-height:1.55;color:#475569;">Thanks for signing. ${spec.gettingReady.html}</p>` +
     `<p style="margin:0;font-size:15px;line-height:1.55;color:#475569;">We’ll email you again the moment your agent is live.</p>` +
     `</td></tr>`;

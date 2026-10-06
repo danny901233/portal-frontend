@@ -33,7 +33,7 @@ import { z } from 'zod';
 import bcrypt from 'bcryptjs';
 import { randomBytes } from 'crypto';
 import { prisma } from '../db.js';
-import { issueSignLinkToken } from './agreements.js';
+import { issueSignLinkToken, SELF_SERVE_SIGN_PURPOSE } from './agreements.js';
 import { ensureAdminAccessToGarage } from './admin.js';
 import { sendAgentConfigWebhook } from './config.js';
 import { fetchPlaceDetails } from '../utils/googlePlaces.js';
@@ -342,7 +342,10 @@ router.post('/public/show-signup', async (req: Request, res: Response) => {
       },
     });
 
-    const token = await issueSignLinkToken(user.id, agreement.id);
+    // The self-serve purpose: signing this link also mints a password-setup token, because the
+    // customer has no password and was sent no welcome email. An ordinary 'sign_agreement' link
+    // must never carry that, so the capability rides on the token.
+    const token = await issueSignLinkToken(user.id, agreement.id, SELF_SERVE_SIGN_PURPOSE);
     const signUrl = `${PORTAL_URL}/agreement/sign?token=${encodeURIComponent(token)}`;
 
     // Stop the abandoned-checkout chase emails: this prospect converted.

@@ -175,16 +175,26 @@ function clientIp(req: Request): string {
   return forwarded || req.ip || '';
 }
 
+// The purpose a self-serve sign link carries. It is deliberately NOT 'sign_agreement': signing
+// such a link also yields a password-setup token (the customer has no password yet and no welcome
+// email was sent), and that is account takeover if it is ever handed to an ordinary sign link.
+// Carrying the capability on the token means a staff-emailed agreement can only ever be signed.
+export const SELF_SERVE_SIGN_PURPOSE = 'sign_agreement_selfserve';
+
 // Exported for routes/show-signup.ts, which issues its own sign link rather than emailing one:
 // the Blend funnel hands the customer straight to the signing page.
-export async function issueSignLinkToken(userId: string, agreementId: string): Promise<string> {
+export async function issueSignLinkToken(
+  userId: string,
+  agreementId: string,
+  purpose: string = 'sign_agreement',
+): Promise<string> {
   const token = randomBytes(32).toString('base64url');
   await prisma.signLinkToken.create({
     data: {
       token,
       userId,
       agreementId,
-      purpose: 'sign_agreement',
+      purpose,
       expiresAt: new Date(Date.now() + SIGN_LINK_TTL_MS),
     },
   });
@@ -304,6 +314,7 @@ router.post('/agreements/sign/:token', async (req: Request, res: Response) => {
     userAgent: req.headers['user-agent'] ?? '',
     consumeTokenId: tokenRow.id,
     signerEmail: parsed.data.signerEmail,
+    selfServe: tokenRow.purpose === SELF_SERVE_SIGN_PURPOSE,
     res,
   });
 });
@@ -351,6 +362,8 @@ async function finaliseSignature(opts: {
   userAgent: string;
   consumeTokenId?: string;
   signerEmail?: string;
+  /** True only for a link minted by the self-serve funnel — see SELF_SERVE_SIGN_PURPOSE. */
+  selfServe?: boolean;
   res: Response;
 }) {
   const agreement = await prisma.agreement.findUnique({ where: { id: opts.agreementId } });
@@ -545,8 +558,13 @@ async function finaliseSignature(opts: {
   // so without this they signed and landed on the "check your email" screen waiting for a
   // welcome email that was never sent. They KEEP mustSetupPayment — the GoCardless mandate is
   // the next gate, and nextStep below sends them to it.
+  //
+  // The gate is the TOKEN'S PURPOSE, not mustChangePassword. Keying it on the password flag
+  // handed a password-setup token to every magic-link signer who had not yet changed their
+  // password — which is every customer /admin/onboard creates. A forwarded or leaked sign link
+  // would then have escalated from "sign this contract" to "own this account".
   let passwordSetupToken: string | null = null;
-  const selfServeSigner = !!opts.consumeTokenId && !!user?.mustChangePassword;
+  const selfServeSigner = opts.selfServe === true;
   if (opts.consumeTokenId && user && (checkoutClientSecret || selfServeSigner)) {
     const resetToken = randomBytes(32).toString('hex');
     await prisma.user.update({

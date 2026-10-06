@@ -25,6 +25,11 @@ router.get(
   async (req: Request, res: Response) => {
     try {
       const { garageId } = req.params;
+
+      if (!await userCanAccessGarage(req.user?.userId, garageId)) {
+        // 404, not 403: whether a garage exists is not this caller's business.
+        return res.status(404).json({ error: 'Garage not found' });
+      }
       console.log(`[MESSAGING ACCESS] Checking for garage: ${garageId}`);
 
       const garage = await prisma.garage.findUnique({
@@ -61,6 +66,11 @@ router.get(
     try {
       const { garageId } = req.params;
 
+      if (!await userCanAccessGarage(req.user?.userId, garageId)) {
+        // 404, not 403: whether a garage exists is not this caller's business.
+        return res.status(404).json({ error: 'Garage not found' });
+      }
+
       // Check messaging access
       const garage = await prisma.garage.findUnique({
         where: { id: garageId },
@@ -94,6 +104,11 @@ router.get(
   async (req: Request, res: Response) => {
     try {
       const { garageId } = req.params;
+
+      if (!await userCanAccessGarage(req.user?.userId, garageId)) {
+        // 404, not 403: whether a garage exists is not this caller's business.
+        return res.status(404).json({ error: 'Garage not found' });
+      }
       const { startDate, endDate } = req.query;
 
       // Check messaging access
@@ -171,6 +186,11 @@ router.get(
   async (req: Request, res: Response) => {
     try {
       const { garageId } = req.params;
+
+      if (!await userCanAccessGarage(req.user?.userId, garageId)) {
+        // 404, not 403: whether a garage exists is not this caller's business.
+        return res.status(404).json({ error: 'Garage not found' });
+      }
       const { startDate, endDate } = req.query;
 
       // Check messaging access
@@ -305,6 +325,11 @@ router.get(
   async (req: Request, res: Response) => {
     try {
       const { garageId } = req.params;
+
+      if (!await userCanAccessGarage(req.user?.userId, garageId)) {
+        // 404, not 403: whether a garage exists is not this caller's business.
+        return res.status(404).json({ error: 'Garage not found' });
+      }
       const { platform, status, enquiryType, assigneeId } = req.query;
 
       const where: any = { garageId };
@@ -1248,6 +1273,15 @@ router.get(
 
       const parsedUrl = new URL(url);
       const s3Key = parsedUrl.pathname.replace(/^\//, '');
+
+      // The key comes from the caller, so it alone decides which object gets signed. Only chat
+      // media is served here, and only for a garage this user may see. Without this, any
+      // logged-in user could mint an hour-long signed read for ANY key in the media bucket --
+      // including call recordings -- just by passing a URL whose path matched it.
+      const mediaGarage = /^chat-media\/([^/]+)\//.exec(s3Key)?.[1];
+      if (!mediaGarage || !await userCanAccessGarage(req.user?.userId, mediaGarage)) {
+        return res.status(404).json({ error: 'Media not found' });
+      }
 
       const s3 = new S3Client({
         region: awsRegion,

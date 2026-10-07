@@ -936,10 +936,17 @@ router.post('/admin/agreements/:id/send', authenticate, requireAdmin, async (req
   // password-setup token — and re-sending from here with the default purpose would drop that,
   // landing them on "check your email" for an email that is never sent. Staff-issued agreements
   // are unaffected: no prior self-serve token means the ordinary purpose.
-  const priorSelfServe = await prisma.signLinkToken.findFirst({
-    where: { agreementId: agreement.id, purpose: SELF_SERVE_SIGN_PURPOSE },
-    select: { id: true },
-  });
+  //
+  // NOT when staff redirect the send to a different address. A self-serve link also yields a
+  // password-setup token, so carrying that purpose onto a link addressed anywhere staff choose
+  // would let an agreement be pointed at one inbox and the customer's account claimed from it.
+  // A redirected send can still be signed; it just cannot also set the password.
+  const priorSelfServe = opts.data.toEmail
+    ? null
+    : await prisma.signLinkToken.findFirst({
+        where: { agreementId: agreement.id, purpose: SELF_SERVE_SIGN_PURPOSE },
+        select: { id: true },
+      });
   const token = await issueSignLinkToken(
     agreement.userId,
     agreement.id,

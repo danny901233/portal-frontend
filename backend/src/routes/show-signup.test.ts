@@ -155,3 +155,41 @@ test('a garage name cannot inject markup into either email', () => {
     assert.ok(!html.includes('<a href="https://evil.example">'), 'injected anchor survived');
   }
 });
+
+// ── The name is attacker-chosen text in an email we send from our own domain ──
+
+import { safeDisplayName } from './show-signup.js';
+
+test('an ordinary garage name survives intact', () => {
+  for (const n of ["O'Brien's Garage", 'Smith & Sons', 'A1 Motors', 'Kwik-Fit Telford', 'Garage 24']) {
+    assert.equal(safeDisplayName(n), n);
+  }
+});
+
+test('a name cannot smuggle a link into the email', () => {
+  const out = safeDisplayName('Click https://evil.example/login now');
+  assert.ok(!out.includes('://'), out);
+  assert.ok(!out.includes('/'), out);
+});
+
+test('a name cannot be a paragraph', () => {
+  const out = safeDisplayName('x'.repeat(400));
+  assert.ok(out.length <= 61, String(out.length));
+});
+
+test('control characters and markup are stripped, not just escaped', () => {
+  const out = safeDisplayName('<script>alert(1)</script>');
+  assert.ok(!out.includes('<') && !out.includes('>'), out);
+});
+
+test('the emails render the reduced name, not the raw one', () => {
+  const nasty = 'Acme https://evil.example/x';
+  for (const { html } of [buildInterestEmail(nasty), buildSignLinkEmail(nasty, 'https://portal/x')]) {
+    assert.ok(!html.includes('evil.example/x'), 'raw name reached the email body');
+  }
+});
+
+test('the sign-link subject is reduced too', () => {
+  const { subject } = buildSignLinkEmail('Acme https://evil.example/x', 'https://portal/x');
+  assert.ok(!subject.includes('://'), subject);
+});

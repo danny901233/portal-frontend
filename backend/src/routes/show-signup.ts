@@ -54,6 +54,20 @@ const BLEND_URL = process.env.BLEND_URL || 'https://www.receptionmate.co.uk/blen
 const esc = (v: string): string =>
   v.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
+/**
+ * Escaping stops a garage name becoming markup. It does not stop it becoming a SENTENCE.
+ *
+ * /public/show-interest emails anyone who asks, so the name is attacker-chosen text delivered
+ * from our domain to an address of their choosing — "Your account is suspended, call 0800…"
+ * reads very differently under our logo than it would from a stranger. So the name is reduced to
+ * the characters a garage name actually needs and cut short: no colons or slashes means no URL,
+ * and 60 characters is a name rather than a paragraph.
+ */
+export function safeDisplayName(v: string): string {
+  const cleaned = v.replace(/[^\p{L}\p{N} '&.\-]/gu, ' ').replace(/\s+/g, ' ').trim();
+  return cleaned.length > 60 ? `${cleaned.slice(0, 60).trimEnd()}…` : cleaned;
+}
+
 // NO shared starting password here, unlike admin.ts / public-signup.ts / onboarding-pipeline.ts.
 //
 // Those paths seed every new account with the same constant and rely on mustChangePassword to
@@ -127,7 +141,7 @@ export function offerSummaryText(): string {
 
 /** "Here's the offer, finish when you're ready" — for someone who didn't sign at the stand. */
 export function buildInterestEmail(businessName: string): { subject: string; html: string; text: string } {
-  const name = esc(businessName);
+  const name = esc(safeDisplayName(businessName));
   const body =
     `<tr><td style="padding:32px;">` +
     `<h1 style="margin:0 0 14px;font-size:20px;color:#0f172a;font-weight:700;">Your Blend offer, ${name}</h1>` +
@@ -151,7 +165,7 @@ export function buildInterestEmail(businessName: string): { subject: string; htm
 
 /** The sign link, emailed as well as handed to the browser — see the route for why. */
 export function buildSignLinkEmail(businessName: string, signUrl: string): { subject: string; html: string; text: string } {
-  const name = esc(businessName);
+  const name = esc(safeDisplayName(businessName));
   const body =
     `<tr><td style="padding:32px;">` +
     `<h1 style="margin:0 0 14px;font-size:20px;color:#0f172a;font-weight:700;">Finish setting up ${name}</h1>` +
@@ -163,7 +177,7 @@ export function buildSignLinkEmail(businessName: string, signUrl: string): { sub
     `<p style="margin:0;font-size:14px;line-height:1.55;color:#475569;">This link is valid for 14 days. After signing you'll choose a password and set up the Direct Debit — you'll need your account number and sort code for that bit.</p>` +
     `</td></tr>`;
   return {
-    subject: `Finish setting up ${businessName} — your ReceptionMate agreement`,
+    subject: `Finish setting up ${safeDisplayName(businessName)} — your ReceptionMate agreement`,
     html: brandedEmailShell(body),
     text:
       `Your ReceptionMate account is ready. The last step is to read and sign your agreement:\n\n${signUrl}\n\n` +
@@ -236,6 +250,12 @@ const IP_WINDOW_MS = 60 * 60 * 1000;
 type Bucket = { count: number; windowStart: number; last: number };
 const byIp = new Map<string, Bucket>();
 
+// …and a cap per RECIPIENT, which the IP limit does not give. Rotating addresses defeats a
+// per-IP limit, and the thing worth protecting is a victim's inbox (and our sending domain's
+// reputation) rather than any one source. Two is enough for a genuine "it didn't arrive".
+const RECIPIENT_MAX = 2;
+const byRecipient = new Map<string, Bucket>();
+
 function clientIp(req: Request): string {
   const cf = (req.headers['cf-connecting-ip'] as string | undefined)?.trim();
   if (cf) return cf;
@@ -257,10 +277,25 @@ function throttled(ip: string): number | null {
   return null;
 }
 
-// Sweep hourly so the map cannot grow without bound. unref() so it never holds the process open.
+function throttledKey(map: Map<string, Bucket>, key: string, max: number): number | null {
+  const now = Date.now();
+  const b = map.get(key);
+  if (!b || now - b.windowStart >= IP_WINDOW_MS) {
+    map.set(key, { count: 1, windowStart: now, last: now });
+    return null;
+  }
+  b.last = now;
+  if (b.count >= max) return Math.max(1, Math.ceil((b.windowStart + IP_WINDOW_MS - now) / 1000));
+  b.count += 1;
+  return null;
+}
+
+// Sweep hourly so the maps cannot grow without bound. unref() so it never holds the process open.
 setInterval(() => {
   const cutoff = Date.now() - IP_WINDOW_MS;
-  for (const [k, b] of byIp) if (b.last < cutoff) byIp.delete(k);
+  for (const map of [byIp, byRecipient]) {
+    for (const [k, b] of map) if (b.last < cutoff) map.delete(k);
+  }
 }, 60 * 60 * 1000).unref();
 
 const showSignupSchema = z.object({
@@ -563,6 +598,15 @@ router.post('/public/show-interest', async (req: Request, res: Response) => {
 
   const { prospectId, businessName, name, phone, gms, address } = parsed.data;
   const email = parsed.data.email.toLowerCase();
+
+  const recipientWait = throttledKey(byRecipient, email, RECIPIENT_MAX);
+  if (recipientWait !== null) {
+    // Answer as though it sent. Telling a sender which addresses have already been mailed turns
+    // this into an account-existence oracle, and a genuine person who double-taps should not be
+    // told off — they already have the email.
+    console.warn(`[SHOW-INTEREST] recipient cap reached for ${email} — not sending again`);
+    return res.status(201).json({ success: true, emailed: true });
+  }
 
   try {
     const mail = buildInterestEmail(businessName);

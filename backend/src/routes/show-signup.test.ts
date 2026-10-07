@@ -193,3 +193,34 @@ test('the sign-link subject is reduced too', () => {
   const { subject } = buildSignLinkEmail('Acme https://evil.example/x', 'https://portal/x');
   assert.ok(!subject.includes('://'), subject);
 });
+
+// ── What we STORE, not just what we display ────────────────────────────────
+//
+// The stored name becomes Business.name, Garage.name and Agreement.clientName — and from there
+// the credential-request email to Garage Hive or Tyresoft, and the signed agreement. Guarding
+// only the display left those carrying the raw value.
+
+import { safeGarageName } from './show-signup.js';
+
+test('a real garage name is stored as typed, brackets and slashes included', () => {
+  for (const n of ['A/B Motors', 'Acme (Leeds)', "O'Brien's Garage", 'Smith & Sons', 'Münster Autos']) {
+    assert.equal(safeGarageName(n), n);
+  }
+});
+
+test('a stored name cannot carry a URL scheme into a partner email', () => {
+  assert.ok(!safeGarageName('Acme https://evil.example').includes(':'));
+});
+
+test('a stored name cannot carry a tag', () => {
+  const out = safeGarageName('<b>Acme</b>');
+  assert.ok(!out.includes('<') && !out.includes('>'), out);
+});
+
+test('control characters cannot smuggle header-ish breaks into an email', () => {
+  assert.ok(!/[\r\n\t]/.test(safeGarageName('Acme\r\nBcc: someone@example.com')));
+});
+
+test('the stored name is bounded', () => {
+  assert.ok(safeGarageName('x'.repeat(500)).length <= 120);
+});

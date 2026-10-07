@@ -63,6 +63,26 @@ const esc = (v: string): string =>
  * the characters a garage name actually needs and cut short: no colons or slashes means no URL,
  * and 60 characters is a name rather than a paragraph.
  */
+export function safeGarageName(v: string): string {
+  // Applied at the INPUT boundary, so what we STORE is already a garage name.
+  //
+  // safeDisplayName below guards the two emails this file sends. It cannot guard the others: the
+  // name is written to Business, Garage and Agreement.clientName, and from there it reaches the
+  // credential-request email we send Garage Hive or Tyresoft, and the signed agreement itself.
+  // Reducing it only at the point of display left the stored value raw and the differential is
+  // the bug — so reduce it once, here, and everything downstream inherits it.
+  //
+  // Looser than the display rule on purpose: real names carry brackets and slashes ("A/B Motors",
+  // "Acme (Leeds)"). What it will not carry is a scheme, a tag or a control character, so the
+  // stored name cannot become a link in somebody else's inbox.
+  const cleaned = v
+    .replace(/[\u0000-\u001f\u007f]/g, ' ')
+    .replace(/[<>:]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return cleaned.slice(0, 120);
+}
+
 export function safeDisplayName(v: string): string {
   const cleaned = v.replace(/[^\p{L}\p{N} '&.\-]/gu, ' ').replace(/\s+/g, ' ').trim();
   return cleaned.length > 60 ? `${cleaned.slice(0, 60).trimEnd()}…` : cleaned;
@@ -303,10 +323,10 @@ const showSignupSchema = z.object({
   // the funnel is entered directly, but in practice it is always present and carries the
   // HighLevel opportunity we must attach to the garage.
   prospectId: z.string().trim().max(80).optional(),
-  businessName: z.string().trim().min(2).max(200),
+  businessName: z.string().trim().min(2).max(200).transform(safeGarageName),
   googlePlaceId: z.string().trim().max(200).optional(),
   address: z.string().trim().max(500).optional(),
-  name: z.string().trim().min(2).max(120),
+  name: z.string().trim().min(2).max(120).transform(safeGarageName),
   email: z.string().trim().email().max(254),
   phone: z.string().trim().min(6).max(40),
   gms: z.enum(['garagehive', 'bookar', 'tyresoft', 'autosage']),
@@ -574,8 +594,8 @@ router.post('/public/show-signup', async (req: Request, res: Response) => {
  */
 const interestSchema = z.object({
   prospectId: z.string().trim().max(80).optional(),
-  businessName: z.string().trim().min(2).max(200),
-  name: z.string().trim().min(2).max(120),
+  businessName: z.string().trim().min(2).max(200).transform(safeGarageName),
+  name: z.string().trim().min(2).max(120).transform(safeGarageName),
   email: z.string().trim().email().max(254),
   phone: z.string().trim().min(6).max(40),
   // Their diary, when we know it — a supported one means they saw the offer and hesitated,

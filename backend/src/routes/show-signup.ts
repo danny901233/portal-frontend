@@ -36,6 +36,7 @@ import { prisma } from '../db.js';
 import { issueSignLinkToken, SELF_SERVE_SIGN_PURPOSE } from './agreements.js';
 import { ensureAdminAccessToGarage } from './admin.js';
 import { sendAgentConfigWebhook } from './config.js';
+import { sendEmail, brandedEmailShell, SUPPORT_REPLY_TO } from '../utils/email.js';
 import { fetchPlaceDetails } from '../utils/googlePlaces.js';
 import { industryDefaultFaqs, generateFaqsFromWebsite } from '../utils/faqGenerator.js';
 import { TEMPLATE_VERSION } from '../services/agreementTemplate.js';
@@ -45,6 +46,13 @@ import type { Prisma } from '@prisma/client';
 const router = Router();
 
 const PORTAL_URL = process.env.PORTAL_URL || 'https://portal.receptionmate.co.uk';
+// Where an interested-but-not-today garage is sent back to. The site answers on both the apex
+// and www with no redirect between them; www is canonical, so link to that.
+const BLEND_URL = process.env.BLEND_URL || 'https://www.receptionmate.co.uk/blend';
+
+// A garage name is typed by whoever is signing up, and these emails go out from our domain.
+const esc = (v: string): string =>
+  v.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
 // NO shared starting password here, unlike admin.ts / public-signup.ts / onboarding-pipeline.ts.
 //
@@ -87,6 +95,82 @@ export const SUPPORTED_GMS = {
 } as const;
 
 export type SupportedGms = keyof typeof SUPPORTED_GMS;
+
+/**
+ * The offer, as the customer reads it. One source for both emails and the only place the terms
+ * are written in prose — the page states the same numbers, and SHOW_TERMS is what actually gets
+ * written to the garage, so a change there is visible here rather than silently contradicting it.
+ */
+export function offerSummaryHtml(): string {
+  const t = SHOW_TERMS;
+  return (
+    `<table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="border:1px solid #e2e8f0;border-radius:12px;margin:0 0 20px;">` +
+    `<tr><td style="padding:20px;">` +
+    `<p style="margin:0 0 4px;font-size:15px;font-weight:700;color:#0f172a;">Automate — £${t.subscriptionCostGbp} per branch / month + VAT</p>` +
+    `<p style="margin:0 0 14px;font-size:13px;color:#64748b;">${t.includedMinutes} minutes included · £${t.costPerMinuteGbp.toFixed(2)} per extra minute · rolling monthly, 30 days' notice</p>` +
+    `<p style="margin:0;padding:12px;background:#ecfdf5;border-radius:8px;font-size:14px;line-height:1.5;color:#065f46;">` +
+    `<strong>Nothing to pay until booking ${t.bookingsRequiredForActivation}.</strong> We set up your Direct Debit, but we don't take a penny ` +
+    `until the AI has booked ${t.bookingsRequiredForActivation} customers into your diary. If it never does, you never pay.</p>` +
+    `</td></tr></table>`
+  );
+}
+
+export function offerSummaryText(): string {
+  const t = SHOW_TERMS;
+  return (
+    `Automate - £${t.subscriptionCostGbp} per branch per month + VAT\n` +
+    `${t.includedMinutes} minutes included, £${t.costPerMinuteGbp.toFixed(2)} per extra minute. Rolling monthly, 30 days' notice.\n\n` +
+    `Nothing to pay until booking ${t.bookingsRequiredForActivation}: we set up your Direct Debit, but take nothing until the AI has ` +
+    `booked ${t.bookingsRequiredForActivation} customers into your diary. If it never does, you never pay.`
+  );
+}
+
+/** "Here's the offer, finish when you're ready" — for someone who didn't sign at the stand. */
+export function buildInterestEmail(businessName: string): { subject: string; html: string; text: string } {
+  const name = esc(businessName);
+  const body =
+    `<tr><td style="padding:32px;">` +
+    `<h1 style="margin:0 0 14px;font-size:20px;color:#0f172a;font-weight:700;">Your Blend offer, ${name}</h1>` +
+    `<p style="margin:0 0 20px;font-size:15px;line-height:1.55;color:#475569;">Thanks for stopping by the stand. Here's the offer in writing so you can take your time over it.</p>` +
+    offerSummaryHtml() +
+    `<table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:0 auto 18px;"><tr>` +
+    `<td style="background:#3426cf;border-radius:10px;"><a href="${BLEND_URL}" style="display:inline-block;padding:14px 30px;color:#ffffff;text-decoration:none;font-weight:700;font-size:16px;">Set it up when you're ready</a></td>` +
+    `</tr></table>` +
+    `<p style="margin:0;font-size:14px;line-height:1.55;color:#475569;">It takes about two minutes, and you'll need your bank details for the Direct Debit — which is why it's often easier from the office than the show floor. Any questions, just reply to this email.</p>` +
+    `</td></tr>`;
+  return {
+    subject: 'Your Blend offer — free until the AI books you 4 customers',
+    html: brandedEmailShell(body),
+    text:
+      `Thanks for stopping by the ReceptionMate stand.\n\n${offerSummaryText()}\n\n` +
+      `Set it up when you're ready: ${BLEND_URL}\n\n` +
+      `It takes about two minutes. You'll need your bank details for the Direct Debit, which is often easier from the office than the show floor.\n\n` +
+      `Any questions, just reply to this email.`,
+  };
+}
+
+/** The sign link, emailed as well as handed to the browser — see the route for why. */
+export function buildSignLinkEmail(businessName: string, signUrl: string): { subject: string; html: string; text: string } {
+  const name = esc(businessName);
+  const body =
+    `<tr><td style="padding:32px;">` +
+    `<h1 style="margin:0 0 14px;font-size:20px;color:#0f172a;font-weight:700;">Finish setting up ${name}</h1>` +
+    `<p style="margin:0 0 20px;font-size:15px;line-height:1.55;color:#475569;">Your account is ready. The last step is to read and sign your agreement — it takes a minute.</p>` +
+    offerSummaryHtml() +
+    `<table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:0 auto 18px;"><tr>` +
+    `<td style="background:#3426cf;border-radius:10px;"><a href="${signUrl}" style="display:inline-block;padding:14px 30px;color:#ffffff;text-decoration:none;font-weight:700;font-size:16px;">Review and sign</a></td>` +
+    `</tr></table>` +
+    `<p style="margin:0;font-size:14px;line-height:1.55;color:#475569;">This link is valid for 14 days. After signing you'll choose a password and set up the Direct Debit — you'll need your account number and sort code for that bit.</p>` +
+    `</td></tr>`;
+  return {
+    subject: `Finish setting up ${businessName} — your ReceptionMate agreement`,
+    html: brandedEmailShell(body),
+    text:
+      `Your ReceptionMate account is ready. The last step is to read and sign your agreement:\n\n${signUrl}\n\n` +
+      `${offerSummaryText()}\n\nThis link is valid for 14 days. After signing you'll choose a password and set up the Direct Debit ` +
+      `(you'll need your account number and sort code).`,
+  };
+}
 
 /**
  * The billing + activation fields every show signup's garage is created with.
@@ -415,12 +499,129 @@ router.post('/public/show-signup', async (req: Request, res: Response) => {
       })();
     }
 
+    // Email the sign link too, not just hand it to the browser.
+    //
+    // Without this the link exists in one tab and nowhere else: a flat phone, a closed tab or an
+    // "I'll do it tonight" — all ordinary at a stand — left the garage with a created account,
+    // a drafted agreement and no way back to either. It also makes the Agreement's sentAt /
+    // sentToEmail true rather than a claim about an email nobody sent.
+    const mail = buildSignLinkEmail(businessName, signUrl);
+    void sendEmail({
+      to: [email],
+      replyTo: SUPPORT_REPLY_TO,
+      subject: mail.subject,
+      html: mail.html,
+      text: mail.text,
+      template: 'show_signup_sign_link',
+      businessId: business.id,
+    }).catch((err) => console.error('[SHOW-SIGNUP] sign-link email failed:', err));
+
     console.log(
       `[SHOW-SIGNUP] ${businessName} (${gms} -> ${integrationProvider}) garage=${garage.id} agreement=${agreement.id} — ready to sign`,
     );
     return res.status(201).json({ success: true, signUrl, businessName });
   } catch (error) {
     console.error('[SHOW-SIGNUP] failed:', error);
+    return res.status(500).json({ success: false, error: 'server_error' });
+  }
+});
+
+/**
+ * POST /api/public/show-interest
+ *
+ * "Send me the details instead" — for a garage that wants the offer but not today.
+ *
+ * Creates NO account, no agreement and no sign link: they have committed to nothing, and an
+ * account created on their behalf is exactly the squatting problem we already carry on the
+ * signup route. All this does is make the lead contactable (the prospect row from the garage
+ * search has a business name and nothing else) and put the offer in their inbox so there is a
+ * way back that does not depend on them remembering a URL.
+ */
+const interestSchema = z.object({
+  prospectId: z.string().trim().max(80).optional(),
+  businessName: z.string().trim().min(2).max(200),
+  name: z.string().trim().min(2).max(120),
+  email: z.string().trim().email().max(254),
+  phone: z.string().trim().min(6).max(40),
+  // Their diary, when we know it — a supported one means they saw the offer and hesitated,
+  // which is a different follow-up from "we cannot integrate yet".
+  gms: z.string().trim().max(60).optional(),
+  address: z.string().trim().max(500).optional(),
+});
+
+router.post('/public/show-interest', async (req: Request, res: Response) => {
+  const parsed = interestSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ success: false, error: 'invalid_request', details: parsed.error.flatten() });
+  }
+
+  const wait = throttled(clientIp(req));
+  if (wait !== null) {
+    res.setHeader('Retry-After', String(wait));
+    return res.status(429).json({ success: false, error: 'rate_limited', retryAfter: wait });
+  }
+
+  const { prospectId, businessName, name, phone, gms, address } = parsed.data;
+  const email = parsed.data.email.toLowerCase();
+
+  try {
+    const mail = buildInterestEmail(businessName);
+    const sent = await sendEmail({
+      to: [email],
+      replyTo: SUPPORT_REPLY_TO,
+      subject: mail.subject,
+      html: mail.html,
+      text: mail.text,
+      template: 'show_interest_offer',
+    });
+
+    // The CRM push is best-effort and must not fail the request: the person is standing in front
+    // of us and the email is the thing they were promised.
+    void (async () => {
+      if (!highlevelConfigured()) return;
+      try {
+        const prospect = prospectId
+          ? await prisma.pendingSignup.findUnique({ where: { id: prospectId } })
+          : null;
+        let contactId = prospect?.ghlContactId ?? null;
+        if (contactId) {
+          await updateContact(contactId, { name, email, phone });
+        } else {
+          const c = await upsertContact({
+            name,
+            email,
+            phone,
+            companyName: businessName,
+            source: 'blend-show',
+            tags: ['blend-2026', 'blend-interested', 'automate'],
+          });
+          contactId = c.contactId;
+        }
+        if (contactId && !prospect?.ghlOpportunityId) {
+          await createOpportunity({
+            contactId,
+            name: `${businessName} — Automate (Blend, to follow up)`,
+            monetaryValueGbp: SHOW_TERMS.subscriptionCostGbp,
+            monthlyCostPerBranchGbp: SHOW_TERMS.subscriptionCostGbp,
+            packageName: 'Automate',
+            kind: 'lead',
+          });
+        }
+        if (prospect) {
+          await prisma.pendingSignup.update({
+            where: { id: prospect.id },
+            data: { name, email, contactPhone: phone, product: 'automate' },
+          });
+        }
+      } catch (e) {
+        console.error('[SHOW-INTEREST] CRM sync failed:', e);
+      }
+    })();
+
+    console.log(`[SHOW-INTEREST] ${businessName} (${gms || 'gms unknown'}) -> ${email} — offer emailed=${sent}${address ? '' : ''}`);
+    return res.status(201).json({ success: true, emailed: sent });
+  } catch (error) {
+    console.error('[SHOW-INTEREST] failed:', error);
     return res.status(500).json({ success: false, error: 'server_error' });
   }
 });

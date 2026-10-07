@@ -105,3 +105,53 @@ test('every provider key is one the diary-connect service can actually email', (
 test('SHOW_TERMS is the single source of the booking count', () => {
   assert.equal(SHOW_TERMS.bookingsRequiredForActivation, 4);
 });
+
+// ── The emails ─────────────────────────────────────────────────────────────
+//
+// Both exist because the sign link used to live in exactly one browser tab. A flat phone or a
+// closed tab left a garage with a created account, a drafted agreement and no way back to
+// either — and an Agreement row claiming sentAt/sentToEmail for an email nobody sent.
+
+import { buildInterestEmail, buildSignLinkEmail, offerSummaryText } from './show-signup.js';
+
+test('the offer email quotes the same terms the garage is created with', () => {
+  const t = offerSummaryText();
+  assert.match(t, /£399/);
+  assert.match(t, /600 minutes/);
+  assert.match(t, /books 4 customers|booking 4/);
+});
+
+test('the offer terms in the email cannot drift from the ones that gate billing', () => {
+  const t = offerSummaryText();
+  assert.ok(t.includes(String(showGarageBilling().subscriptionCostGbp)));
+  assert.ok(t.includes(String(showGarageBilling().bookingsRequiredForActivation)));
+});
+
+test('the sign-link email carries the link', () => {
+  const url = 'https://portal.receptionmate.co.uk/agreement/sign?token=abc123';
+  const { html, text } = buildSignLinkEmail('Acme Auto', url);
+  assert.ok(html.includes(url));
+  assert.ok(text.includes(url));
+});
+
+test('the interest email points back at the funnel, not at a sign link', () => {
+  const { html, text } = buildInterestEmail('Acme Auto');
+  assert.ok(html.includes('/blend'));
+  assert.ok(text.includes('/blend'));
+  // No account exists for these people, so there must be nothing here that implies one does.
+  assert.ok(!/agreement\/sign/.test(html));
+});
+
+test('both emails warn that the Direct Debit needs bank details', () => {
+  // The single most common reason a signup stalls at a trade show: nobody carries their account
+  // number and sort code. Saying so up front turns a dead end into "finish it from the office".
+  assert.match(buildInterestEmail('Acme Auto').text, /bank details/i);
+  assert.match(buildSignLinkEmail('Acme Auto', 'https://x/y').text, /sort code/i);
+});
+
+test('a garage name cannot inject markup into either email', () => {
+  const bad = '"><a href="https://evil.example">click</a><!--';
+  for (const { html } of [buildInterestEmail(bad), buildSignLinkEmail(bad, 'https://x/y')]) {
+    assert.ok(!html.includes('<a href="https://evil.example">'), 'injected anchor survived');
+  }
+});

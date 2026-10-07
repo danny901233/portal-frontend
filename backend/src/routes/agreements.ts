@@ -931,7 +931,20 @@ router.post('/admin/agreements/:id/send', authenticate, requireAdmin, async (req
     return res.status(409).json({ error: 'Already signed' });
   }
 
-  const token = await issueSignLinkToken(agreement.userId, agreement.id);
+  // Carry forward the purpose of the link this agreement was last sent with. A self-serve
+  // signup has no password and no welcome email, so signing its agreement has to yield a
+  // password-setup token — and re-sending from here with the default purpose would drop that,
+  // landing them on "check your email" for an email that is never sent. Staff-issued agreements
+  // are unaffected: no prior self-serve token means the ordinary purpose.
+  const priorSelfServe = await prisma.signLinkToken.findFirst({
+    where: { agreementId: agreement.id, purpose: SELF_SERVE_SIGN_PURPOSE },
+    select: { id: true },
+  });
+  const token = await issueSignLinkToken(
+    agreement.userId,
+    agreement.id,
+    priorSelfServe ? SELF_SERVE_SIGN_PURPOSE : 'sign_agreement',
+  );
   const signUrl = `${PORTAL_URL}/agreement/sign?token=${encodeURIComponent(token)}`;
   const toEmail = opts.data.toEmail || agreement.user.email;
 

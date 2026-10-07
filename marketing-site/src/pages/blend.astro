@@ -28,6 +28,9 @@ import BaseLayout from '../layouts/BaseLayout.astro';
 const PROSPECT_ENDPOINT = import.meta.env.PUBLIC_PROSPECT_ENDPOINT || 'https://portal.receptionmate.co.uk/api/public/prospect';
 const SHOW_SIGNUP_ENDPOINT = import.meta.env.PUBLIC_SHOW_SIGNUP_ENDPOINT || 'https://portal.receptionmate.co.uk/api/public/show-signup';
 const LEAD_ENDPOINT = import.meta.env.PUBLIC_LEAD_ENDPOINT || 'https://portal.receptionmate.co.uk/api/public/lead';
+// "Send me the details instead" — emails the offer and makes the lead contactable. Creates no
+// account: they have committed to nothing.
+const SHOW_INTEREST_ENDPOINT = import.meta.env.PUBLIC_SHOW_INTEREST_ENDPOINT || 'https://portal.receptionmate.co.uk/api/public/show-interest';
 // The live Assist self-serve endpoint — the same one /get-started posts to. Reused rather than
 // reimplemented: it already creates the PendingSignup, the 14-day Stripe trial and the sign link.
 const SIGNUP_ENDPOINT = import.meta.env.PUBLIC_SIGNUP_ENDPOINT || 'https://portal.receptionmate.co.uk/api/public-signup';
@@ -214,6 +217,15 @@ const c = {
           Claim the offer
         </button>
         <p class="mt-3 text-center text-xs text-ink-500">Next: your details, then the agreement to sign.</p>
+        <!--
+          The way out for someone who is interested but not signing today — which at a stand is
+          most people, not least because the Direct Debit needs bank details nobody carries.
+          Without it the only options here were "commit now" or "walk away", and walking away left
+          us a prospect row with a garage name and no way to contact anyone.
+        -->
+        <button type="button" id="bl-offer-email-me" class="mt-4 w-full text-sm font-medium text-brand-600 hover:text-brand-700 hover:underline">
+          Not today? Send me the details instead
+        </button>
       </section>
 
       <!-- ===== STEP 4: DETAILS → ACCOUNT ===== -->
@@ -378,10 +390,10 @@ const c = {
         <p class="text-sm text-ink-500">
           <span id="bl-lead-business" class="font-semibold text-ink-900">Your garage</span>
         </p>
-        <h1 class="mt-2 text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">
+        <h1 id="bl-lead-h1" class="mt-2 text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">
           No problem — we'll come to you.
         </h1>
-        <p class="mt-3 text-base text-ink-600">
+        <p id="bl-lead-sub" class="mt-3 text-base text-ink-600">
           Leave us your details and we'll talk you through it properly, at the stand or after the show.
         </p>
 
@@ -402,7 +414,7 @@ const c = {
           <p id="bl-lead-error" role="alert" class="hidden rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700"></p>
 
           <button type="submit" class="gs-primary-btn w-full">
-            <span data-state="idle">Send it over</span>
+            <span data-state="idle" id="bl-lead-submit-label">Send it over</span>
             <span data-state="loading" style="display:none" class="items-center gap-2">
               <svg class="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/></svg>
               Sending…
@@ -417,8 +429,8 @@ const c = {
           <div class="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-emerald-100">
             <svg class="h-6 w-6 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
           </div>
-          <h1 class="mt-4 text-2xl font-bold text-ink-900">Got it — thank you.</h1>
-          <p class="mt-2 text-sm text-ink-600">
+          <h1 id="bl-done-h1" class="mt-4 text-2xl font-bold text-ink-900">Got it — thank you.</h1>
+          <p id="bl-done-sub" class="mt-2 text-sm text-ink-600">
             We'll be in touch. If you're still at Blend, come and say hello — we'd rather show you
             than email you.
           </p>
@@ -476,7 +488,7 @@ const c = {
   .gs-primary-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 </style>
 
-<script is:inline define:vars={{ PROSPECT_ENDPOINT, SHOW_SIGNUP_ENDPOINT, SIGNUP_ENDPOINT, LEAD_ENDPOINT, PLACES_ENDPOINT, BOOKINGS_FREE }}>
+<script is:inline define:vars={{ PROSPECT_ENDPOINT, SHOW_SIGNUP_ENDPOINT, SIGNUP_ENDPOINT, LEAD_ENDPOINT, SHOW_INTEREST_ENDPOINT, PLACES_ENDPOINT, BOOKINGS_FREE }}>
   const state = {
     businessName: '',
     address: '',
@@ -484,6 +496,9 @@ const c = {
     gms: '',
     gmsName: '',
     prospectId: '',
+    // Why they are on the lead step: 'interested' came off the offer and wants it in writing,
+    // 'talk' came off the Assist recommendation and wants a person. Different form, same fields.
+    leadIntent: 'talk',
     history: [],
   };
 
@@ -722,7 +737,37 @@ const c = {
   }
 
   $('bl-recommend-continue').addEventListener('click', () => setStep('assist', true));
-  $('bl-recommend-enquire').addEventListener('click', () => setStep('lead', true));
+  $('bl-recommend-enquire').addEventListener('click', () => { setLeadIntent('talk'); setStep('lead', true); });
+
+  // "Not today? Send me the details instead" — off the Automate offer.
+  $('bl-offer-email-me').addEventListener('click', () => { setLeadIntent('interested'); setStep('lead', true); });
+
+  const LEAD_COPY = {
+    interested: {
+      h1: "No rush — we'll send it over.",
+      sub: "We'll email you the offer so you've got it in writing, and you can set it up whenever suits. It only takes a couple of minutes, but you'll want your bank details to hand for the Direct Debit.",
+      submit: 'Email me the offer',
+      doneH1: 'Sent — check your inbox.',
+      doneSub: "The offer's on its way, with a link to set it up when you're ready. If you're still at Blend, come and say hello.",
+    },
+    talk: {
+      h1: "No problem — we'll come to you.",
+      sub: "Leave us your details and we'll talk you through it properly, at the stand or after the show.",
+      submit: 'Send it over',
+      doneH1: 'Got it — thank you.',
+      doneSub: "We'll be in touch. If you're still at Blend, come and say hello — we'd rather show you than email you.",
+    },
+  };
+
+  function setLeadIntent(intent) {
+    state.leadIntent = intent;
+    const c = LEAD_COPY[intent];
+    $('bl-lead-h1').textContent = c.h1;
+    $('bl-lead-sub').textContent = c.sub;
+    $('bl-lead-submit-label').textContent = c.submit;
+    $('bl-done-h1').textContent = c.doneH1;
+    $('bl-done-sub').textContent = c.doneSub;
+  }
 
   // ====== Step 3: offer ======
   $('bl-offer-continue').addEventListener('click', () => setStep('details', true));
@@ -871,24 +916,44 @@ const c = {
 
     busy(form, true);
     try {
-      const res = await fetch(LEAD_ENDPOINT, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name,
-          email,
-          phone,
-          companyName: state.businessName,
-          source: 'blend-show-unsupported-gms',
-          notes: `Blend show — asked to be talked through it. Booking system: ${gmsName || 'not given'}. Address: ${state.address || 'n/a'}.`,
-        }),
-      });
+      // Two different asks, two different endpoints. "Send me the details" emails the offer and
+      // makes the lead contactable; "talk me through it" is an ordinary enquiry. Neither creates
+      // an account — that only happens when someone actually claims the offer.
+      const interested = state.leadIntent === 'interested';
+      const res = interested
+        ? await fetch(SHOW_INTEREST_ENDPOINT, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              prospectId: state.prospectId || undefined,
+              businessName: state.businessName,
+              name,
+              email,
+              phone,
+              gms: state.gms || undefined,
+              address: state.address || undefined,
+            }),
+          })
+        : await fetch(LEAD_ENDPOINT, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              name,
+              email,
+              phone,
+              companyName: state.businessName,
+              source: 'blend-show-unsupported-gms',
+              notes: `Blend show — asked to be talked through it. Booking system: ${gmsName || 'not given'}. Address: ${state.address || 'n/a'}.`,
+            }),
+          });
       const data = await res.json().catch(() => ({}));
       if (res.ok && (data.ok || data.success)) { setStep('lead-done', false); return; }
       throw new Error('lead_failed');
     } catch (e2) {
       console.error('[blend] lead failed', e2);
-      err.textContent = "We couldn't send that just now. Come and find us at the stand instead.";
+      err.textContent = state.leadIntent === 'interested'
+        ? "We couldn't send that just now. Grab one of us at the stand and we'll email it over."
+        : "We couldn't send that just now. Come and find us at the stand instead.";
       err.classList.remove('hidden');
       busy(form, false);
     }

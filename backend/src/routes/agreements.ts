@@ -571,13 +571,24 @@ async function finaliseSignature(opts: {
   // welcome email that was never sent. They KEEP mustSetupPayment — the GoCardless mandate is
   // the next gate, and nextStep below sends them to it.
   //
-  // The gate is the TOKEN'S PURPOSE, not mustChangePassword. Keying it on the password flag
-  // handed a password-setup token to every magic-link signer who had not yet changed their
-  // password — which is every customer /admin/onboard creates. A forwarded or leaked sign link
-  // would then have escalated from "sign this contract" to "own this account".
+  // A self-serve DIRECT DEBIT signer gets NO password token and no way in yet.
+  //
+  // They used to be logged straight into the portal to set up the mandate. That inverted the
+  // onboarding order: confirm-mandate treats a confirmed mandate as the last thing outstanding
+  // and marks the garage 'live', and setOnboardingStage refuses to move a garage that is already
+  // live — so a garage signed at the stand went live with no GarageHive credentials, no agent
+  // and no number, and could never afterwards reach awaiting_credentials or trigger its own
+  // go-live. The customer also had a portal with nothing in it.
+  //
+  // The order that works is the one the sales-led pipeline already uses: signed -> credentials ->
+  // agent built -> invite (announceGoLiveIfReady emails the login) -> they log in, set a password
+  // and complete the mandate -> live. So nothing is issued here; mustSetupPayment stays true and
+  // gates them onto /setup-payment the first time they log in, which is after go-live.
+  //
+  // The card path is untouched: a Stripe trial customer has already paid for their account, and
+  // their agent is live the moment it is created.
   let passwordSetupToken: string | null = null;
-  const selfServeSigner = opts.selfServe === true;
-  if (opts.consumeTokenId && user && (checkoutClientSecret || selfServeSigner)) {
+  if (opts.consumeTokenId && user && checkoutClientSecret) {
     const resetToken = randomBytes(32).toString('hex');
     await prisma.user.update({
       where: { id: user.id },
@@ -594,6 +605,9 @@ async function finaliseSignature(opts: {
 
   // After signing: tell the frontend what the next gate is so it can route
   // straight into DD setup or the dashboard without bouncing through /login.
+  //
+  // Only the no-token path (a signed-in customer signing in the portal) reads this; a magic-link
+  // signer is shown the "what happens next" screen regardless.
   const nextStep: 'payment' | 'dashboard' = user?.mustSetupPayment ? 'payment' : 'dashboard';
 
   return opts.res.json({

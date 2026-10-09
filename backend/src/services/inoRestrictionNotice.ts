@@ -76,6 +76,20 @@ export async function sendInoRestrictionNotice(opts: {
     orderBy: { periodStart: 'asc' },
   });
 
+  // "Autocentres" is a trade word, not an identifier — Halfords and Kwik Fit both use it. The
+  // name match above is how we FIND In'n'out, not proof that what it found is only them: onboard
+  // another chain with the word in its name and their invoice totals would be folded into this
+  // notice, and attached to it as a PDF. Every branch we found must belong to one business, or
+  // we stop. A notice that is late is recoverable; one that shows a customer another customer's
+  // billing is not.
+  const businessIds = new Set(rows.map((r) => r.garage.businessId ?? r.businessId ?? 'none'));
+  if (businessIds.size > 1) {
+    throw new Error(
+      `[INO-RESTRICT] refusing to send: the name match spans ${businessIds.size} businesses `
+      + `(${[...businessIds].join(', ')}). Narrow the filter before sending anything.`,
+    );
+  }
+
   const byMonth = new Map<number, typeof rows>();
   for (const r of rows) {
     const key = r.periodStart.getTime();

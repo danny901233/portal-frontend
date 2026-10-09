@@ -17,6 +17,7 @@ import { runBillingWatchdog } from '../services/billingWatchdog.js';
 import { retryFailedPayments } from '../services/paymentRetry.js';
 import { chaseOverdueInvoices } from '../services/invoiceChase.js';
 import { sweepTransferredCalls } from '../services/transferTranscript.js';
+import { sweepUnsignedShowAgreements } from '../routes/show-signup.js';
 import { sweepStagedAttachments } from '../services/ticketAttachments.js';
 
 const prisma = new PrismaClient();
@@ -63,6 +64,14 @@ export const initializeScheduledReports = (): void => {
   cron.schedule('*/15 * * * *', async () => {
     try { await sweepTransferredCalls({ sinceHours: 6 }); }
     catch (error) { console.error('Post-transfer transcription sweep failed:', error); }
+  }, { timezone: 'Europe/London' });
+
+  // Chase a show signup who made an account and then did not sign. Every minute, because the
+  // wait is five: a sweep any slower would make "after five minutes" mean anything up to twenty.
+  // The sweep is self-limiting — it only looks at unsigned agreements with no sentAt.
+  cron.schedule('* * * * *', async () => {
+    try { await sweepUnsignedShowAgreements(); }
+    catch (error) { console.error('Unsigned show-agreement chase failed:', error); }
   }, { timezone: 'Europe/London' });
 
   cron.schedule('10 0 * * 1', async () => {   // Monday

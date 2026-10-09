@@ -476,7 +476,10 @@ router.post('/public/show-signup', async (req: Request, res: Response) => {
         messagingCentresCount: null,
         goLiveDate: null,
         templateSnapshot: '', // populated at signature
-        sentAt: new Date(),
+        // sentAt stays NULL until the link is actually emailed. The customer is handed it in the
+        // browser, so nothing has been sent yet, and claiming otherwise would both misreport the
+        // onboarding pipeline's chase data and make the sweep below think it had already run.
+        sentAt: null,
         sentToEmail: email,
       },
     });
@@ -554,22 +557,8 @@ router.post('/public/show-signup', async (req: Request, res: Response) => {
       })();
     }
 
-    // Email the sign link too, not just hand it to the browser.
-    //
-    // Without this the link exists in one tab and nowhere else: a flat phone, a closed tab or an
-    // "I'll do it tonight" — all ordinary at a stand — left the garage with a created account,
-    // a drafted agreement and no way back to either. It also makes the Agreement's sentAt /
-    // sentToEmail true rather than a claim about an email nobody sent.
-    const mail = buildSignLinkEmail(businessName, signUrl);
-    void sendEmail({
-      to: [email],
-      replyTo: SUPPORT_REPLY_TO,
-      subject: mail.subject,
-      html: mail.html,
-      text: mail.text,
-      template: 'show_signup_sign_link',
-      businessId: business.id,
-    }).catch((err) => console.error('[SHOW-SIGNUP] sign-link email failed:', err));
+    // The sign link is NOT emailed here — see sweepUnsignedShowAgreements below. Somebody who is
+    // on the signing page right now does not need an email telling them to go to it.
 
     console.log(
       `[SHOW-SIGNUP] ${businessName} (${gms} -> ${integrationProvider}) garage=${garage.id} agreement=${agreement.id} — ready to sign`,
@@ -689,5 +678,85 @@ router.post('/public/show-interest', async (req: Request, res: Response) => {
     return res.status(500).json({ success: false, error: 'server_error' });
   }
 });
+
+/**
+ * Chase a show signup who created an account and then did not sign.
+ *
+ * The sign link used to be emailed the moment the account was created, which meant it landed
+ * while the customer was still looking at the agreement — an email telling them to go to the page
+ * they were already on. It is a backup for the ones who walk away, so it waits.
+ *
+ * Sends once, after SIGN_CHASE_AFTER_MS, and only while the agreement is still unsigned. The
+ * marker is the agreement's own `sentAt`: null means nothing has been emailed, and setting it
+ * when we send both stops a second attempt and restores that column's honest meaning for the
+ * onboarding pipeline's chase data.
+ *
+ * Deliberately narrow. Only an agreement created by this funnel qualifies — status 'sent' with no
+ * sentAt AND a live self-serve sign token — so a staff-drafted agreement, which is 'draft' until
+ * somebody sends it, can never be swept into an automatic email.
+ */
+const SIGN_CHASE_AFTER_MS = 5 * 60 * 1000;
+
+export async function sweepUnsignedShowAgreements(): Promise<number> {
+  const cutoff = new Date(Date.now() - SIGN_CHASE_AFTER_MS);
+  const due = await prisma.agreement.findMany({
+    where: {
+      status: 'sent',
+      sentAt: null,
+      createdAt: { lt: cutoff },
+      freeUntilBookings: { not: null },
+    },
+    select: { id: true, clientName: true, sentToEmail: true, businessId: true, userId: true },
+    take: 50,
+  });
+  if (!due.length) return 0;
+
+  let sent = 0;
+  for (const a of due) {
+    // Reuse the token the customer was already given rather than minting another: a second live
+    // link for the same agreement is a second way into the account.
+    const tokenRow = await prisma.signLinkToken.findFirst({
+      where: {
+        agreementId: a.id,
+        userId: a.userId,
+        purpose: SELF_SERVE_SIGN_PURPOSE,
+        consumedAt: null,
+        expiresAt: { gt: new Date() },
+      },
+      orderBy: { createdAt: 'desc' },
+      select: { token: true },
+    });
+    const to = a.sentToEmail;
+    if (!tokenRow || !to) {
+      // Nothing to send them to. Mark it so the sweep does not reconsider this row every minute.
+      await prisma.agreement.update({ where: { id: a.id }, data: { sentAt: new Date() } });
+      console.warn(`[SHOW-SIGNUP] no live sign token for agreement ${a.id} — chase skipped`);
+      continue;
+    }
+
+    const signUrl = `${PORTAL_URL}/agreement/sign?token=${encodeURIComponent(tokenRow.token)}`;
+    const mail = buildSignLinkEmail(a.clientName, signUrl);
+    const ok = await sendEmail({
+      to: [to],
+      replyTo: SUPPORT_REPLY_TO,
+      subject: mail.subject,
+      html: mail.html,
+      text: mail.text,
+      template: 'show_signup_sign_link',
+      ...(a.businessId ? { businessId: a.businessId } : {}),
+    }).catch((e) => {
+      console.error('[SHOW-SIGNUP] chase email failed:', e);
+      return false;
+    });
+
+    // Only claim it was sent if it was. A transient Mailgun failure should be retried next run.
+    if (ok) {
+      await prisma.agreement.update({ where: { id: a.id }, data: { sentAt: new Date() } });
+      sent += 1;
+    }
+  }
+  if (sent) console.log(`[SHOW-SIGNUP] chased ${sent} unsigned agreement(s)`);
+  return sent;
+}
 
 export default router;

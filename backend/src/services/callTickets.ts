@@ -22,6 +22,7 @@ import OpenAI from 'openai';
 import { TicketChannel, TicketCategory, TicketEntryKind, TicketPriority } from '@prisma/client';
 import { prisma } from '../db.js';
 import { notifyReceptionMateStaff } from '../utils/push.js';
+import { callerNumberForStorage } from '../utils/callerNumber.js';
 
 let client: OpenAI | null = null;
 const oa = () => (client ??= new OpenAI({ apiKey: process.env.OPENAI_API_KEY }));
@@ -301,8 +302,10 @@ async function keepScreenedCall(args: {
         // 'other' anyway, and inventing a category here would skew every dashboard that counts
         // them. Who answered is recorded in metrics and said plainly in the summary.
         callType: 'other',
-        fromNumber: args.callerPhone || undefined,
-        customerPhone: args.callerPhone || undefined,
+        // A screened caller who withheld their number must land as null, not as
+        // Twilio's stand-in word for one — same rule as POST /calls.
+        fromNumber: callerNumberForStorage(args.callerPhone) ?? undefined,
+        customerPhone: callerNumberForStorage(args.callerPhone) ?? undefined,
         twilioCallSid: args.callSid || undefined,
         summary: `Answered by a person (screened call). ${args.summary}`.trim(),
         // Whisper gives no speaker labels, so this is one block of speech and is marked as such

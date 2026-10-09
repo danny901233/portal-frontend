@@ -387,9 +387,14 @@ export const sendGarageHiveConnectRequest = async (businessId: string): Promise<
     `<tr><td style="padding: 32px;">` +
     `<h1 style="margin:0 0 14px;font-size:20px;color:#0f172a;font-weight:700;">New ReceptionMate onboard</h1>` +
     `<p style="margin:0 0 12px;font-size:15px;line-height:1.55;color:#475569;"><strong>${name}</strong> is being onboarded to ReceptionMate Automate.</p>` +
-    `<p style="margin:0 0 20px;font-size:15px;line-height:1.55;color:#475569;">Open the link below and paste the garage's GarageHive <strong>instance</strong> — that's all that's needed.</p>` +
+    `<p style="margin:0 0 12px;font-size:15px;line-height:1.55;color:#475569;">Open the link below and fill in two things:</p>` +
+    `<ol style="margin:0 0 20px;padding-left:20px;font-size:15px;line-height:1.6;color:#475569;">` +
+    `<li>The garage's GarageHive <strong>instance</strong>, for the online-booking diary.</li>` +
+    `<li>Their <strong>Garage Link Advanced</strong> (Business Central) details, so the agent can recognise returning customers and see service history.</li>` +
+    `</ol>` +
+    `<p style="margin:0 0 20px;font-size:15px;line-height:1.55;color:#475569;">Both are on the same page. If the Advanced details aren't to hand, send the instance on its own and we'll pick the rest up later — the diary still works without them.</p>` +
     `<table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:0 auto 18px;"><tr>` +
-    `<td style="background:#3426cf;border-radius:10px;"><a href="${link}" style="display:inline-block;padding:14px 30px;color:#ffffff;text-decoration:none;font-weight:700;font-size:16px;">Connect GarageHive diary</a></td>` +
+    `<td style="background:#3426cf;border-radius:10px;"><a href="${link}" style="display:inline-block;padding:14px 30px;color:#ffffff;text-decoration:none;font-weight:700;font-size:16px;">Connect this garage</a></td>` +
     `</tr></table>` +
     `<p style="margin:0;font-size:13px;line-height:1.5;color:#94a3b8;text-align:center;">Or paste this link: <a href="${link}" style="color:#3426cf;word-break:break-all;">${link}</a><br>Link valid 14 days.</p>` +
     `</td></tr>`;
@@ -399,7 +404,12 @@ export const sendGarageHiveConnectRequest = async (businessId: string): Promise<
     subject: 'New ReceptionMate onboard',
     text:
       `${name} is being onboarded to ReceptionMate Automate.\n\n` +
-      `Open the link below and paste the garage's GarageHive instance — that's all that's needed.\n\n` +
+      `Open the link below and fill in two things:\n\n` +
+      `1. The garage's GarageHive instance, for the online-booking diary.\n` +
+      `2. Their Garage Link Advanced (Business Central) details, so the agent can recognise ` +
+      `returning customers and see service history.\n\n` +
+      `Both are on the same page. If the Advanced details are not to hand, send the instance on ` +
+      `its own and we will pick the rest up later - the diary still works without them.\n\n` +
       `${link}\n\nLink valid 14 days.`,
     html: brandedEmailShell(body),
   });
@@ -772,7 +782,9 @@ export const matchBranch = (
 // The ordinary connect above wires the ONLINE BOOKING diary, which is all most garages need.
 // Service history, caller recognition and MOT/service reminders come from Business Central
 // instead, and BC needs credentials the garage's own GarageHive account only has once they
-// upgrade — GarageHive sell that upgrade as "Garage Link Advanced".
+// upgrade — GarageHive sold that as "Garage Link Advanced". It is standard on a new garage now,
+// so the onboarding email above asks for both at once and this standalone request is only for
+// an existing garage being backfilled.
 //
 // Until now those credentials arrived by whatever route somebody happened to use, which is why
 // only three garages in the fleet have a BC connection at all. Advanced Service Centre is the

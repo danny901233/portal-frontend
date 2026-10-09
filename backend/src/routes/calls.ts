@@ -10,6 +10,7 @@ import { reconcileCallerName } from '../services/garageHiveBc.js';
 import { authenticate } from '../middleware/auth.js';
 import { callFeedbackSchema, createCallSchema } from '../utils/validators.js';
 import { classifyCallCategory } from '../utils/callClassifier.js';
+import { callerNumberForStorage } from '../utils/callerNumber.js';
 import type {
   CallWithParsedJson,
   MetricsRecord,
@@ -264,6 +265,30 @@ export function callerNumberFromRoomName(roomName: string | null | undefined): s
   return m ? m[1] : null;
 }
 
+/**
+ * The garage's own lines: the number callers ring, the number the agent transfers
+ * to, and the number it screens through. None of these can be the caller.
+ *
+ * A garage with no configuration yet returns an empty list, which disables the
+ * check rather than failing closed.
+ */
+async function garageOwnNumbers(garageId: string): Promise<string[]> {
+  try {
+    const cfg = await prisma.agentConfiguration.findUnique({
+      where: { garageId },
+      select: { phoneNumber: true, transferNumber: true, screenNumber: true },
+    });
+    if (!cfg) return [];
+    return [cfg.phoneNumber, cfg.transferNumber, cfg.screenNumber].filter(
+      (n): n is string => typeof n === 'string' && n.trim() !== '',
+    );
+  } catch (err) {
+    // Never lose a call record over this check.
+    console.error('[CALL] Could not read the garage own-number list:', err);
+    return [];
+  }
+}
+
 // reveals what was said/booked is nulled server-side (including roomName, which embeds the
 // caller's number, and metrics, which can carry the AI diagnosis). Internal staff never hit this.
 const redactRestrictedCall = (call: ReturnType<typeof parseCallJson>) => ({
@@ -413,7 +438,28 @@ router.post('/calls', async (req: Request, res: Response) => {
     // agent does, leaving the portal showing a call from nobody (97796390,
     // 2026-09-29). Reading it here fixes every agent at once rather than
     // waiting for each to be taught to pass it.
-    const fromNumber = payload.fromNumber || callerNumberFromRoomName(payload.roomName);
+    const rawFromNumber = payload.fromNumber || callerNumberFromRoomName(payload.roomName);
+
+    // ...and then refuse to store anything that is not a number we could ring
+    // back. A withheld caller must land as null rather than as the carrier's
+    // word for it, and the garage's own lines are never the caller — see
+    // utils/callerNumber.ts for the ASC calls that made this necessary.
+    const ownNumbers = await garageOwnNumbers(payload.garageId);
+    const fromNumber = callerNumberForStorage(rawFromNumber, ownNumbers);
+    const customerPhone = callerNumberForStorage(payload.customerPhone, ownNumbers);
+
+    if (payload.customerPhone && !customerPhone) {
+      console.log(
+        `[CALL] Dropped unusable customerPhone ${JSON.stringify(payload.customerPhone)} ` +
+        `for garage ${payload.garageId} — withheld, or the garage's own line`,
+      );
+    }
+    if (rawFromNumber && !fromNumber) {
+      console.log(
+        `[CALL] Dropped unusable fromNumber ${JSON.stringify(rawFromNumber)} ` +
+        `for garage ${payload.garageId} — withheld, or the garage's own line`,
+      );
+    }
 
     const callId = await generateUniqueCallId();
 
@@ -431,7 +477,7 @@ router.post('/calls', async (req: Request, res: Response) => {
         fromNumber,
         registrationNumber: payload.registrationNumber,
         customerName: payload.customerName,
-        customerPhone: payload.customerPhone,
+        customerPhone,
         confirmedBooking,
         confirmedBookingCategory,
         capturedRevenue,
@@ -465,7 +511,7 @@ router.post('/calls', async (req: Request, res: Response) => {
     void reconcileCallerName(
       payload.garageId,
       callId,
-      payload.customerPhone || payload.fromNumber,
+      customerPhone || fromNumber,
       payload.customerName,
     );
 
@@ -551,7 +597,7 @@ router.post('/calls', async (req: Request, res: Response) => {
         });
         void logCallToHubSpot({
           customerName: payload.customerName ?? null,
-          customerPhone: payload.customerPhone ?? null,
+          customerPhone: customerPhone ?? null,
           fromNumber: null,
           registrationNumber: payload.registrationNumber ?? null,
           summary: payload.summary,
@@ -611,7 +657,7 @@ router.post('/calls', async (req: Request, res: Response) => {
         void sendPaymentSetupReminderEmail(createdCall.garage.agentConfiguration.notificationEmails, {
           branchName: createdCall.garage.agentConfiguration.branchName,
           summary: payload.summary,
-          customerPhone: payload.customerPhone,
+          customerPhone: customerPhone ?? undefined,
           createdAt: createdCall.createdAt.toISOString(),
           portalUrl,
         }).catch((error) => {
@@ -627,7 +673,7 @@ router.post('/calls', async (req: Request, res: Response) => {
           durationSeconds: actualDuration,
           callType: callType,
           customerName: payload.customerName,
-          customerPhone: payload.customerPhone,
+          customerPhone: customerPhone ?? undefined,
           registrationNumber: payload.registrationNumber,
           confirmedBooking: payload.confirmedBooking ?? false,
           capturedRevenue,
@@ -675,7 +721,7 @@ router.post('/calls', async (req: Request, res: Response) => {
           callId,
           callType,
           summary: payload.summary,
-          customerPhone: payload.customerPhone || payload.fromNumber,
+          customerPhone: customerPhone || fromNumber,
           customerName: payload.customerName,
         });
 
@@ -701,7 +747,7 @@ router.post('/calls', async (req: Request, res: Response) => {
         void logCallToHubSpot(
           {
             customerName: payload.customerName ?? null,
-            customerPhone: payload.customerPhone ?? null,
+            customerPhone: customerPhone ?? null,
             fromNumber: null,
             registrationNumber: payload.registrationNumber ?? null,
             summary: payload.summary ?? null,

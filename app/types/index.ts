@@ -33,6 +33,11 @@ export interface CallRecord {
   fromNumber?: string | null;
   customerName?: string | null;
   customerPhone?: string | null;
+  // Present on every call that arrived over the phone. Distinguishes "the caller
+  // withheld their number" from "this was never a phone call" (web demo, widget),
+  // now that a withheld number is stored as null rather than as the carrier's
+  // stand-in word for it.
+  twilioCallSid?: string | null;
   registrationNumber?: string | null;
   feedback: CallFeedbackRecord | null;
   confirmedBooking?: boolean | null;

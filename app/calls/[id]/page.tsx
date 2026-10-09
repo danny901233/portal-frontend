@@ -15,6 +15,7 @@ import { LogEntry } from './components/LogEntry';
 import { WaveformPlayer, type WaveformPlayerHandle } from './components/WaveformPlayer';
 import { TurnTimeline, type TurnMetric } from './components/TurnTimeline';
 import { useLang } from '@/app/i18n/LocaleProvider';
+import { callerNumberLabel } from '@/app/lib/callerNumber';
 
 // Define transcript entry types
 type MessageEntry = {
@@ -448,6 +449,7 @@ export default function CallDetailPage() {
       callTag: 'Call Tag',
       callerName: 'Caller Name',
       callerNumber: 'Caller Number',
+      numberWithheld: 'Number withheld',
       conversationSummary: 'Conversation Summary',
       transcript: 'Transcript',
       scrollToExplore: 'Scroll to explore the full conversation.',
@@ -495,6 +497,7 @@ export default function CallDetailPage() {
       callTag: 'Catégorie d’appel',
       callerName: 'Nom de l’appelant',
       callerNumber: 'Numéro de l’appelant',
+      numberWithheld: 'Numéro masqué',
       conversationSummary: 'Résumé de la conversation',
       transcript: 'Transcription',
       scrollToExplore: 'Faites défiler pour explorer toute la conversation.',
@@ -716,7 +719,9 @@ export default function CallDetailPage() {
   }
 
   const callerName = deriveCallerName(call);
-  const callerNumber = formatPhoneNumber(deriveCallerNumber(call));
+  const callerNumberRaw = deriveCallerNumber(call);
+  const callerNumber = callerNumberLabel(
+    call, callerNumberRaw, formatPhoneNumber(callerNumberRaw), c.numberWithheld);
   const diagnosis = (call.metrics as Record<string, unknown> | null | undefined)?.['diagnosis'] as
     | { status?: string; headline?: string; detail?: string; suggestedAction?: string; model?: string;
         generatedAt?: string; rootCause?: string; fix?: string; severity?: string; deepModel?: string }

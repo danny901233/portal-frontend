@@ -17,6 +17,7 @@ import { getFeedbackOptions } from '../lib/callFeedback';
 import { cn } from '../lib/utils';
 import type { CallRecord, CallsResponse } from '../types';
 import { useLang } from '@/app/i18n/LocaleProvider';
+import { callerNumberLabel } from '@/app/lib/callerNumber';
 
 const formatDate = (iso: string) =>
   new Date(iso).toLocaleString(undefined, {
@@ -451,6 +452,7 @@ export default function CallsPage() {
       arrearsBody:
         'Caller details, summaries, transcripts and recordings are hidden until this account is brought up to date. You can still see when calls came in and their type.',
       hidden: 'Hidden',
+      numberWithheld: 'Number withheld',
       searchFilterListen: 'Search, filter and listen back — newest first.',
       callsBadge: (n: number) => `${n} call${n === 1 ? '' : 's'}`,
       callTag: 'Call Tag',
@@ -518,6 +520,7 @@ export default function CallsPage() {
       arrearsBody:
         'Les coordonnées des appelants, les résumés, les transcriptions et les enregistrements sont masqués jusqu’à la régularisation du compte. Vous pouvez toujours voir l’heure des appels et leur type.',
       hidden: 'Masqué',
+      numberWithheld: 'Numéro masqué',
       searchFilterListen: 'Recherchez, filtrez et réécoutez — les plus récents en premier.',
       callsBadge: (n: number) => `${n} appel${n === 1 ? '' : 's'}`,
       callTag: 'Catégorie d’appel',
@@ -1283,7 +1286,9 @@ export default function CallsPage() {
             <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
               {displayedCalls.map((call) => {
                 const callerName = deriveCallerName(call);
-                const formattedNumber = formatPhoneNumber(deriveCallerNumber(call));
+                const callerNumberRawCard = deriveCallerNumber(call);
+                const formattedNumber = callerNumberLabel(
+                  call, callerNumberRawCard, formatPhoneNumber(callerNumberRawCard), c.numberWithheld);
                 const normTag = normaliseCallTag(call.callType);
                 const tagColor = TAG_COLORS[normTag] ?? TAG_COLORS.other;
                 const tagText = TAG_PILL_TEXT[normTag] ?? TAG_PILL_TEXT.other;
@@ -1370,7 +1375,8 @@ export default function CallsPage() {
                 displayedCalls.map((call) => {
                   const callerName = deriveCallerName(call);
                   const callerNumberRaw = deriveCallerNumber(call);
-                  const formattedNumber = formatPhoneNumber(callerNumberRaw);
+                  const formattedNumber = callerNumberLabel(
+                    call, callerNumberRaw, formatPhoneNumber(callerNumberRaw), c.numberWithheld);
                   const callTag = renderCallTag(call.callType, lang);
                   const rating = ratings[call.id] ?? null;
                   const upActive = rating === 'up';
@@ -1408,7 +1414,7 @@ export default function CallsPage() {
                             className="h-8"
                             style={{ width: '200px' }}
                           />
-                        ) : call.customerPhone ? (
+                        ) : call.twilioCallSid || call.customerPhone ? (
                           <div className="space-y-1">
                             <button
                               type="button"

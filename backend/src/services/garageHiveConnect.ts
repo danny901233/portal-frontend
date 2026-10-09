@@ -498,12 +498,13 @@ export const announceGoLiveIfReady = async (garageId: string): Promise<boolean> 
   // customer to forward their line to a dead number nor marks the garage announced — leaving
   // go-live to retry next time the garage is touched.
   const provisioned = await provisionNumberForGarage(garageId);
-  if (!provisioned.ok && provisioned.reason !== 'no voice licence — number not required') {
+  if (provisioned.status === 'failed') {
     console.error(`[GO-LIVE] ${garage.name} held back: ${provisioned.reason}`);
     await alertNumberProvisioningFailed(garage.name, garageId, provisioned.reason, provisioned.twilioNumber);
     return false;
   }
-  const liveNumber = provisioned.ok ? provisioned.twilioNumber : null;
+  // 'not_required' is a Connect-only branch: no voice licence, so no number and nothing wrong.
+  const liveNumber = provisioned.status === 'not_required' ? null : provisioned.twilioNumber;
 
   // Mark announced (JSON flag only — the agent doesn't need it, so no DynamoDB resync) + go live.
   await prisma.agentConfiguration.update({

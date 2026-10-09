@@ -30,9 +30,25 @@ import { ensureUnifiedSipRouting } from './unifiedSip.js';
 import { accountForAgentScript } from '../utils/agentAccount.js';
 import { sendEmail } from '../utils/email.js';
 
+// A tagged result, NOT an ok/reason pair.
+//
+// go-live has to tell three different outcomes apart: it got a number, it does not need one
+// (Connect-only), or it failed. Expressing "does not need one" as a failure meant the caller
+// decided whether to continue by string-matching the reason — so editing that sentence would
+// have silently started announcing voice garages with no number, and nothing would have failed.
 export type ProvisionResult =
-  | { ok: true; twilioNumber: string; alreadyHad: boolean }
-  | { ok: false; reason: string; twilioNumber?: string };
+  | { status: 'provisioned'; twilioNumber: string }
+  | { status: 'already_had'; twilioNumber: string }
+  | { status: 'not_required' }
+  | { status: 'failed'; reason: string; twilioNumber?: string };
+
+// One purchase at a time per garage.
+//
+// announceGoLiveIfReady is called from BOTH onboarding tracks on purpose — "whichever finishes
+// last calls this" — so an agreement signed at the same moment the diary connects can enter here
+// twice. Both would pass the "has a number?" check and buy one, and the second is a number we pay
+// for that nothing points at. Callers share the first call's promise instead.
+const inFlight = new Map<string, Promise<ProvisionResult>>();
 
 /**
  * The agent worker name the onboarding service should wire, from the garage's script.
@@ -58,7 +74,15 @@ export function agentNameFor(script: string | null | undefined): string {
  * Make sure `garageId` has a working number. Idempotent: a garage that already has one is left
  * alone, so this is safe to call from a path that may run more than once.
  */
-export async function provisionNumberForGarage(garageId: string): Promise<ProvisionResult> {
+export function provisionNumberForGarage(garageId: string): Promise<ProvisionResult> {
+  const running = inFlight.get(garageId);
+  if (running) return running;
+  const p = doProvision(garageId).finally(() => inFlight.delete(garageId));
+  inFlight.set(garageId, p);
+  return p;
+}
+
+async function doProvision(garageId: string): Promise<ProvisionResult> {
   const garage = await prisma.garage.findUnique({
     where: { id: garageId },
     select: {
@@ -69,16 +93,16 @@ export async function provisionNumberForGarage(garageId: string): Promise<Provis
       agentConfiguration: { select: { agentScript: true } },
     },
   });
-  if (!garage) return { ok: false, reason: 'garage not found' };
+  if (!garage) return { status: 'failed', reason: 'garage not found' };
 
   // Already sorted. Not an error — go-live can run more than once.
   if (garage.twilioNumber) {
-    return { ok: true, twilioNumber: garage.twilioNumber, alreadyHad: true };
+    return { status: 'already_had', twilioNumber: garage.twilioNumber };
   }
 
   // A Connect-only branch buys messaging, not a phone line. Nothing to do, and nothing wrong.
   if (!garage.hasVoiceAccess) {
-    return { ok: false, reason: 'no voice licence — number not required' };
+    return { status: 'not_required' };
   }
 
   const script = garage.agentConfiguration?.agentScript ?? null;
@@ -89,8 +113,14 @@ export async function provisionNumberForGarage(garageId: string): Promise<Provis
   } catch (err) {
     // The usual cause is a regulatory bundle: a UK number type we hold no bundle for is refused
     // at purchase. There is nothing the customer can do about it and nothing to retry blindly.
-    return { ok: false, reason: `Twilio purchase failed: ${err instanceof Error ? err.message : String(err)}` };
+    return { status: 'failed', reason: `Twilio purchase failed: ${err instanceof Error ? err.message : String(err)}` };
   }
+
+  // Persist it the instant it is ours, BEFORE any wiring. A crash between buying and recording
+  // would otherwise leave us paying for a number nothing references, and the retry would buy a
+  // second one; recording it first also makes the "has a number?" check above a real guard for
+  // anything that comes along later.
+  await prisma.garage.update({ where: { id: garageId }, data: { twilioNumber } });
 
   const onboardingUrl = process.env.ONBOARDING_SERVICE_URL || 'http://localhost:3002';
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -111,21 +141,15 @@ export async function provisionNumberForGarage(garageId: string): Promise<Provis
       }),
     });
     if (!resp.ok) {
-      // The number is bought and ours either way, so record it: losing the reference would leave
-      // us paying for a number nothing knows about, and the retry would buy a second one.
-      await prisma.garage.update({ where: { id: garageId }, data: { twilioNumber } });
-      return { ok: false, reason: `provision failed: ${await resp.text()}`, twilioNumber };
+      return { status: 'failed', reason: `provision failed: ${await resp.text()}`, twilioNumber };
     }
   } catch (err) {
-    await prisma.garage.update({ where: { id: garageId }, data: { twilioNumber } });
     return {
-      ok: false,
+      status: 'failed',
       reason: `provision unreachable: ${err instanceof Error ? err.message : String(err)}`,
       twilioNumber,
     };
   }
-
-  await prisma.garage.update({ where: { id: garageId }, data: { twilioNumber } });
 
   // The unified agent's own LiveKit project. Without this the number is correct at Twilio and
   // the call still rings out, which looks identical to the customer and nothing else reports it.
@@ -136,12 +160,12 @@ export async function provisionNumberForGarage(garageId: string): Promise<Provis
       twilioNumber,
     });
     if (!wired.ok) {
-      return { ok: false, reason: `unified SIP trunk not created: ${wired.reason}`, twilioNumber };
+      return { status: 'failed', reason: `unified SIP trunk not created: ${wired.reason}`, twilioNumber };
     }
   }
 
   console.log(`[PROVISION] ${garage.name} -> ${twilioNumber} (${agentNameFor(script)})`);
-  return { ok: true, twilioNumber, alreadyHad: false };
+  return { status: 'provisioned', twilioNumber };
 }
 
 /**

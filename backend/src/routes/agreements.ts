@@ -234,6 +234,12 @@ router.get('/agreements/me/pending', authenticate, async (req: Request, res: Res
       centresCount: agreement.centresCount,
       licences: agreement.licences,
       goLiveDate: agreement.goLiveDate,
+      // The free period. Stored on the agreement and rendered into the contract body, but never
+      // returned here — so the commercial summary quoted a monthly total with no hint that it is
+      // not payable yet, and the one term the customer was actually sold was the one thing the
+      // summary did not mention.
+      freeTrialDays: agreement.freeTrialDays ?? null,
+      freeUntilBookings: agreement.freeUntilBookings ?? null,
       status: agreement.status,
       type: agreement.type,
       version: agreement.version,
@@ -277,6 +283,12 @@ router.get('/agreements/sign/:token', async (req: Request, res: Response) => {
       centresCount: agreement.centresCount,
       licences: agreement.licences,
       goLiveDate: agreement.goLiveDate,
+      // The free period. Stored on the agreement and rendered into the contract body, but never
+      // returned here — so the commercial summary quoted a monthly total with no hint that it is
+      // not payable yet, and the one term the customer was actually sold was the one thing the
+      // summary did not mention.
+      freeTrialDays: agreement.freeTrialDays ?? null,
+      freeUntilBookings: agreement.freeUntilBookings ?? null,
       status: agreement.status,
       type: agreement.type,
       version: agreement.version,
@@ -631,6 +643,9 @@ async function renderPendingSignAgreement(token: string, res: Response) {
     agreement: {
       id: 'pending', clientName: pending.businessName, setupFeeGbp: 0, licenceFeeGbp: 200,
       centresCount: 1, licences: ['assist'], goLiveDate: null, status: 'sent', type: 'saas', version: TEMPLATE_VERSION,
+      // Assist self-serve is always a day-based trial — pendingAgreementInputs sets the same
+      // value into the contract body, so the summary and the clause agree.
+      freeTrialDays: STRIPE_TRIAL_DAYS, freeUntilBookings: null,
     },
     customerEmail: pending.email,
     html,

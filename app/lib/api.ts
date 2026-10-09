@@ -841,6 +841,9 @@ export type AgreementSummary = {
   centresCount: number;
   licences: string[];
   goLiveDate: string | null;
+  /** Free period before billing starts. Both null = billing starts at go-live. */
+  freeTrialDays?: number | null;
+  freeUntilBookings?: number | null;
   status: 'draft' | 'sent' | 'signed' | 'externally_signed' | 'voided';
   version: string;
 };

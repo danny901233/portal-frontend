@@ -60,14 +60,26 @@ function AgreementSignInner() {
       licences: 'Licences',
       goLive: 'Go-live',
       toBeConfirmed: 'To be confirmed',
+      // The free period is the term the customer was actually sold. It belongs at the top of the
+      // summary, not only in clause 5.2 of the body.
+      freeUntilBookingsTitle: (n: number) => `Free until the AI books ${n} customer${n === 1 ? '' : 's'}`,
+      freeUntilBookingsBody: (n: number, total: string) =>
+        `Nothing is charged while the free period runs. Billing starts at ${total} + VAT a month once the AI has booked ${n} customer${n === 1 ? '' : 's'} into your diary.`,
+      freeTrialDaysTitle: (n: number) => `Free for your first ${n} days`,
+      freeTrialDaysBody: (n: number, total: string) =>
+        `Nothing is charged for ${n} days. Billing starts at ${total} + VAT a month after that.`,
+      payableFrom: 'Payable from',
+      afterFreePeriod: 'After the free period',
+      freeUntilBookingsPayableFrom: (n: number) => `Booking ${n}`,
+      freeTrialDaysPayableFrom: (n: number) => `Day ${n + 1}`,
       fullAgreement: 'Full agreement',
       versionLabel: 'Version',
       signElectronically: 'Sign electronically',
       todaysDate: 'Today’s date:',
       fullName: 'Full name',
-      fullNamePlaceholder: 'e.g. Daniel Tyldesley',
+      fullNamePlaceholder: 'Your full name',
       position: 'Position / role',
-      positionPlaceholder: 'e.g. Director',
+      positionPlaceholder: 'e.g. Owner, Director, Manager',
       drawSignature: 'Draw your signature',
       confirmPrefix: 'I confirm I have authority to sign this agreement on behalf of',
       confirmSuffix: ', that the information above is correct, and I accept the terms of the agreement. I understand this constitutes my electronic signature.',
@@ -111,12 +123,23 @@ function AgreementSignInner() {
       licences: 'Licences',
       goLive: 'Mise en service',
       toBeConfirmed: 'À confirmer',
+      freeUntilBookingsTitle: (n: number) =>
+        `Gratuit jusqu’à ce que l’IA réserve ${n} client${n === 1 ? '' : 's'}`,
+      freeUntilBookingsBody: (n: number, total: string) =>
+        `Rien n’est facturé pendant la période gratuite. La facturation commence à ${total} + TVA par mois une fois que l’IA a inscrit ${n} client${n === 1 ? '' : 's'} à votre agenda.`,
+      freeTrialDaysTitle: (n: number) => `Gratuit pendant vos ${n} premiers jours`,
+      freeTrialDaysBody: (n: number, total: string) =>
+        `Rien n’est facturé pendant ${n} jours. La facturation commence ensuite à ${total} + TVA par mois.`,
+      payableFrom: 'Payable à partir de',
+      afterFreePeriod: 'Après la période gratuite',
+      freeUntilBookingsPayableFrom: (n: number) => `Réservation ${n}`,
+      freeTrialDaysPayableFrom: (n: number) => `Jour ${n + 1}`,
       fullAgreement: 'Contrat complet',
       versionLabel: 'Version',
       signElectronically: 'Signer électroniquement',
       todaysDate: 'Date du jour :',
       fullName: 'Nom complet',
-      fullNamePlaceholder: 'ex. Daniel Tyldesley',
+      fullNamePlaceholder: 'Votre nom complet',
       position: 'Fonction / poste',
       positionPlaceholder: 'ex. Directeur',
       drawSignature: 'Dessinez votre signature',
@@ -202,6 +225,31 @@ function AgreementSignInner() {
   );
 
   const monthlyTotal = agreement ? agreement.licenceFeeGbp * agreement.centresCount : 0;
+
+  // Which free period, if any, this agreement was sold with. Bookings take precedence over days
+  // for the same reason the contract template does: an agreement carrying both would otherwise
+  // say two different things, and the booking count is the one we actually gate billing on.
+  const freePeriod = (() => {
+    if (!agreement) return null;
+    const total = formatGbp(monthlyTotal);
+    const bookings = agreement.freeUntilBookings ?? null;
+    if (bookings && bookings > 0) {
+      return {
+        title: c.freeUntilBookingsTitle(bookings),
+        body: c.freeUntilBookingsBody(bookings, total),
+        payableFrom: c.freeUntilBookingsPayableFrom(bookings),
+      };
+    }
+    const days = agreement.freeTrialDays ?? null;
+    if (days && days > 0) {
+      return {
+        title: c.freeTrialDaysTitle(days),
+        body: c.freeTrialDaysBody(days, total),
+        payableFrom: c.freeTrialDaysPayableFrom(days),
+      };
+    }
+    return null;
+  })();
 
   // Set once a public-signup customer has signed: holds the SetupIntent client_secret so we render
   // the Stripe card form (custom Payment Element) in-page instead of redirecting to stripe.com.
@@ -368,15 +416,38 @@ function AgreementSignInner() {
         <div className="border-b border-slate-200 px-5 py-3">
           <h2 className="text-sm font-semibold text-slate-900">{c.commercialSummary}</h2>
         </div>
+        {/*
+          The free period goes ABOVE the figures, not among them.
+          Read as a plain grid, "Monthly total £399 + VAT" is the first and loudest thing on a
+          contract whose actual headline is that nothing is payable yet — the customer is sold
+          "free until it books 4 customers" and the summary never said so. The monthly figure is
+          still shown in full, relabelled as what it is: the amount that starts after the free
+          period, not a charge due now.
+        */}
+        {freePeriod && (
+          <div className="border-b border-slate-200 bg-emerald-50 px-5 py-4">
+            <p className="text-sm font-bold text-emerald-900">{freePeriod.title}</p>
+            <p className="mt-1 text-sm leading-relaxed text-emerald-800">{freePeriod.body}</p>
+          </div>
+        )}
         <dl className="grid grid-cols-1 gap-x-6 gap-y-3 p-5 sm:grid-cols-3">
           <SummaryItem label={c.centres} value={String(agreement.centresCount)} />
           <SummaryItem label={c.licenceFee} value={`${formatGbp(agreement.licenceFeeGbp)}${c.perCentrePerMo}`} />
           <SummaryItem label={c.setupFee} value={agreement.setupFeeGbp > 0 ? formatGbp(agreement.setupFeeGbp) : c.waived} />
-          <SummaryItem label={c.monthlyTotal} value={`${formatGbp(monthlyTotal)} + VAT`} />
+          <SummaryItem
+            label={freePeriod ? c.afterFreePeriod : c.monthlyTotal}
+            value={`${formatGbp(monthlyTotal)} + VAT`}
+          />
           <SummaryItem label={c.licences} value={agreement.licences.map(capitalise).join(', ')} />
           <SummaryItem
-            label={c.goLive}
-            value={agreement.goLiveDate ? formatDate(agreement.goLiveDate) : c.toBeConfirmed}
+            label={freePeriod ? c.payableFrom : c.goLive}
+            value={
+              freePeriod
+                ? freePeriod.payableFrom
+                : agreement.goLiveDate
+                  ? formatDate(agreement.goLiveDate)
+                  : c.toBeConfirmed
+            }
           />
         </dl>
       </section>

@@ -327,9 +327,14 @@ export function renderAgreementHtml(inputs: AgreementInputs): string {
       </div>
       <div class="rm-sig-block">
         <p class="rm-sig-label">For ReceptionMate Ltd:</p>
-        <p><strong>Name:</strong> Daniel Tyldesley</p>
-        <p><strong>Position:</strong> Director</p>
-        <p><strong>Signature:</strong> <em>Signed on behalf of ReceptionMate Ltd</em></p>
+        <!--
+          No named individual on our side. A company executes a simple contract perfectly well as
+          "signed for and on behalf of", and this agreement is now signed self-serve by people who
+          have never spoken to us — a director's personal name on it serves them no purpose and is
+          one more piece of personal data on a document we hand to strangers. The partnership
+          agreement still names a signatory: that one is negotiated with someone we know.
+        -->
+        <p><strong>Signature:</strong> <em>Signed for and on behalf of ReceptionMate Ltd</em></p>
         <p><strong>Date:</strong> ${fmtDate(inputs.effectiveDate)}</p>
       </div>
     </div>

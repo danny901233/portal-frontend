@@ -353,10 +353,11 @@ function signatureBlocks(doc: PDFKit.PDFDocument, inputs: AgreementPdfInputs) {
 
   drawSignatureCard(doc, rightX, gridTop, colWidth, {
     label: 'For ReceptionMate Ltd:',
-    name: 'Daniel Tyldesley',
-    position: 'Director',
+    // Matches agreementTemplate: the company signs, not a named director. See the note there.
+    name: '',
+    position: '',
     signatureImage: null,
-    fallback: 'Signed on behalf of ReceptionMate Ltd',
+    fallback: 'Signed for and on behalf of ReceptionMate Ltd',
     date: fmtDate(inputs.effectiveDate),
   });
 }
@@ -380,13 +381,21 @@ function drawSignatureCard(
   doc.fillColor(MUTED).font('Helvetica-Bold').fontSize(8).text(s.label.toUpperCase(), x + padding, cy, { width: width - padding * 2, characterSpacing: 1.1 });
   cy = doc.y + 4;
 
-  doc.fillColor(INK).fontSize(10).font('Helvetica-Bold').text('Name: ', x + padding, cy, { continued: true });
-  doc.font('Helvetica').text(s.name);
-  cy = doc.y + 2;
+  // Our side carries no named individual, so skip the labels entirely rather than print
+  // "Name:" against a blank — an empty label on a contract reads as something missing.
+  if (s.name) {
+    doc.fillColor(INK).fontSize(10).font('Helvetica-Bold').text('Name: ', x + padding, cy, { continued: true });
+    doc.font('Helvetica').text(s.name);
+    cy = doc.y + 2;
+  }
 
-  doc.font('Helvetica-Bold').text('Position: ', x + padding, cy, { continued: true });
-  doc.font('Helvetica').text(s.position);
-  cy = doc.y + 4;
+  if (s.position) {
+    doc.fillColor(INK).fontSize(10).font('Helvetica-Bold').text('Position: ', x + padding, cy, { continued: true });
+    doc.font('Helvetica').text(s.position);
+    cy = doc.y + 4;
+  }
+
+  doc.fillColor(INK).fontSize(10);
 
   doc.font('Helvetica-Bold').text('Signature:', x + padding, cy);
   cy = doc.y + 2;

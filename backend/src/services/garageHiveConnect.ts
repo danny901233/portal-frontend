@@ -15,6 +15,7 @@
 import { createHmac, timingSafeEqual } from 'crypto';
 import bcrypt from 'bcryptjs';
 import { prisma } from '../db.js';
+import { provisionNumberForGarage, alertNumberProvisioningFailed } from './numberProvisioning.js';
 import { sendOpsSms } from '../utils/opsAlerts.js';
 import { setOnboardingStage } from '../utils/onboardingStage.js';
 import { sendAgentConfigWebhook } from '../routes/config.js';
@@ -485,6 +486,25 @@ export const announceGoLiveIfReady = async (garageId: string): Promise<boolean> 
       })
     : null;
   if (!signed) return false;
+
+  // The number is bought HERE, not at signing.
+  //
+  // Nothing bought one before: /admin/onboard does it when staff onboard a deal, and the
+  // self-serve funnel deliberately does not, because a garage whose diary is not connected has
+  // nothing to answer with. That left go-live emailing "your ReceptionMate number" as literal
+  // text, telling a customer to forward their calls to nothing.
+  //
+  // Before the announcement, and before the goLiveEmailedAt flag, so a failure neither tells the
+  // customer to forward their line to a dead number nor marks the garage announced — leaving
+  // go-live to retry next time the garage is touched.
+  const provisioned = await provisionNumberForGarage(garageId);
+  if (!provisioned.ok && provisioned.reason !== 'no voice licence — number not required') {
+    console.error(`[GO-LIVE] ${garage.name} held back: ${provisioned.reason}`);
+    await alertNumberProvisioningFailed(garage.name, garageId, provisioned.reason, provisioned.twilioNumber);
+    return false;
+  }
+  const liveNumber = provisioned.ok ? provisioned.twilioNumber : null;
+
   // Mark announced (JSON flag only — the agent doesn't need it, so no DynamoDB resync) + go live.
   await prisma.agentConfiguration.update({
     where: { garageId },
@@ -526,7 +546,8 @@ export const announceGoLiveIfReady = async (garageId: string): Promise<boolean> 
     });
   }
 
-  const number = garage.twilioNumber || 'your ReceptionMate number';
+  // `garage` was read before provisioning, so its twilioNumber is stale on a first go-live.
+  const number = liveNumber || garage.twilioNumber || 'your ReceptionMate number';
   const steps = issueCredentials
     ? `<ol style="margin:0 0 16px;padding-left:20px;font-size:15px;line-height:1.7;color:#475569;">` +
       `<li>Log in with the details above — you'll be asked to set your own password.</li>` +

@@ -35,7 +35,7 @@ const prettyDate = (d: Date) =>
 const shortBranch = (name: string) => name.replace(/In'n'out Autocentres\s*/i, '').trim() || name;
 
 /** One unpaid month: the invoice rows that make it up, plus the combined document they belong to. */
-interface UnpaidMonth {
+export interface UnpaidMonth {
   invoiceNo: string;
   periodStart: Date;
   due: Date;
@@ -51,7 +51,7 @@ interface UnpaidMonth {
  * renderInoInvoicePdf takes the same shape buildInoInvoiceData produces, so the reminder's PDF is
  * byte-for-byte the document they were sent — without touching live call data to get it.
  */
-async function buildMonthFromRows(
+export async function buildMonthFromRows(
   periodStart: Date,
   rows: Array<{
     id: string;

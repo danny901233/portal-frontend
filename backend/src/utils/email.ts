@@ -1384,6 +1384,214 @@ This is an automated email from ReceptionMate
   });
 };
 
+export interface ArrearsRestrictionNoticeEmailData {
+  customerName: string;
+  /** How the restriction date reads in the email, e.g. "Monday 13 October". */
+  restrictionDate: string;
+  /** Days between this email and the restriction date — stated so the notice period is explicit. */
+  noticeDays: number;
+  /** Optional sentence tying the date to the agreement, e.g. the 30-day clause it satisfies. */
+  termsNote?: string;
+  amount: string;
+  dueDate: string;
+  daysOverdue: number;
+  lines?: Array<{ label: string; amount: string }>;
+  upcoming?: Array<{ label: string; amount: string; due: string }>;
+  totalOutstanding?: string;
+  /** Pretty dates of the reminders already sent, so the notice can say what has gone before. */
+  remindersSent?: string[];
+  portalUrl?: string;
+  attachments?: EmailAttachment[];
+}
+
+/**
+ * Notice that an account is about to be restricted for non-payment.
+ *
+ * The step between sendLatePaymentEmail (a chase) and sendArrearsCallNoticeEmail (sent once the
+ * restriction is live). Its whole job is to be unambiguous about two things people otherwise
+ * assume the worst about: the calls keep being answered, and nothing is deleted. A customer who
+ * reads "restricted" as "the phones stop" will either panic or dismiss it as a bluff, and both
+ * of those cost us the payment this email exists to collect.
+ *
+ * Written for invoice-paying customers, so it talks about a transfer against the invoice rather
+ * than offering to fix a card or a mandate.
+ */
+export const sendArrearsRestrictionNoticeEmail = async (
+  recipients: string[],
+  data: ArrearsRestrictionNoticeEmailData,
+  cc?: string[],
+): Promise<boolean> => {
+  if (recipients.length === 0) {
+    console.log('No recipients configured for arrears restriction notice');
+    return false;
+  }
+
+  const lineRows = (data.lines || []).map((l) => `
+                  <tr>
+                    <td style="padding: 4px 0; font-size: 15px; color: #3a3f5c;">${l.label}</td>
+                    <td style="padding: 4px 0; font-size: 15px; color: #1d1a72; font-weight: 600; text-align: right;">${l.amount}</td>
+                  </tr>`).join('');
+
+  const upcomingRows = (data.upcoming || []).map((l) => `
+                  <tr>
+                    <td style="padding: 4px 0; font-size: 15px; color: #3a3f5c;">${l.label}<br>
+                      <span style="font-size: 13px; color: #8b90b0;">due ${l.due}</span></td>
+                    <td style="padding: 4px 0; font-size: 15px; color: #1d1a72; font-weight: 600; text-align: right; vertical-align: top;">${l.amount}</td>
+                  </tr>`).join('');
+
+  const groupHeading = (text: string, first: boolean) => `
+                  <tr>
+                    <td colspan="2" style="padding: ${first ? '0' : '14px'} 0 6px; font-size: 11px; font-weight: 700;
+                        letter-spacing: 0.06em; color: #8b90b0;">${text}</td>
+                  </tr>`;
+
+  // Only the overdue figure is what the restriction turns on, so the not-yet-due invoice is
+  // listed under its own heading with its own total and never folded into the headline amount.
+  const breakdown = (lineRows || upcomingRows) ? `
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%"
+                     style="margin: 0 0 20px; padding: 16px 20px; background-color: #f7f7fb; border: 1px solid #e9eaf5; border-radius: 10px;">
+                ${upcomingRows ? `
+                ${groupHeading('OVERDUE — PAYABLE NOW', true)}
+                ${lineRows}
+                <tr>
+                  <td style="padding: 8px 0 0; border-top: 1px solid #e9eaf5; font-size: 15px; font-weight: 700; color: #1d1a72;">Overdue now</td>
+                  <td style="padding: 8px 0 0; border-top: 1px solid #e9eaf5; font-size: 15px; font-weight: 700; color: #1d1a72; text-align: right;">${data.amount}</td>
+                </tr>
+                ${groupHeading('NOT YET DUE', false)}
+                ${upcomingRows}
+                ${data.totalOutstanding ? `
+                <tr>
+                  <td style="padding: 12px 0 0; border-top: 2px solid #e9eaf5; font-size: 15px; font-weight: 700; color: #1d1a72;">Total outstanding</td>
+                  <td style="padding: 12px 0 0; border-top: 2px solid #e9eaf5; font-size: 15px; font-weight: 700; color: #1d1a72; text-align: right;">${data.totalOutstanding}</td>
+                </tr>` : ''}` : `
+                ${lineRows}
+                <tr>
+                  <td style="padding: 10px 0 0; border-top: 1px solid #e9eaf5; font-size: 15px; font-weight: 700; color: #1d1a72;">Total overdue</td>
+                  <td style="padding: 10px 0 0; border-top: 1px solid #e9eaf5; font-size: 15px; font-weight: 700; color: #1d1a72; text-align: right;">${data.amount}</td>
+                </tr>`}
+              </table>` : '';
+
+  const reminderSentence = data.remindersSent?.length
+    ? ` We wrote to you about it on ${data.remindersSent.join(' and ')}.`
+    : '';
+
+  const html = arrearsEmailShell(`
+          <tr>
+            <td style="padding: 36px 32px 8px; text-align: center;">
+              <h1 style="margin: 0; font-size: 22px; font-weight: 600; color: #1d1a72;">Your account will be restricted on ${data.restrictionDate}</h1>
+              <p style="margin: 8px 0 0; font-size: 15px; color: #6b7194;">${data.customerName}</p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 20px 32px 32px;">
+              <p style="margin: 0 0 16px; font-size: 16px; line-height: 1.6; color: #3a3f5c;">
+                Your invoice for <strong>${data.amount}</strong> was due on ${data.dueDate} and is still
+                showing as unpaid — ${data.daysOverdue} day${data.daysOverdue === 1 ? '' : 's'} past our
+                14&nbsp;day terms.${reminderSentence}
+              </p>
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin: 0 0 22px;">
+                <tr>
+                  <td style="padding: 16px 20px; background-color: #fef3f2; border: 1px solid #fbd5d0; border-radius: 10px; font-size: 15px; line-height: 1.6; color: #7a2b23;">
+                    Unless the overdue balance reaches us first, our system will automatically restrict
+                    the account on <strong>${data.restrictionDate}</strong> — ${data.noticeDays} day${data.noticeDays === 1 ? '' : 's'}
+                    from today. This email is that notice.${data.termsNote ? ` ${data.termsNote}` : ''}
+                  </td>
+                </tr>
+              </table>
+              <p style="margin: 0 0 12px; font-size: 16px; font-weight: 600; color: #1d1a72;">What a restriction does, and doesn't, mean</p>
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin: 0 0 14px;">
+                <tr>
+                  <td style="padding: 16px 20px; background-color: #f0fdf4; border: 1px solid #bbf0cd; border-radius: 10px; font-size: 15px; line-height: 1.6; color: #1f5f3a;">
+                    <strong>Your calls keep being answered.</strong> Every call to your branches will be picked up
+                    by your receptionist exactly as it is today, and bookings will keep going into your diary.
+                    Nothing changes for the customer on the phone.
+                  </td>
+                </tr>
+              </table>
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin: 0 0 20px;">
+                <tr>
+                  <td style="padding: 16px 20px; background-color: #fff8ec; border: 1px solid #f6dfae; border-radius: 10px; font-size: 15px; line-height: 1.6; color: #8a6417;">
+                    <strong>Call details go on hold.</strong> From ${data.restrictionDate}, the caller's name and
+                    number, the summary, the transcript and the recording will not be available to you — not in the
+                    portal and not in your call emails. Nothing is deleted: every call we handle in the meantime is
+                    kept, and all of it unlocks the moment your payment reaches us.
+                  </td>
+                </tr>
+              </table>
+              ${breakdown}
+              <p style="margin: 0 0 16px; font-size: 15px; line-height: 1.6; color: #6b7194;">
+                ${data.upcoming?.length ? 'Only the overdue amount needs settling to stop the restriction — the invoice shown as not yet due is listed so you can send everything in one transfer if that is easier. ' : ''}Our
+                bank details are on the invoice${data.attachments?.length ? ', attached again here' : ''}${data.portalUrl ? `, and you can view it any time in <a href="${data.portalUrl}" style="color: ${RM_BRAND};">the portal</a>` : ''}.
+                If the payment has gone out in the last day or two, thank you — just reply so we can match it up and
+                cancel the restriction.
+              </p>
+              <p style="margin: 0; font-size: 16px; line-height: 1.6; color: #3a3f5c;">
+                We would much rather not restrict anything. If there is a hold-up at your end, reply to this email
+                and tell us when we can expect payment, and we will hold off.
+              </p>
+            </td>
+          </tr>`);
+
+  const text = [
+    `YOUR ACCOUNT WILL BE RESTRICTED ON ${data.restrictionDate.toUpperCase()}`,
+    '',
+    data.customerName,
+    '',
+    `Your invoice for ${data.amount} was due on ${data.dueDate} and is still showing as unpaid —`,
+    `${data.daysOverdue} day${data.daysOverdue === 1 ? '' : 's'} past our 14 day terms.${reminderSentence}`,
+    '',
+    'Unless the overdue balance reaches us first, our system will automatically restrict the account',
+    `on ${data.restrictionDate}`,
+    `— ${data.noticeDays} day${data.noticeDays === 1 ? '' : 's'} from today. This email is that notice.`,
+    ...(data.termsNote ? ['', data.termsNote] : []),
+    '',
+    'WHAT A RESTRICTION DOES, AND DOESN\'T, MEAN',
+    '',
+    'Your calls keep being answered. Every call to your branches will be picked up by your',
+    'receptionist exactly as it is today, and bookings will keep going into your diary. Nothing',
+    'changes for the customer on the phone.',
+    '',
+    `Call details go on hold. From ${data.restrictionDate}, the caller's name and number, the`,
+    'summary, the transcript and the recording will not be available to you — not in the portal',
+    'and not in your call emails. Nothing is deleted: every call we handle in the meantime is kept,',
+    'and all of it unlocks the moment your payment reaches us.',
+    '',
+    ...(data.lines?.length ? [
+      ...(data.upcoming?.length ? ['OVERDUE — PAYABLE NOW'] : []),
+      ...data.lines.map((l) => `  ${l.label}: ${l.amount}`),
+      `  ${data.upcoming?.length ? 'Overdue now' : 'Total overdue'}: ${data.amount}`,
+      '',
+    ] : []),
+    ...(data.upcoming?.length ? [
+      'NOT YET DUE',
+      ...data.upcoming.map((l) => `  ${l.label}: ${l.amount} (due ${l.due})`),
+      ...(data.totalOutstanding ? [`  Total outstanding: ${data.totalOutstanding}`] : []),
+      '',
+      'Only the overdue amount needs settling to stop the restriction — the invoice shown as not yet',
+      'due is listed so you can send everything in one transfer if that is easier.',
+      '',
+    ] : []),
+    `Our bank details are on the invoice${data.attachments?.length ? ', attached again here' : ''}${data.portalUrl ? `, and you can view it any time in the portal: ${data.portalUrl}` : ''}.`,
+    'If the payment has gone out in the last day or two, thank you — just reply so we can match it',
+    'up and cancel the restriction.',
+    '',
+    'We would much rather not restrict anything. If there is a hold-up at your end, reply to this',
+    'email and tell us when we can expect payment, and we will hold off.',
+  ].join('\n');
+
+  return sendEmail({
+    to: recipients,
+    cc,
+    // The reply we want most is "it is going out on Friday", so it has to land somewhere staffed.
+    replyTo: SUPPORT_REPLY_TO,
+    subject: `Action needed: account restricted on ${data.restrictionDate} — ${data.amount} overdue`,
+    html,
+    text,
+    ...(data.attachments?.length ? { attachments: data.attachments } : {}),
+    template: 'arrears_restriction_notice',
+  });
+};
+
 interface NegativeFeedbackEmailData {
   branchName: string;
   callId: string;

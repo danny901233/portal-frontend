@@ -107,7 +107,7 @@ const parseWeeklyOpeningHours = (value: unknown): WeeklyOpeningHours => {
   return createDefaultWeeklyOpeningHours();
 };
 
-const parseIntegrationSettings = (
+export const parseIntegrationSettings = (
   providerValue: string | null | undefined,
   rawSettings: Prisma.JsonValue | null | undefined,
   agentScript?: string | null,
@@ -138,7 +138,16 @@ const parseIntegrationSettings = (
       bookarClientSecret: str(raw.bookarClientSecret),
       bookarApiBase: str(raw.bookarApiBase) || 'https://partners.bookar.app',
     };
-    const garageHiveSettings = cloneGarageHiveSettings(raw as unknown as GarageHiveSettings);
+    // Garage Hive is stored flat on most rows but nested under `garagehive` on others — the chat
+    // agent, the chat router and the generic read below all accept both shapes. Reading only the
+    // flat one here handed the form an EMPTY credentials block while the keys sat in the database,
+    // and because the form echoes the whole config back on save, the validator then rejected
+    // EVERY save with "Provide the Garage Hive instance name before saving". VWGS Performance
+    // could not change their agent's name for that reason.
+    const ghRaw = (raw.garagehive && typeof raw.garagehive === 'object' && !Array.isArray(raw.garagehive))
+      ? (raw.garagehive as Record<string, unknown>)
+      : raw;
+    const garageHiveSettings = cloneGarageHiveSettings(ghRaw as unknown as GarageHiveSettings);
     const tyresoftSettings = cloneTyresoftSettings(raw as unknown as TyresoftSettings);
     // Mirror the agent. build_diary() infers the diary from whichever credentials are present
     // when the provider still says "none", so the dropdown must read the same way — otherwise
@@ -1202,17 +1211,28 @@ router.put(
       ...tyreMarkupPayload,
     };
 
+    // The unified agent picks its diary from integrationProvider, not from the script, so ANY
+    // provider's credentials are valid on this garage. Start from what is already stored —
+    // otherwise a save that touches an unrelated field wipes the diary, which took a live line
+    // down twice on 2026-09-07 — then layer on whatever was supplied.
+    const unifiedExistingConfig: Record<string, unknown> =
+      existingConfig?.integrationProviderConfig
+      && typeof existingConfig.integrationProviderConfig === 'object'
+      && !Array.isArray(existingConfig.integrationProviderConfig)
+        ? { ...(existingConfig.integrationProviderConfig as Record<string, unknown>) }
+        : {};
+    // Garage Hive credentials are written flat below, but some rows also carry a nested
+    // `garagehive` copy — and both this route's read path and the agent prefer the nested one.
+    // Leaving it behind would mean every later credential change is written flat and read by
+    // nobody, so the copy being replaced goes with it. One copy, no drift.
+    if (requestedProvider === 'garage_hive' && garageHiveSettings.apiKey) {
+      delete unifiedExistingConfig.garagehive;
+    }
+
     const integrationProviderConfig: Prisma.InputJsonValue | null =
       resolvedAgentScript === 'unified-agent'
         ? {
-            // The unified agent picks its diary from integrationProvider, not from the script,
-            // so ANY provider's credentials are valid on this garage. Start from what is already
-            // stored — otherwise a save that touches an unrelated field wipes the diary, which
-            // took a live line down twice on 2026-09-07 — then layer on whatever was supplied.
-            ...(existingConfig?.integrationProviderConfig
-                && typeof existingConfig.integrationProviderConfig === 'object'
-                && !Array.isArray(existingConfig.integrationProviderConfig)
-                  ? (existingConfig.integrationProviderConfig as object) : {}),
+            ...unifiedExistingConfig,
             ...(requestedProvider === 'garage_hive' && garageHiveSettings.apiKey
               ? {
                   instanceUrl: garageHiveSettings.instanceUrl,

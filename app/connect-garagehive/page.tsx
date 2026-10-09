@@ -257,7 +257,8 @@ function ConnectGarageHiveForm() {
         )}
         <p className="mt-4 text-[15px] leading-relaxed text-slate-600">
           We place one test booking per branch to confirm it works, marked{' '}
-          <em>receptionmate test booking please cancel</em> — please cancel those in GarageHive.
+          <em>receptionmate test booking please cancel</em>. The garage will see it in their diary
+          and clear it — nothing further needed from you.
         </p>
         <p className="mt-4 text-sm text-slate-400">You can close this page.</p>
       </>,
@@ -352,7 +353,7 @@ function ConnectGarageHiveForm() {
       </form>
       <p className="mt-4 text-sm leading-relaxed text-slate-400">
         This connects the diary and places one marked test booking per branch so we can confirm it
-        works. Please cancel those in GarageHive afterwards.
+        works. It is clearly labelled, and the garage clears it from their own diary.
       </p>
     </>,
   );

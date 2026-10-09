@@ -167,16 +167,25 @@ router.post('/garagehive-advanced/submit', async (req: Request, res: Response) =
   });
   const owned = new Map(branches.map((b) => [b.id, b.name]));
 
+  // A location code is only how you tell BRANCHES APART inside one Business Central company.
+  // A single-site garage has no separate code — Speedy Spanners, which works, has locationCode
+  // null — so requiring one made the form impossible to complete for exactly the garages the
+  // show funnel will bring in. Required only when there is more than one branch to distinguish.
+  const anyCodeGiven = Object.values(locations).some((v) => str(v));
+  if (branches.length > 1 && !anyCodeGiven) {
+    return res.status(400).json({
+      ok: false,
+      error:
+        'This business has more than one branch, so we need the Business Central location code ' +
+        'for each one — without them we cannot tell the branches apart.',
+    });
+  }
+
   const linked: string[] = [];
-  const skipped: string[] = [];
-  for (const [garageId, raw] of Object.entries(locations)) {
-    const locationCode = str(raw);
-    const branchName = owned.get(garageId);
-    if (!branchName) continue;
-    if (!locationCode) {
-      skipped.push(branchName);
-      continue;
-    }
+  // Iterate the branches WE own rather than the keys posted: a browser that failed to load the
+  // branch list sends {} and would otherwise save nothing at all while reporting success.
+  for (const { id: garageId, name: branchName } of branches) {
+    const locationCode = str(locations[garageId]);
     // clientId/clientSecret are optional: some tenants authorise by a shared app registration
     // held our side. Never blank an existing secret just because this form left it empty.
     await prisma.garageHiveConnection.upsert({
@@ -186,7 +195,7 @@ router.post('/garagehive-advanced/submit', async (req: Request, res: Response) =
         tenantId,
         environmentName,
         companyId,
-        locationCode,
+        locationCode: locationCode || null,
         ...(clientId ? { clientId } : {}),
         ...(clientSecret ? { clientSecret } : {}),
         callerRecognitionEnabled: true,
@@ -195,7 +204,7 @@ router.post('/garagehive-advanced/submit', async (req: Request, res: Response) =
         tenantId,
         environmentName,
         companyId,
-        locationCode,
+        locationCode: locationCode || null,
         ...(clientId ? { clientId } : {}),
         ...(clientSecret ? { clientSecret } : {}),
         callerRecognitionEnabled: true,
@@ -206,13 +215,13 @@ router.post('/garagehive-advanced/submit', async (req: Request, res: Response) =
       .update({ where: { garageId }, data: { callerRecognitionEnabled: true } })
       .catch(() => undefined);
     void sendAgentConfigWebhook(garageId);
-    linked.push(`${branchName} → ${locationCode}`);
+    linked.push(locationCode ? `${branchName} → ${locationCode}` : `${branchName} (single site)`);
   }
 
   if (!linked.length)
     return res
       .status(400)
-      .json({ ok: false, error: 'Please enter a location code for at least one branch.' });
+      .json({ ok: false, error: 'We could not find any branches for this business to connect.' });
 
   const business = await prisma.business.findUnique({
     where: { id: businessId },
@@ -226,7 +235,6 @@ router.post('/garagehive-advanced/submit', async (req: Request, res: Response) =
     '',
     `Linked (${linked.length}):`,
     ...linked.map((l) => `  ✓ ${l}`),
-    ...(skipped.length ? ['', `No location code given (${skipped.length}):`, ...skipped.map((s) => `  – ${s}`)] : []),
   ].join('\n');
   void sendEmail({
     to: ['dan@receptionmate.co.uk'],
@@ -238,7 +246,8 @@ router.post('/garagehive-advanced/submit', async (req: Request, res: Response) =
   return res.json({
     ok: true,
     linkedCount: linked.length,
-    skippedCount: skipped.length,
+    // Nothing is skipped any more: every owned branch is written, with or without a code.
+    skippedCount: 0,
     businessName: business?.name ?? 'your garage',
   });
 });

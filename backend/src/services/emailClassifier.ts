@@ -152,6 +152,36 @@ const SUPPLIER_DOMAINS: ReadonlySet<string> = new Set([
   'godaddy.com',
 ]);
 
+// ─── Booking-platform notifications (rule: never acknowledged) ─────────────
+// Mail from the booking platforms the motorhome-hire side runs on: Wheelbase
+// and the Outdoorsy marketplace that feeds it. hello@ is the address those
+// accounts are registered to, so their notifications land in the support
+// mailbox — "X has completed their reservation", "Documents signed for
+// Reservation...", "A Scheduled Payment has Failed".
+//
+// These must never be acknowledged. The From address on an Outdoorsy
+// notification is the RESERVATION THREAD
+// (`16376775-rogpivw2xlzd9lnl-bookings@reply.outdoorsy.co`), not a mailbox at
+// Outdoorsy — so an auto-ack is not a courtesy to a supplier, it is posted into
+// the conversation with the renter, who gets a ReceptionMate support
+// acknowledgement for a motorhome they just booked. Nine went out that way
+// between 1 and 9 Oct 2026 before this rule existed.
+//
+// The local part is no help: it carries neither `noreply` nor `bookings` in a
+// position the no-reply guard reads, which is exactly how these slipped past it.
+// So match on the domain and stop at the door.
+//
+// The ticket is still raised and still reaches the queue: a renter message
+// ("Massimo has sent you a new message") and a failed payment both need a
+// human. Only the automatic reply is withheld.
+const BOOKING_PLATFORM_DOMAINS: ReadonlyArray<string> = [
+  'reply.outdoorsy.co',
+  'outdoorsy.co',
+  'outdoorsy.com',
+  'wheelbasepro.com',
+  'wheelbase.co.uk',
+];
+
 const senderDomain = (email: string): string => {
   const at = email.lastIndexOf('@');
   return at >= 0 ? email.slice(at + 1).toLowerCase() : '';
@@ -290,6 +320,28 @@ export function classifyDeterministic(input: DeterministicInput): DeterministicM
       aiDraft: false,
       autoClose: !keep,
     };
+  }
+
+  // Rule 4b: a booking platform telling us about a hire. Never acknowledged —
+  // the reply would land in the renter's thread (see BOOKING_PLATFORM_DOMAINS).
+  // Deliberately after the bulk rule, so Outdoorsy's marketing mail still files
+  // as spam on its List-Unsubscribe header rather than landing in the queue.
+  for (const platform of BOOKING_PLATFORM_DOMAINS) {
+    if (domain === platform || domain.endsWith(`.${platform}`)) {
+      return {
+        category: TicketCategory.other,
+        rule: `booking_platform:${platform}`,
+        // The whole point: no automatic reply into a renter's conversation.
+        autoAck: false,
+        // Nobody answers a reservation notice from the support desk, and the
+        // draft would be written in the wrong voice for a renter if they did.
+        aiDraft: false,
+        // Left open on purpose. A renter's message and a failed payment both
+        // need somebody; filing these on arrival is how a hire goes wrong
+        // quietly.
+        autoClose: false,
+      };
+    }
   }
 
   // Rule 5: complaint language + known garage → complaint, HIGH priority.

@@ -57,8 +57,6 @@ function ConnectGarageHiveForm() {
   const [tenantId, setTenantId] = useState('');
   const [environmentName, setEnvironmentName] = useState('Production');
   const [companyId, setCompanyId] = useState('');
-  const [clientId, setClientId] = useState('');
-  const [clientSecret, setClientSecret] = useState('');
   const [branches, setBranches] = useState<Branch[]>([]);
   const [codes, setCodes] = useState<Record<string, string>>({});
 
@@ -114,8 +112,7 @@ function ConnectGarageHiveForm() {
   // than silently dropping what they entered.
   const advancedPartial =
     !advancedSupplied &&
-    Boolean(tenantId.trim() || companyId.trim() || clientId.trim() || clientSecret.trim() ||
-      Object.values(codes).some((c) => c.trim()));
+    Boolean(tenantId.trim() || companyId.trim() || Object.values(codes).some((c) => c.trim()));
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -142,8 +139,7 @@ function ConnectGarageHiveForm() {
             tenantId: tenantId.trim(),
             environmentName: environmentName.trim() || 'Production',
             companyId: companyId.trim(),
-            clientId: clientId.trim() || undefined,
-            clientSecret: clientSecret.trim() || undefined,
+            // clientId / clientSecret deliberately not sent — the shared app registration is used.
             locations: codes,
           });
           advanced = true;
@@ -296,11 +292,18 @@ function ConnectGarageHiveForm() {
             hand, leave it blank and send the instance on its own.
           </p>
 
+          {/*
+            No API client ID or secret.
+            They were asked for and are not needed: resolveCreds falls back to the shared
+            GARAGEHIVE_CLIENT_ID / _SECRET for any garage that does not carry its own, and no
+            garage on the estate does — Speedy Spanners, which works, has both columns null.
+            Asking for a secret we never read is a live credential stored for nothing, and two
+            more things to chase. The standalone /connect-garagehive-advanced page still offers
+            them for the rare garage that insists on its own app registration.
+          */}
           {bcField('tenantId', 'Tenant ID', tenantId, setTenantId, 'The Azure AD / Business Central tenant GUID.')}
           {bcField('environmentName', 'Environment', environmentName, setEnvironmentName, 'Usually "Production".')}
-          {bcField('companyId', 'Company ID', companyId, setCompanyId, 'The Business Central company GUID or name.')}
-          {bcField('clientId', 'API client ID', clientId, setClientId, 'Optional — leave blank if we authorise with our own app registration.')}
-          {bcField('clientSecret', 'API client secret', clientSecret, setClientSecret, 'Optional. Never shown again once saved.', 'password')}
+          {bcField('companyId', 'Company ID', companyId, setCompanyId, 'The Business Central company GUID — it goes in the URL of every call, so we do need this one.')}
 
           {branches.length > 0 && (
             <div className="mt-5">

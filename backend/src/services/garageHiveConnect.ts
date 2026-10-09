@@ -391,7 +391,7 @@ export const sendGarageHiveConnectRequest = async (businessId: string): Promise<
     `<p style="margin:0 0 12px;font-size:15px;line-height:1.55;color:#475569;">Open the link below and fill in two things:</p>` +
     `<ol style="margin:0 0 20px;padding-left:20px;font-size:15px;line-height:1.6;color:#475569;">` +
     `<li>The garage's GarageHive <strong>instance</strong>, for the online-booking diary.</li>` +
-    `<li>Their <strong>Garage Link Advanced</strong> (Business Central) details, so the agent can recognise returning customers and see service history.</li>` +
+    `<li>Their <strong>Garage Link Advanced</strong> <strong>tenant ID</strong> and <strong>company ID</strong> — that is all we need, and it is what lets the agent recognise returning customers and see their service history.</li>` +
     `</ol>` +
     `<p style="margin:0 0 20px;font-size:15px;line-height:1.55;color:#475569;">Both are on the same page. If the Advanced details aren't to hand, send the instance on its own and we'll pick the rest up later — the diary still works without them.</p>` +
     `<table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:0 auto 18px;"><tr>` +
@@ -407,8 +407,8 @@ export const sendGarageHiveConnectRequest = async (businessId: string): Promise<
       `${name} is being onboarded to ReceptionMate Automate.\n\n` +
       `Open the link below and fill in two things:\n\n` +
       `1. The garage's GarageHive instance, for the online-booking diary.\n` +
-      `2. Their Garage Link Advanced (Business Central) details, so the agent can recognise ` +
-      `returning customers and see service history.\n\n` +
+      `2. Their Garage Link Advanced tenant ID and company ID - that is all we need, and it is ` +
+      `what lets the agent recognise returning customers and see their service history.\n\n` +
       `Both are on the same page. If the Advanced details are not to hand, send the instance on ` +
       `its own and we will pick the rest up later - the diary still works without them.\n\n` +
       `${link}\n\nLink valid 14 days.`,

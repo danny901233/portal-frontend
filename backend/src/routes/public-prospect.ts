@@ -40,11 +40,35 @@ const enrichSchema = z.object({
 });
 
 // Give the opportunity a helpful name as we learn more about the prospect.
-function oppName(businessName: string, product?: string | null): string {
-  if (!product) return `${businessName} — signup started`;
+function oppName(businessName: string, product?: string | null, source?: string | null): string {
+  const suffix = isBlendSource(source) ? ' (Blend)' : '';
+  if (!product) return `${businessName} — signup started${suffix}`;
   const label = product === 'assist' ? 'Assist' : product === 'automate' ? 'Automate'
     : product === 'connect' ? 'Connect' : product === 'multibranch' ? 'Multi-branch' : 'Custom';
-  return `${businessName} — ${label}`;
+  return `${businessName} — ${label}${suffix}`;
+}
+
+/**
+ * Did this prospect come off the Blend show funnel?
+ *
+ * The campaign tag has to be decided HERE, at the garage-search step, because that is the only
+ * moment every QR scan passes through — most never reach the offer, let alone sign up, and those
+ * are exactly the ones worth knowing came from the stand.
+ *
+ * Deliberately a prefix match on a source WE set, not a guess at intent: /blend posts
+ * 'blend-show' and the ordinary funnels post 'website-getstarted' and 'website-mot-campaign',
+ * which cannot begin with "blend-". A signup that did not come through the show therefore cannot
+ * acquire the tag, which is the half of this that actually matters — a Blend tag on an ordinary
+ * lead would quietly overstate what the stand produced.
+ */
+export function isBlendSource(source?: string | null): boolean {
+  return typeof source === 'string' && source.startsWith('blend-');
+}
+
+/** Campaign tags for a prospect, on top of the ones every website lead gets. */
+export function tagsForSource(source?: string | null): string[] {
+  const base = ['website-signup', 'abandoned-checkout'];
+  return isBlendSource(source) ? [...base, 'blend-2026'] : base;
 }
 
 // Sync a prospect to HighLevel: always upsert (enrich) the contact; create the abandoned-
@@ -83,7 +107,7 @@ async function syncProspectToHl(pending: {
       companyName: pending.businessName,
       website: pending.websiteUrl ?? undefined,
       source: pending.source || 'website-getstarted',
-      tags: ['website-signup', 'abandoned-checkout'],
+      tags: tagsForSource(pending.source),
     });
     contactId = contact.contactId;
   }
@@ -92,7 +116,7 @@ async function syncProspectToHl(pending: {
   if (!opportunityId && contactId) {
     const opp = await createOpportunity({
       contactId,
-      name: oppName(pending.businessName, pending.product),
+      name: oppName(pending.businessName, pending.product, pending.source),
       kind: 'abandoned',
     });
     opportunityId = opp.id;

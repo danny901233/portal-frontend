@@ -130,7 +130,7 @@ export default function AdminEmailLogPage() {
               value={toFilter}
               onChange={(e) => setToFilter(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') applySearch(); }}
-              placeholder="full email address"
+              placeholder="name, domain or full address"
               className="flex-1 rounded-lg border border-ink-300 px-3 py-2 text-sm"
             />
             <button
@@ -140,9 +140,13 @@ export default function AdminEmailLogPage() {
               Search
             </button>
           </div>
-          {/* The address is matched exactly, not as a fragment — worth saying, because an
-              empty result for a half-typed address otherwise reads as "we never emailed them". */}
-          <p className="mt-1 text-[11px] text-ink-500">Matches the full address, not part of one.</p>
+          {/* Part of an address is enough, and case does not matter. This used to be a whole-
+              address match against a box labelled "full email address", so searching a name
+              returned an empty table that read as "we never emailed them". */}
+          <p className="mt-1 text-[11px] text-ink-500">
+            Matches any part of a To or Cc address — &ldquo;mareks&rdquo; or
+            &ldquo;@garagehive.com&rdquo; both work.
+          </p>
         </div>
 
         <div>

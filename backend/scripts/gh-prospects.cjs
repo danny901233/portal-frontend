@@ -236,11 +236,19 @@ async function enrich(name, hint) {
     const p = (j.places || [])[0];
     if (!p) return null;
     const got = p.displayName?.text || '';
+    // Google legitimately returns a fuller trading name than the post used ("AFS Repair"
+    // -> "AFS Auto Repair Centre"), so overall similarity is the wrong test -- it threw
+    // away good matches. What must hold is that the distinctive words we searched for
+    // actually appear in the result: that keeps the fuller names and still rejects
+    // "Nick and" -> "St Nic's Church".
+    const want = distinctive(name), gotTokens = tokens(got);
+    const allPresent = want.size > 0 && [...want].every((t) => gotTokens.has(t));
     const resembles =
-      jaccard(name, got) >= 0.4 ||
+      allPresent ||
       editRatio(name, got) >= 0.6 ||
       norm(got).includes(norm(name)) ||
-      norm(name).includes(norm(got));
+      norm(name).includes(norm(got)) ||
+      (want.size === 0 && jaccard(name, got) >= 0.4);
     if (!resembles) return { rejected: got };
     return {
       placeId: p.id || '',

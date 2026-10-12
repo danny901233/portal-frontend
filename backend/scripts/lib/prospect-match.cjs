@@ -16,6 +16,8 @@ const GENERIC = new Set([
   'repairs', 'tyre', 'tyres', 'workshops', 'cars', 'commercials', 'engineering',
   'solutions', 'group', 'specialist', 'specialists', 'station', 'performance',
   'and', 'to', 'at', 'with', 'for', 'from', 'this', 'that', 'all', 'as', 'they',
+  // trade words that describe what a garage does rather than which garage it is
+  'tuning', 'servicing', 'diagnostics', 'bodyshop', 'bodyworks', 'coachworks', 'mots',
 ]);
 
 const SUFFIXES = /\b(ltd|limited|llp|plc|uk|co|company|the)\b/g;
@@ -62,6 +64,37 @@ function editRatio(a, b) {
   return 1 - levenshtein(A, B) / Math.max(A.length, B.length);
 }
 
+/*
+ * Edit distance over the WHOLE name is dominated by the generic words every garage
+ * shares, so "MJS Garage Services" and "A J Garage Services" came out at 0.88 and
+ * "IC Garage" and "T I C Garage" at 0.89 -- different businesses, both wrongly withheld
+ * from the pipeline as possible duplicates. Comparing only the distinctive words puts
+ * those at 0.0 while a real match ("Wiseman Motors Services" / "Wiseman Motor Services
+ * Limited") stays at 1.0. With no distinctive word on either side there is nothing to
+ * judge, so it scores nothing rather than guessing.
+ */
+function distinctiveEditRatio(a, b) {
+  const A = [...distinctive(a)].sort().join('');
+  const B = [...distinctive(b)].sort().join('');
+  if (!A || !B) return 0;
+  return 1 - levenshtein(A, B) / Math.max(A.length, B.length);
+}
+
+/*
+ * A ratio punishes short names: "vgs" against "vwgs" is one dropped letter but only
+ * 0.75, which would bin the real VGS/VWGS Performance match. One character out is a typo
+ * at any length, so allow it alongside the ratio.
+ */
+function nearlySameName(a, b) {
+  const A = [...distinctive(a)].sort().join('');
+  const B = [...distinctive(b)].sort().join('');
+  if (!A || !B) return false;
+  // One character out is a typo on a reasonable-length name, but on a three-letter
+  // initialism it is a different business: "AFS" and "ADS" are not each other.
+  if (Math.max(A.length, B.length) >= 4 && levenshtein(A, B) <= 1) return true;
+  return distinctiveEditRatio(a, b) >= 0.85;
+}
+
 const MATCH_SURE = 0.9;
 const MATCH_MAYBE = 0.62;
 
@@ -74,7 +107,7 @@ function bestMatch(name, known) {
     if (nA === nB) { score = 1; how = 'exact'; }
     else if (nA.length > 6 && nB.length > 6 && (nA.includes(nB) || nB.includes(nA))) { score = 0.95; how = 'contains'; }
     else {
-      const j = jaccard(name, g.name), e = editRatio(name, g.name);
+      const j = jaccard(name, g.name), e = distinctiveEditRatio(name, g.name);
       score = Math.max(j, e);
       how = j >= e ? 'tokens' : 'edit';
     }
@@ -83,7 +116,7 @@ function bestMatch(name, known) {
       const dA = distinctive(name), dB = distinctive(g.name);
       let shared = false;
       for (const t of dA) if (dB.has(t)) shared = true;
-      if (!shared && editRatio(name, g.name) < 0.85) score = 0;
+      if (!shared && !nearlySameName(name, g.name)) score = 0;
     }
     if (!best || score > best.score) best = { garage: g.name, source: g.source, score, how };
   }
@@ -207,6 +240,6 @@ const MIN_PLAUSIBLE_GARAGES = 20;
 
 module.exports = {
   GENERIC, norm, tokens, distinctive, jaccard, levenshtein, editRatio,
-  bestMatch, statusFor, MATCH_SURE, MATCH_MAYBE, MIN_PLAUSIBLE_GARAGES,
+  bestMatch, statusFor, MATCH_SURE, MATCH_MAYBE, MIN_PLAUSIBLE_GARAGES, distinctiveEditRatio, nearlySameName,
   enrich, hasPlacesKey, loadHighLevel,
 };

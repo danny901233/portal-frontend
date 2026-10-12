@@ -298,6 +298,9 @@ async function loadGarages() {
     // "Enquiry Received" stage), so it is passed explicitly.
     const stageId = opt('--stage', '37b4585c-465f-4861-b1dd-a0a830f46243');
     const tag = opt('--tag', 'gh-community-welcome');
+    // £399 per branch. The welcome posts never say how many branches a garage has, so
+    // one is assumed and a group has to be corrected by hand.
+    const value = Number(opt('--value', '399'));
 
     if (!key || !loc) {
       console.log('\n--push-highlevel given but GHL_API_KEY / GHL_LOCATION_ID are not set -- nothing pushed.');
@@ -308,7 +311,7 @@ async function loadGarages() {
       // A canary run (--limit 2) before committing 100+ records to a live CRM.
       const limit = Number(opt('--limit', '0')) || newOnes.length;
       const todo = newOnes.slice(0, limit);
-      console.log(`\npushing ${todo.length} of ${newOnes.length} to pipeline ${pipelineId} stage ${stageId}, tagged "${tag}"`);
+      console.log(`\npushing ${todo.length} of ${newOnes.length} to pipeline ${pipelineId} stage ${stageId}, tagged "${tag}", £${value} each`);
 
       let ok = 0, failed = 0;
       for (const r of todo) {
@@ -368,6 +371,7 @@ async function loadGarages() {
               contactId,
               name: r.name,
               status: 'open',
+              monetaryValue: value,
             }),
           });
           if (!oRes.ok) throw new Error(`opportunity ${oRes.status} ${(await oRes.text()).slice(0, 120)}`);

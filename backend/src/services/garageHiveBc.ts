@@ -830,7 +830,11 @@ export async function getCallerProfile(garageId: string, phone: string): Promise
       'registrationNo,makeCode,modelDescription,motDueDate,serviceDueDate',
     ),
     getCustomer(creds, match.customerNo).catch((e) => {
-      console.error(`[GH_CALLER] customer lookup failed for ${match.customerNo}:`, e);
+      // The MESSAGE, not the error object. An axios failure carries its request config,
+      // which carries the Authorization header — logging the object puts a live Business
+      // Central bearer token in the log. The rest of this file logs the object; that is
+      // worth fixing separately rather than copying here.
+      console.error(`[GH_CALLER] customer lookup failed: ${(e as Error)?.message || 'unknown'}`);
       return null;
     }),
   ]);

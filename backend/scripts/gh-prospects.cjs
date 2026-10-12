@@ -497,7 +497,12 @@ async function loadHighLevel() {
       for (const r of todo) {
         const pl = r.place || {};
         try {
-          const cRes = await fetch('https://services.leadconnectorhq.com/contacts/upsert', {
+          const hasIdentifier = Boolean(pl.phone);
+          const cRes = await fetch(
+            hasIdentifier
+              ? 'https://services.leadconnectorhq.com/contacts/upsert'
+              : 'https://services.leadconnectorhq.com/contacts/',
+            {
             method: 'POST',
             headers,
             // HighLevel rejects a contact carrying neither phone/email nor
@@ -522,6 +527,19 @@ async function loadHighLevel() {
           const cJson = await cRes.json();
           const contactId = cJson.contact?.id || cJson.id;
           if (!contactId) throw new Error('no contact id returned');
+
+          const existingRes = await fetch(
+            `https://services.leadconnectorhq.com/opportunities/search?location_id=${loc}&contact_id=${contactId}&status=open&limit=1`,
+            { headers },
+          );
+          if (existingRes.ok) {
+            const ex = await existingRes.json();
+            if ((ex.opportunities || []).length) {
+              ok++;
+              console.log(`  exists  ${r.name} (open opportunity already)`);
+              continue;
+            }
+          }
 
           const oRes = await fetch('https://services.leadconnectorhq.com/opportunities/', {
             method: 'POST',

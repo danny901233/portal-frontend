@@ -29,9 +29,7 @@ import { tyreStockFor } from './chatDiaries/tyreStock.js';
 import { notifyMessaging } from './messagingNotifications.js';
 import { notifyFlaggedConversation } from '../utils/push.js';
 import { BookarChatDiary } from './chatDiaries/bookar.js';
-import { TechManChatDiary } from './chatDiaries/techman.js';
 import { PooleChatDiary } from './chatDiaries/poole.js';
-import { CamChatDiary } from './chatDiaries/cam.js';
 import { BoschChatDiary } from './chatDiaries/bosch.js';
 import {
   type ChatDiaryAdapter, type DiaryService, type DiarySlot, type DiaryTyre, DiaryError,
@@ -212,12 +210,6 @@ export function chooseDiary(garage: GarageConfig, tyreInventory: any[] = []): Ch
   const wantsBookar = script.includes('bookar') || provider === 'bookar' || cfg.bookarClientId;
   const wantsPoole = script.includes('poole') || provider === 'poole'
     || (cfg.branchKey && cfg.tenant) || cfg.poole?.branchKey;
-  // TechMan has no API and no credentials to check — the booking host IS the config.
-  const wantsTechman = script.includes('techman') || provider === 'techman'
-    || cfg.techmanHost || cfg.techman?.host;
-  // CAM drives the vendor's hosted booking widget; its config is a site key + widget id.
-  const wantsCam = script.includes('cam') || provider === 'cam'
-    || cfg.camSiteKey || cfg.cam?.siteKey;
   // Bosch Car Service (Mobility Media platform); its config is the garage's service-point UUID.
   const wantsBosch = script.includes('bosch') || provider === 'bosch'
     || cfg.boschSpoId || cfg.bosch?.spoId;
@@ -229,8 +221,6 @@ export function chooseDiary(garage: GarageConfig, tyreInventory: any[] = []): Ch
       tyreInventory.length ? tyreInventory : tyreStockFor(cfg.tsDepotId ?? cfg.depotId));
   }
   if (wantsBookar) return new BookarChatDiary(cfg);
-  if (wantsTechman) return new TechManChatDiary(cfg);
-  if (wantsCam) return new CamChatDiary(cfg);
   if (wantsBosch) return new BoschChatDiary(cfg);
   if (wantsPoole) {
     return new PooleChatDiary({

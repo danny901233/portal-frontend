@@ -38,6 +38,16 @@ import {
 /** How far ahead to ask for availability in one go. */
 const WINDOW_DAYS = 28;
 
+/**
+ * offerServices probes up to ~11 services x ~2 calls against the Bosch gateway. A garage's
+ * catalogue and fixprice prices barely change within a call, let alone within minutes, so the
+ * result is cached per garage+vehicle for a short TTL — one chat (or a flood of them) can no
+ * longer turn into a burst of outbound calls. Keyed by spoId + brand + age because calcprice
+ * quotes depend on the vehicle. Module-level so it is shared across conversations.
+ */
+const SERVICE_CACHE_TTL_MS = 10 * 60 * 1000;
+const serviceCache = new Map<string, { at: number; services: DiaryService[] }>();
+
 function isoDay(offsetDays: number): string {
   const d = new Date();
   d.setDate(d.getDate() + offsetDays);
@@ -81,6 +91,8 @@ export class BoschChatDiary implements ChatDiaryAdapter {
 
   private readonly client: BoschClient | null;
   private readonly commitMode: 'message' | 'live';
+  /** Stable cache key for this garage — the service-point id, or '' when unconfigured. */
+  private readonly spoId: string;
 
   /** Services offered to the caller this turn, by DiaryService.key (the numeric service id). */
   private services: DiaryService[] = [];
@@ -93,6 +105,7 @@ export class BoschChatDiary implements ChatDiaryAdapter {
     this.client = boschClientFromConfig(config);
     const raw = (config && typeof config === 'object' ? config : {}) as any;
     this.commitMode = (raw.bosch?.commitLive ?? raw.boschCommitLive) === true ? 'live' : 'message';
+    this.spoId = String(raw.bosch?.spoId ?? raw.boschSpoId ?? '');
   }
 
   get enabled(): boolean {
@@ -120,6 +133,13 @@ export class BoschChatDiary implements ChatDiaryAdapter {
     this.registration = String(registration || '').trim();
     const client = this.need();
 
+    const cacheKey = `${this.spoId}|${opts?.brand || ''}|${opts?.ageYears ?? ''}`;
+    const hit = serviceCache.get(cacheKey);
+    if (hit && Date.now() - hit.at < SERVICE_CACHE_TTL_MS) {
+      this.services = hit.services;
+      return this.services;
+    }
+
     const ids = Object.keys(BCS_SERVICES).map(Number);
     const out = await Promise.all(ids.map(async (id) => {
       const meta = BCS_SERVICES[id];
@@ -142,6 +162,7 @@ export class BoschChatDiary implements ChatDiaryAdapter {
     }));
 
     this.services = out.filter((s): s is DiaryService => s !== null);
+    serviceCache.set(cacheKey, { at: Date.now(), services: this.services });
     return this.services;
   }
 

@@ -500,9 +500,15 @@ async function loadHighLevel() {
           const cRes = await fetch('https://services.leadconnectorhq.com/contacts/upsert', {
             method: 'POST',
             headers,
+            // HighLevel rejects a contact carrying neither phone/email nor
+            // firstName+lastName, which is every garage Places could not find a number
+            // for. Split the trading name the same way upsertContact does in
+            // services/highlevel.ts so those still land.
             body: JSON.stringify({
               locationId: loc,
               name: r.name,
+              firstName: r.name.trim().split(/\s+/)[0] || r.name,
+              lastName: r.name.trim().split(/\s+/).slice(1).join(' ') || '(garage)',
               companyName: r.name,
               ...(pl.phone ? { phone: pl.phone } : {}),
               ...(pl.website ? { website: pl.website } : {}),

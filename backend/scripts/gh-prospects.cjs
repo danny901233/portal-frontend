@@ -130,138 +130,12 @@ function extractName(body) {
   return name.length >= 3 && name.length <= 60 ? { name, confidence } : null;
 }
 
-// ---------------------------------------------------------------- matching
+// ---------------------------------------------------------------- matching + enrichment
 
-const SUFFIXES = /\b(ltd|limited|llp|plc|uk|co|company|the)\b/g;
-
-// Nearly every garage name contains some of these, so on their own they are not evidence
-// that two names are the same business -- "Marieston Service Centre" and "Ecotest MOT &
-// Service Centre" share two of three words and are unrelated.
-const GENERIC = new Set([
-  'garage', 'garages', 'service', 'services', 'centre', 'center', 'motors', 'motor',
-  'auto', 'autos', 'automotive', 'mot', 'car', 'cars', 'vehicle', 'vehicles', 'repair',
-  'repairs', 'tyre', 'tyres', 'performance', 'engineering', 'autocentre', 'autocentres',
-  'solutions', 'group', 'specialist', 'specialists', 'commercials', 'station',
-  'and', 'to', 'at', 'with', 'for', 'from', 'this', 'that', 'all', 'as', 'they',
-]);
-const distinctive = (s) => new Set([...tokens(s)].filter((t) => !GENERIC.has(t) && t.length > 1));
-const norm = (s) => (s || '').toLowerCase().replace(/['\u2019]/g, '').replace(/[^a-z0-9\s]/g, ' ').replace(SUFFIXES, ' ').replace(/\s+/g, ' ').trim();
-const tokens = (s) => new Set(norm(s).split(' ').filter(Boolean));
-
-function jaccard(a, b) {
-  const A = tokens(a), B = tokens(b);
-  if (!A.size || !B.size) return 0;
-  let inter = 0;
-  for (const t of A) if (B.has(t)) inter++;
-  return inter / (A.size + B.size - inter);
-}
-
-function levenshtein(a, b) {
-  const m = a.length, n = b.length;
-  if (!m || !n) return Math.max(m, n);
-  let prev = Array.from({ length: n + 1 }, (_, j) => j);
-  for (let i = 1; i <= m; i++) {
-    const cur = [i];
-    for (let j = 1; j <= n; j++) {
-      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
-    }
-    prev = cur;
-  }
-  return prev[n];
-}
-
-// "VGS Performance" vs the portal's "VWGS Performance" shares only one token, so token
-// overlap alone misses it -- edit distance on the squashed string is what catches a typo
-// or a dropped letter in a trading name.
-function editRatio(a, b) {
-  const A = norm(a).replace(/\s/g, ''), B = norm(b).replace(/\s/g, '');
-  if (!A || !B) return 0;
-  return 1 - levenshtein(A, B) / Math.max(A.length, B.length);
-}
-
-function bestMatch(name, known) {
-  let best = null;
-  for (const g of known) {
-    const nA = norm(name), nB = norm(g.name);
-    if (!nA || !nB) continue;
-    let score, how;
-    if (nA === nB) { score = 1; how = 'exact'; }
-    else if (nA.length > 6 && nB.length > 6 && (nA.includes(nB) || nB.includes(nA))) { score = 0.95; how = 'contains'; }
-    else {
-      const j = jaccard(name, g.name), e = editRatio(name, g.name);
-      score = Math.max(j, e);
-      how = j >= e ? 'tokens' : 'edit';
-    }
-    // Require something distinctive in common before trusting a partial match; without
-    // that, only a near-identical spelling counts (so VGS vs VWGS still surfaces).
-    if (how !== 'exact' && how !== 'contains') {
-      const dA = distinctive(name), dB = distinctive(g.name);
-      let shared = false;
-      for (const t of dA) if (dB.has(t)) shared = true;
-      if (!shared && editRatio(name, g.name) < 0.85) score = 0;
-    }
-    if (!best || score > best.score) best = { garage: g.name, source: g.source, score, how };
-  }
-  // A zero score is "no match at all", not "matched the first garage on the list".
-  return best && best.score > 0 ? best : null;
-}
-
-const MIN_PLAUSIBLE_GARAGES = 20;
-
-const MATCH_SURE = 0.9;   // treat as already a customer
-const MATCH_MAYBE = 0.62; // flag for human eyes
-
-// ---------------------------------------------------------------- places enrichment
-
-const PLACES_KEY =
-  process.env.GOOGLE_PLACES_API_KEY ||
-  process.env.GOOGLE_MAPS_API_KEY ||
-  process.env.PUBLIC_GOOGLE_MAPS_API_KEY ||
-  '';
-
-async function enrich(name, hint) {
-  if (!PLACES_KEY) return null;
-  try {
-    const resp = await fetch('https://places.googleapis.com/v1/places:searchText', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Goog-Api-Key': PLACES_KEY,
-        'X-Goog-FieldMask':
-          'places.id,places.displayName,places.formattedAddress,places.nationalPhoneNumber,places.websiteUri',
-      },
-      body: JSON.stringify({ textQuery: [name, hint, 'UK'].filter(Boolean).join(' '), maxResultCount: 1 }),
-    });
-    if (!resp.ok) return null;
-    const j = await resp.json();
-    const p = (j.places || [])[0];
-    if (!p) return null;
-    const got = p.displayName?.text || '';
-    // Google legitimately returns a fuller trading name than the post used ("AFS Repair"
-    // -> "AFS Auto Repair Centre"), so overall similarity is the wrong test -- it threw
-    // away good matches. What must hold is that the distinctive words we searched for
-    // actually appear in the result: that keeps the fuller names and still rejects
-    // "Nick and" -> "St Nic's Church".
-    const want = distinctive(name), gotTokens = tokens(got);
-    const allPresent = want.size > 0 && [...want].every((t) => gotTokens.has(t));
-    const resembles =
-      allPresent ||
-      editRatio(name, got) >= 0.6 ||
-      norm(got).includes(norm(name)) ||
-      norm(name).includes(norm(got)) ||
-      (want.size === 0 && jaccard(name, got) >= 0.4);
-    if (!resembles) return { rejected: got };
-    return {
-      placeId: p.id || '',
-      placeName: p.displayName?.text || '',
-      address: p.formattedAddress || '',
-      phone: p.nationalPhoneNumber || '',
-      website: p.websiteUri || '',
-    };
-  } catch {
-    return null;
-  }
-}
+// Shared with gh-ch-prospects.cjs so the two prospect sweeps judge "already known" and
+// "is this really the same business" identically.
+const M = require('./lib/prospect-match.cjs');
+const { norm, bestMatch, statusFor, enrich, hasPlacesKey, MIN_PLAUSIBLE_GARAGES } = M;
 
 // Posts name a town often enough to disambiguate "Classic Collective" from the rest of
 // the internet, so pull it back out of the prose as a search hint.
@@ -313,62 +187,6 @@ async function loadGarages() {
   }
 }
 
-// ---------------------------------------------------------------- highlevel contacts
-
-/*
- * A garage already sitting in the Onboarding pipeline is not a new prospect, so the
- * portal's Garage table is only half the dedupe -- anyone previously contacted lives in
- * HighLevel instead. Returns null (not an empty list) when it cannot look, so the caller
- * can say so loudly rather than quietly treating known leads as fresh.
- */
-async function loadHighLevel() {
-  const file = opt('--hl-contacts');
-  if (file) {
-    const txt = fs.readFileSync(file, 'utf8').trim();
-    let names;
-    if (txt.startsWith('[')) {
-      names = JSON.parse(txt).map((c) => (typeof c === 'string' ? c : c.companyName || c.name));
-    } else {
-      // tolerate a CSV export: take the first column, drop a header row
-      const lines = txt.split('\n').filter(Boolean);
-      if (/name/i.test(lines[0])) lines.shift();
-      names = lines.map((l) => (l.match(/^\s*"([^"]*)"/) || [, l.split(',')[0]])[1]);
-    }
-    const clean = [...new Set(names.map((n) => String(n || '').trim()).filter(Boolean))];
-    console.log(`loaded ${clean.length} HighLevel contacts from ${file}`);
-    return clean.map((name) => ({ name, source: 'highlevel' }));
-  }
-
-  const key = process.env.GHL_API_KEY, loc = process.env.GHL_LOCATION_ID;
-  if (!key || !loc) return null;
-
-  const headers = { Authorization: `Bearer ${key}`, Version: '2021-07-28', 'Content-Type': 'application/json' };
-  const names = new Set();
-  try {
-    let page = 1;
-    for (; page <= 40; page++) {
-      const res = await fetch('https://services.leadconnectorhq.com/contacts/search', {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ locationId: loc, page, pageLimit: 100 }),
-      });
-      if (!res.ok) throw new Error(`contacts/search ${res.status}`);
-      const j = await res.json();
-      const batch = j.contacts || [];
-      for (const c of batch) {
-        const n = c.companyName || c.name || [c.firstName, c.lastName].filter(Boolean).join(' ');
-        if (n) names.add(String(n).trim());
-      }
-      if (batch.length < 100) break;
-    }
-    console.log(`loaded ${names.size} HighLevel contacts from the API`);
-    return [...names].map((name) => ({ name, source: 'highlevel' }));
-  } catch (e) {
-    console.error(`HighLevel lookup failed (${e.message}) -- continuing without CRM dedupe`);
-    return null;
-  }
-}
-
 // ---------------------------------------------------------------- main
 
 (async () => {
@@ -395,7 +213,7 @@ async function loadHighLevel() {
   const uniq = Array.from(byName.values());
 
   const garages = await loadGarages();
-  const hl = await loadHighLevel();
+  const hl = await M.loadHighLevel(opt('--hl-contacts'));
   const known = [...garages, ...(hl || [])];
 
   const rows = [];
@@ -404,8 +222,7 @@ async function loadHighLevel() {
     // Only an exact or containment match is allowed to retire a prospect outright. A
     // near-identical spelling goes to 'check', because silently dropping a real new
     // garage costs more than asking Dan to glance at one line.
-    const sure = m.score >= MATCH_SURE && (m.how === 'exact' || m.how === 'contains');
-    const status = sure ? 'existing' : m.score >= MATCH_MAYBE ? 'check' : 'new';
+    const status = statusFor(m.score ? m : null);
     const found = status === 'existing' ? null : await enrich(c.name, c.hint);
     const place = found && !found.rejected ? found : null;
     rows.push({ ...c, match: m, status, place, rejectedPlace: found && found.rejected ? found.rejected : '' });
@@ -425,7 +242,7 @@ async function loadHighLevel() {
   if (unparsed.length) console.log(`  could not read a name from ${unparsed.length} post(s) -- run with --review`);
   const lowConf = rows.filter((r) => r.confidence === 'low');
   if (lowConf.length) console.log(`  ${lowConf.length} name(s) parsed with low confidence -- marked * below`);
-  if (!PLACES_KEY) console.log('  NOTE: no GOOGLE_PLACES_API_KEY in env -- phone/website columns are empty');
+  if (!hasPlacesKey()) console.log('  NOTE: no GOOGLE_PLACES_API_KEY in env -- phone/website columns are empty');
   const rejected = rows.filter((r) => r.rejectedPlace);
   if (rejected.length) console.log(`  ${rejected.length} Places result(s) rejected as a different business -- see rejected_place in the CSV`);
   if (!hl) console.log('  WARNING: HighLevel not checked -- set GHL_API_KEY/GHL_LOCATION_ID or pass --hl-contacts.\n           Garages already in the pipeline will show as new.');

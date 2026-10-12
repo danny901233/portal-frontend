@@ -6,6 +6,7 @@ import { getAssistChatResponse } from './chatAgentAssist.js';
 import { getMMHChatResponse } from './chatAgentMMH.js';
 import { getPooleChatResponse } from './chatAgentPoole.js';
 import { getBookarChatResponse } from './chatAgentBookar.js';
+import { getUnifiedChatResponse } from './unifiedChatAgent.js';
 
 interface ChatAgentResponse {
   content: string;
@@ -131,16 +132,24 @@ async function routeChatMessageInner(
 ): Promise<ChatAgentResponse> {
   const config = await prisma.agentConfiguration.findUnique({
     where: { garageId },
-    select: { agentScript: true, agentType: true, integrationProviderConfig: true },
+    select: { agentScript: true, agentType: true, integrationProvider: true, integrationProviderConfig: true },
   });
 
   const agentScript = config?.agentScript || '';
   const agentType = config?.agentType || '';
+  const provider = String(config?.integrationProvider || '').toLowerCase();
   const hasGH = hasGarageHiveCreds(config?.integrationProviderConfig);
 
   console.log(`[CHAT_ROUTER] garageId=${garageId} agentScript=${agentScript || '(default)'} agentType=${agentType || '(default)'} gh=${hasGH}`);
 
   return withConvLock(conversationId, async () => {
+    // Bosch Car Service routes to the unified chat agent, which carries the Bosch diary
+    // adapter. Gated on the provider alone so only Bosch garages take this path — every
+    // other garage keeps its existing route untouched.
+    if (provider === 'bosch') {
+      return getUnifiedChatResponse(garageId, message, conversationId, seedContact);
+    }
+
     if (agentScript === 'poole-agent') {
       return getPooleChatResponse(garageId, message, conversationId, seedContact);
     }

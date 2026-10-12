@@ -82,6 +82,10 @@ interface RawCustomer {
   phoneNumber?: string;
   mobilePhoneNumber?: string;
   email?: string;
+  addressLine1?: string;
+  addressLine2?: string;
+  city?: string;
+  postalCode?: string;
 }
 
 // A BC "empty date" comes back as 0001-01-01 rather than null.
@@ -625,6 +629,19 @@ export interface CallerProfile {
   firstName?: string;
   contactNo?: string;
   matchedField?: string;
+  /**
+   * What Garage Hive already holds for them. The agent pre-fills the booking with these
+   * instead of asking a recognised caller to dictate an address the garage has on file —
+   * which is how call 88166093 lost an MOT: "Havant" came through as "Haunting" and the
+   * postcode as a B08 that does not exist, and Garage Hive refused the booking.
+   *
+   * Absent when the record is blank. Only ~65% of Speedy Spanners' 4,384 customers carry a
+   * full address, so the agent must still be able to ask.
+   */
+  address?: string;
+  address2?: string;
+  city?: string;
+  postcode?: string;
   vehicles: CallerVehicle[];
 }
 
@@ -796,18 +813,39 @@ export async function getCallerProfile(garageId: string, phone: string): Promise
   const match = await lookupPhonebookByPhone(creds, phone);
   if (!match?.customerNo) return { matched: false, vehicles: [] };
 
-  const vehicles = await vehiclesByFilter(
-    creds,
-    `customerNo eq '${match.customerNo.replace(/'/g, "''")}'`,
-    'registrationNo,makeCode,modelDescription,motDueDate,serviceDueDate',
-  );
+  // Both lookups IN PARALLEL, deliberately. The agent time-boxes this whole endpoint at 900ms
+  // and real lookups already run 334-740ms, so a second Business Central call in series would
+  // push a good share of callers past the budget — and a lookup that misses the budget is not a
+  // missing address, it is a caller who stops being recognised at all. Losing the name and the
+  // vehicle to gain an address would be a worse call than the one this set out to fix.
+  //
+  // The customer record is what carries the ADDRESS: the booking needs one, Garage Hive refuses
+  // the submit without a postcode, and asking a recognised caller to dictate what the garage
+  // already holds is how we mishear it. A failure here must never cost us the recognition we
+  // already have, so it degrades to no address rather than rejecting the match.
+  const [vehicles, customer] = await Promise.all([
+    vehiclesByFilter(
+      creds,
+      `customerNo eq '${match.customerNo.replace(/'/g, "''")}'`,
+      'registrationNo,makeCode,modelDescription,motDueDate,serviceDueDate',
+    ),
+    getCustomer(creds, match.customerNo).catch((e) => {
+      console.error(`[GH_CALLER] customer lookup failed for ${match.customerNo}:`, e);
+      return null;
+    }),
+  ]);
 
   const clean = (d?: string) => (d && d !== EMPTY_DATE ? d : undefined);
   const firstName = usableFirstName(match.name);
+  const trimmed = (v?: string) => (v || '').trim() || undefined;
+  const address = trimmed(customer?.addressLine1);
+  const postcode = trimmed(customer?.postalCode);
+
   console.log(
     `[GH_CALLER] ${garageId} matched customerNo=${match.customerNo}` +
       ` name=${match.name ? 'set' : 'none'} greetable=${firstName ? 'yes' : 'no'}` +
-      ` vehicles=${vehicles.length}`,
+      ` vehicles=${vehicles.length}` +
+      ` address=${address ? 'yes' : 'no'} postcode=${postcode ? 'yes' : 'no'}`,
   );
 
   return {
@@ -816,6 +854,10 @@ export async function getCallerProfile(garageId: string, phone: string): Promise
     name: match.name,
     firstName,
     contactNo: match.contactNo,
+    address,
+    address2: trimmed(customer?.addressLine2),
+    city: trimmed(customer?.city),
+    postcode,
     vehicles: vehicles.map((v) => ({
       registration: v.registrationNo,
       make: v.makeCode || undefined,
@@ -1005,7 +1047,8 @@ export async function getVehicleAdvisories(
 async function getCustomer(creds: GarageHiveCreds, customerNo: string): Promise<RawCustomer | null> {
   const base = apiBase(creds);
   const company = `companies(${creds.companyId})`;
-  const select = 'number,displayName,phoneNumber,mobilePhoneNumber,email';
+  const select = 'number,displayName,phoneNumber,mobilePhoneNumber,email'
+    + ',addressLine1,addressLine2,city,postalCode';
   const filter = encodeURIComponent(`number eq '${customerNo.replace(/'/g, "''")}'`);
   const url = `${base}/general/v2.0/${company}/customers?$select=${select}&$filter=${filter}`;
   const rows = await get<RawCustomer>(creds, url);

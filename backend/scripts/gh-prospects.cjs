@@ -474,28 +474,70 @@ async function loadHighLevel() {
   if (!PUSH) {
     console.log(`\n(dry run) would push ${newOnes.length} new garage(s) to HighLevel. Re-run with --push-highlevel to do it.`);
   } else {
-    const key = process.env.GHL_API_KEY, loc = process.env.GHL_LOCATION_ID;
+    const key = process.env.GHL_API_KEY;
+    const loc = process.env.GHL_LOCATION_ID;
+    const pipelineId = opt('--pipeline', process.env.GHL_PIPELINE_ID);
+    // Onboarding Newest -> "Cold Lead". Not in .env (GHL_LEAD_STAGE_ID is the warmer
+    // "Enquiry Received" stage), so it is passed explicitly.
+    const stageId = opt('--stage', '37b4585c-465f-4861-b1dd-a0a830f46243');
+    const tag = opt('--tag', 'gh-community-welcome');
+
     if (!key || !loc) {
       console.log('\n--push-highlevel given but GHL_API_KEY / GHL_LOCATION_ID are not set -- nothing pushed.');
+    } else if (!pipelineId || !stageId) {
+      console.log('\nNo pipeline/stage to push into -- pass --pipeline and --stage.');
     } else {
-      for (const r of newOnes) {
-        const p = r.place || {};
-        const resp = await fetch('https://services.leadconnectorhq.com/contacts/upsert', {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${key}`, Version: '2021-07-28', 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            locationId: loc,
-            name: r.name,
-            companyName: r.name,
-            phone: p.phone || undefined,
-            website: p.website || undefined,
-            address1: p.address || undefined,
-            source: 'GH Community welcome post',
-            tags: ['gh-community', 'prospect'],
-          }),
-        });
-        console.log(`  ${resp.ok ? 'pushed' : 'FAILED ' + resp.status}  ${r.name}`);
+      const headers = { Authorization: `Bearer ${key}`, Version: '2021-07-28', 'Content-Type': 'application/json' };
+      // A canary run (--limit 2) before committing 100+ records to a live CRM.
+      const limit = Number(opt('--limit', '0')) || newOnes.length;
+      const todo = newOnes.slice(0, limit);
+      console.log(`\npushing ${todo.length} of ${newOnes.length} to pipeline ${pipelineId} stage ${stageId}, tagged "${tag}"`);
+
+      let ok = 0, failed = 0;
+      for (const r of todo) {
+        const pl = r.place || {};
+        try {
+          const cRes = await fetch('https://services.leadconnectorhq.com/contacts/upsert', {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+              locationId: loc,
+              name: r.name,
+              companyName: r.name,
+              ...(pl.phone ? { phone: pl.phone } : {}),
+              ...(pl.website ? { website: pl.website } : {}),
+              ...(pl.address ? { address1: pl.address } : {}),
+              ...(r.hint ? { city: r.hint } : {}),
+              source: 'GH Community welcome post',
+              tags: [tag, 'cold-prospect'],
+            }),
+          });
+          if (!cRes.ok) throw new Error(`contact ${cRes.status} ${(await cRes.text()).slice(0, 120)}`);
+          const cJson = await cRes.json();
+          const contactId = cJson.contact?.id || cJson.id;
+          if (!contactId) throw new Error('no contact id returned');
+
+          const oRes = await fetch('https://services.leadconnectorhq.com/opportunities/', {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+              pipelineId,
+              pipelineStageId: stageId,
+              locationId: loc,
+              contactId,
+              name: r.name,
+              status: 'open',
+            }),
+          });
+          if (!oRes.ok) throw new Error(`opportunity ${oRes.status} ${(await oRes.text()).slice(0, 120)}`);
+          ok++;
+          console.log(`  ok      ${r.name}`);
+        } catch (e) {
+          failed++;
+          console.log(`  FAILED  ${r.name} -- ${e.message}`);
+        }
       }
+      console.log(`\npushed ${ok}, failed ${failed}`);
     }
   }
 })().catch((e) => { console.error(e); process.exit(1); });

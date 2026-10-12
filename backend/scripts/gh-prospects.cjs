@@ -142,9 +142,10 @@ const GENERIC = new Set([
   'auto', 'autos', 'automotive', 'mot', 'car', 'cars', 'vehicle', 'vehicles', 'repair',
   'repairs', 'tyre', 'tyres', 'performance', 'engineering', 'autocentre', 'autocentres',
   'solutions', 'group', 'specialist', 'specialists', 'commercials', 'station',
+  'and', 'to', 'at', 'with', 'for', 'from', 'this', 'that', 'all', 'as', 'they',
 ]);
 const distinctive = (s) => new Set([...tokens(s)].filter((t) => !GENERIC.has(t) && t.length > 1));
-const norm = (s) => (s || '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(SUFFIXES, ' ').replace(/\s+/g, ' ').trim();
+const norm = (s) => (s || '').toLowerCase().replace(/['\u2019]/g, '').replace(/[^a-z0-9\s]/g, ' ').replace(SUFFIXES, ' ').replace(/\s+/g, ' ').trim();
 const tokens = (s) => new Set(norm(s).split(' ').filter(Boolean));
 
 function jaccard(a, b) {

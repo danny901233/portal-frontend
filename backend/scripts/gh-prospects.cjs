@@ -55,6 +55,9 @@ const LEAD_STRIPS = [
   /^\s*garage\s*hive\s+/i,
   /^\s*gh\b\s*/i,
   /^\s*our\s+(?:first|newest|latest|next)\s+/i,
+  /^\s*(?:a|the)?\s*(?:new|newest)?\s*garage\s+to\s+/i,
+  /^\s*(?:team|crew|gang)\s+/i,
+  /^\s*(?:for|another|and|with|at)\s+/i,
   /^\s*(?:family|community)\s+/i,
   /^\s*our\s+newbies\s*/i,
   /^\s*this\s+week\s*/i,
@@ -232,6 +235,13 @@ async function enrich(name, hint) {
     const j = await resp.json();
     const p = (j.places || [])[0];
     if (!p) return null;
+    const got = p.displayName?.text || '';
+    const resembles =
+      jaccard(name, got) >= 0.4 ||
+      editRatio(name, got) >= 0.6 ||
+      norm(got).includes(norm(name)) ||
+      norm(name).includes(norm(got));
+    if (!resembles) return { rejected: got };
     return {
       placeId: p.id || '',
       placeName: p.displayName?.text || '',
@@ -387,8 +397,9 @@ async function loadHighLevel() {
     // garage costs more than asking Dan to glance at one line.
     const sure = m.score >= MATCH_SURE && (m.how === 'exact' || m.how === 'contains');
     const status = sure ? 'existing' : m.score >= MATCH_MAYBE ? 'check' : 'new';
-    const place = status === 'existing' ? null : await enrich(c.name, c.hint);
-    rows.push({ ...c, match: m, status, place });
+    const found = status === 'existing' ? null : await enrich(c.name, c.hint);
+    const place = found && !found.rejected ? found : null;
+    rows.push({ ...c, match: m, status, place, rejectedPlace: found && found.rejected ? found.rejected : '' });
   }
 
   // ------------------------------------------------------------ report
@@ -406,6 +417,8 @@ async function loadHighLevel() {
   const lowConf = rows.filter((r) => r.confidence === 'low');
   if (lowConf.length) console.log(`  ${lowConf.length} name(s) parsed with low confidence -- marked * below`);
   if (!PLACES_KEY) console.log('  NOTE: no GOOGLE_PLACES_API_KEY in env -- phone/website columns are empty');
+  const rejected = rows.filter((r) => r.rejectedPlace);
+  if (rejected.length) console.log(`  ${rejected.length} Places result(s) rejected as a different business -- see rejected_place in the CSV`);
   if (!hl) console.log('  WARNING: HighLevel not checked -- set GHL_API_KEY/GHL_LOCATION_ID or pass --hl-contacts.\n           Garages already in the pipeline will show as new.');
 
   console.log(`\n${pad('GARAGE', 30)} ${pad('YR', 5)}${pad('TOWN', 16)} ${pad('PHONE', 15)} WEBSITE`);
@@ -435,10 +448,10 @@ async function loadHighLevel() {
 
   if (CSV_PATH) {
     const esc = (v) => `"${String(v == null ? '' : v).replace(/"/g, '""')}"`;
-    const lines = [['garage', 'town', 'phone', 'website', 'address', 'year', 'status', 'matched_to', 'matched_in', 'score', 'confidence', 'source_post'].join(',')];
+    const lines = [['garage', 'town', 'phone', 'website', 'address', 'year', 'status', 'matched_to', 'matched_in', 'score', 'confidence', 'place_name', 'rejected_place', 'source_post'].join(',')];
     for (const r of rows) {
       const p = r.place || {};
-      lines.push([r.name, r.hint, p.phone, p.website, p.address, r.year, r.status, r.match.garage, r.match.source, r.match.score.toFixed(2), r.confidence, r.body.slice(0, 300)].map(esc).join(','));
+      lines.push([r.name, r.hint, p.phone, p.website, p.address, r.year, r.status, r.match.garage, r.match.source, r.match.score.toFixed(2), r.confidence, p.placeName, r.rejectedPlace, r.body.slice(0, 300)].map(esc).join(','));
     }
     fs.mkdirSync(path.dirname(path.resolve(CSV_PATH)), { recursive: true });
     fs.writeFileSync(CSV_PATH, lines.join('\n'));

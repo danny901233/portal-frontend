@@ -29,8 +29,14 @@
  *
  *   node daily-call-report.cjs             # send it
  *   node daily-call-report.cjs --dry       # print to stdout, send nothing
+ *   node daily-call-report.cjs --dry --html  # --dry, and also print the HTML part
  *   node daily-call-report.cjs --days=3    # look back further (ad hoc)
  *   node daily-call-report.cjs --garage=In # only garages whose name contains "In"
+ *
+ * The send is always both text and HTML (Mailgun's multipart — a client that renders HTML
+ * shows it, everything else falls back to the text part). See renderHtml() below: table-based
+ * layout, inline styles only, web-safe fonts — written for Outlook desktop's Word rendering
+ * engine, which is most of what this report's two recipients actually read it in.
  */
 require('dotenv').config();
 const { PrismaClient } = require('@prisma/client');
@@ -449,6 +455,285 @@ function render(R) {
   return L.join('\n');
 }
 
+// --- HTML rendering ---------------------------------------------------------------
+//
+// Table-based layout with inline styles throughout, deliberately — Dan reads this in Outlook
+// desktop, which renders HTML email through Word's engine: no CSS Grid/Flexbox, no custom
+// properties, no box-shadow, no webfonts. Every color and spacing value below is a literal,
+// repeated inline on each element, because that's the only thing Outlook reliably honours.
+// border-radius is kept as a harmless extra (Outlook just squares the corners off).
+//
+// Mirrors render() section-for-section and reuses its exact truncation limits (slice(0,12) etc)
+// so the HTML and plain-text versions never disagree about what got left out.
+
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  }[c]));
+}
+
+// FAILURE_STATUSES -> red, a bare "OK" -> green, anything else (ASK_FIRST, CONFIRM_NUMBER,
+// READBACK...) is a mid-turn instruction to the model, not a failure -> amber.
+function statusPill(status) {
+  const code = (String(status).match(/STATUS:\s*([A-Z_]+)/) || [])[1] || '';
+  const bg = FAILURE_STATUSES.includes(code) ? '#fbe9e7' : /^OK$/.test(code) ? '#e6f4ec' : '#faf0dd';
+  const fg = FAILURE_STATUSES.includes(code) ? '#b3261e' : /^OK$/.test(code) ? '#1f7a4d' : '#a6650a';
+  return `<span style="background-color:${bg};color:${fg};font-weight:bold;padding:1px 6px;border-radius:8px;font-size:10px;">${esc(code || '?')}</span>`;
+}
+
+function faultStripeColor(kind) {
+  if (kind === 'no-error-status') return '#9a9c9a';
+  return FAILURE_STATUSES.includes(kind) ? '#b3261e' : '#a6650a';
+}
+
+const FONT_SERIF = "Georgia,'Times New Roman',serif";
+const FONT_SANS = "Arial,Helvetica,sans-serif";
+const FONT_MONO = "'Courier New',Courier,monospace";
+
+function htmlTable(attrs = '') {
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" ${attrs}>`;
+}
+
+function htmlPanel(inner, extra = '') {
+  return `${htmlTable(`style="background-color:#ffffff;border:1px solid #e3e1da;border-radius:6px;${extra}"`)}${inner}</table>`;
+}
+
+function htmlSectionHeading(title, countLabel) {
+  return `<tr><td style="padding-bottom:10px;font-family:${FONT_SERIF};">
+    <span style="font-size:18px;font-weight:bold;color:#1b1d22;">${esc(title)}</span>
+    ${countLabel ? `<span style="font-family:${FONT_MONO};font-size:11px;color:#6b6f78;"> &mdash; ${esc(countLabel)}</span>` : ''}
+  </td></tr>`;
+}
+
+function htmlSpacer(px) {
+  return `<tr><td style="font-size:${px}px;line-height:${px}px;">&nbsp;</td></tr>`;
+}
+
+function renderHtml(R, brief) {
+  const day = R.from.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
+  const sections = [];
+
+  // --- masthead: 3 headline stat tiles ------------------------------------------
+  sections.push(`
+  <tr><td style="padding:0 0 16px;">
+    ${htmlPanel(`
+      <tr><td style="padding:24px 24px 20px;">
+        <div style="font-family:${FONT_MONO};font-size:11px;letter-spacing:1px;text-transform:uppercase;color:#6b6f78;">
+          DAILY SEND &middot; ${TO.map(esc).join(', ')}
+        </div>
+        <div style="font-family:${FONT_SERIF};font-weight:bold;font-size:25px;line-height:1.2;color:#1b1d22;padding-top:6px;">
+          ReceptionMate &mdash; Call Report
+        </div>
+        <div style="font-family:${FONT_SERIF};font-style:italic;font-size:15px;color:#6b6f78;padding-top:2px;padding-bottom:18px;">
+          ${esc(day)}${DAYS > 1 ? ` (${DAYS} days)` : ''}
+        </div>
+        ${htmlTable()}<tr>
+          <td width="33%" valign="top" style="padding-right:6px;">
+            ${htmlPanel(`<tr><td style="padding:13px 14px;">
+              <div style="font-family:${FONT_MONO};font-weight:bold;font-size:24px;color:#1b1d22;">${R.total}</div>
+              <div style="font-family:${FONT_SANS};font-size:11px;color:#6b6f78;padding-top:3px;">calls handled</div>
+              <div style="font-family:${FONT_SANS};font-size:10.5px;color:#9a9c9a;padding-top:1px;">${R.turns} turns measured</div>
+            </td></tr>`, 'background-color:#faf9f5;')}
+          </td>
+          <td width="34%" valign="top" style="padding-left:3px;padding-right:3px;">
+            ${htmlPanel(`<tr><td style="padding:13px 14px;">
+              <div style="font-family:${FONT_MONO};font-weight:bold;font-size:24px;color:#1f7a4d;">${R.booked} <span style="font-size:13px;font-weight:normal;">(${pct(R.booked, R.total)})</span></div>
+              <div style="font-family:${FONT_SANS};font-size:11px;color:#6b6f78;padding-top:3px;">bookings confirmed</div>
+              <div style="font-family:${FONT_SANS};font-size:10.5px;color:#9a9c9a;padding-top:1px;">${R.goodBookings.length} clean &middot; ${R.badBookings.length} worth checking</div>
+            </td></tr>`, 'background-color:#faf9f5;')}
+          </td>
+          <td width="33%" valign="top" style="padding-left:6px;">
+            ${htmlPanel(`<tr><td style="padding:13px 14px;">
+              <div style="font-family:${FONT_MONO};font-weight:bold;font-size:24px;color:#b3261e;">${R.intentFailed} <span style="font-size:13px;font-weight:normal;">(${pct(R.intentFailed, R.intent)})</span></div>
+              <div style="font-family:${FONT_SANS};font-size:11px;color:#6b6f78;padding-top:3px;">lost to a fault</div>
+              <div style="font-family:${FONT_SANS};font-size:10.5px;color:#9a9c9a;padding-top:1px;">of ${R.intent} who chose a service &middot; ${R.quotes} price enquiries never booked</div>
+            </td></tr>`, 'background-color:#faf9f5;')}
+          </td>
+        </tr></table>
+      </td></tr>`)}
+  </td></tr>`);
+  sections.push(htmlSpacer(8));
+
+  // --- sub-stats: endpointing / reg capture / tool failures ---------------------
+  const worst = Object.entries(R.perGarage).filter(([, s]) => s.gaps.length >= 3)
+    .map(([g, s]) => [g, med(s.gaps)]).sort((a, b) => b[1] - a[1]).slice(0, 3);
+  const trendRows = Object.entries(R.trend).filter(([, v]) => v.today || v.usual >= 0.5)
+    .sort((a, b) => b[1].today - a[1].today).slice(0, 3);
+
+  const subCard = (title, rows, foot, footColor) => htmlPanel(`<tr><td style="padding:14px 15px;font-family:${FONT_SANS};">
+    <div style="font-size:10.5px;text-transform:uppercase;letter-spacing:0.5px;color:#6b6f78;font-weight:bold;padding-bottom:8px;">${esc(title)}</div>
+    ${rows.map((r) => `<div style="font-size:12px;color:#3c3f46;padding-bottom:5px;">${r}</div>`).join('')}
+    ${foot ? `<div style="font-size:11px;color:${footColor || '#9a9c9a'};padding-top:8px;border-top:1px dashed #e3e1da;">${foot}</div>` : ''}
+  </td></tr>`);
+
+  sections.push(`<tr><td>${htmlTable()}<tr>
+    <td width="33%" valign="top" style="padding-right:5px;padding-bottom:10px;">
+      ${subCard('Endpointing', [
+        `Response gap <strong style="font-family:${FONT_MONO};float:right;">${f2(med(R.gapSec))}s / ${f2(p90(R.gapSec))}s</strong>`,
+        `Longest silence <strong style="font-family:${FONT_MONO};float:right;">${f2(med(R.maxSilence))}s / ${f2(p90(R.maxSilence))}s</strong>`,
+        `LLM first token <strong style="font-family:${FONT_MONO};float:right;">${f2(med(R.ttft))}s</strong>`,
+      ], worst.length ? `Slowest: ${esc(worst.map(([g, v]) => `${g} ${f2(v)}s`).join(', '))}` : '')}
+    </td>
+    <td width="34%" valign="top" style="padding-left:3px;padding-right:3px;padding-bottom:10px;">
+      ${subCard('Registration capture', [
+        `Asked <strong style="font-family:${FONT_MONO};float:right;">${R.regAttempted} / ${R.total}</strong>`,
+        `Captured <strong style="font-family:${FONT_MONO};color:#1f7a4d;float:right;">${pct(R.regCaptured, R.regAttempted)}</strong>`,
+        `3+ attempts <strong style="font-family:${FONT_MONO};float:right;">${pct(R.regRetried, R.regAttempted)}</strong>`,
+      ], 'Steady vs. fortnight baseline')}
+    </td>
+    <td width="33%" valign="top" style="padding-left:6px;padding-bottom:10px;">
+      ${subCard('Tool failures vs. usual', trendRows.length ? trendRows.map(([k, v]) => {
+        const hot = v.today && v.usual < 0.2 ? '#b3261e' : v.today > Math.max(3, v.usual * 3) ? '#b3261e' : '#3c3f46';
+        return `${esc(k)} <strong style="font-family:${FONT_MONO};color:${hot};float:right;">${v.today}</strong>`;
+      }) : ['No notable failures today'], '')}
+    </td>
+  </tr></table></td></tr>`);
+  sections.push(htmlSpacer(4));
+
+  // --- lost to a fault: one card per call, same 12-per-kind cap as the text version
+  if (R.lostBookings.length) {
+    const byKind = {};
+    R.lostBookings.forEach((f) => { (byKind[f.kind] = byKind[f.kind] || []).push(f); });
+    const cards = [];
+    for (const [, list] of Object.entries(byKind).sort((a, b) => b[1].length - a[1].length)) {
+      for (const f of list.slice(0, 12)) {
+        const stepRows = f.steps.map((s) => `${esc(s.tool)} ${esc(s.args)} &nbsp;${statusPill(s.status)}`).join('<br>');
+        const extra = f.detail.replace(/^STATUS:\s*[A-Z_]+\s*/, '').trim();
+        cards.push(`<tr>
+          <td width="4" style="background-color:${faultStripeColor(f.kind)};font-size:0;line-height:0;">&nbsp;</td>
+          <td style="padding:14px 16px;border-bottom:1px solid #e3e1da;font-family:${FONT_SANS};">
+            <div style="font-size:13px;color:#1b1d22;"><strong>${esc(f.garage)}</strong>
+              &nbsp;<span style="font-family:${FONT_MONO};font-size:11px;color:#6b6f78;">${esc(f.at.toISOString().slice(11, 16))} &middot; call ${esc(f.id)}</span>
+              ${f.reg ? `&nbsp;<span style="font-family:${FONT_MONO};font-size:10.5px;background-color:#faf9f5;border:1px solid #e3e1da;padding:1px 5px;color:#3c3f46;">${esc(f.reg)}</span>` : ''}
+            </div>
+            <div style="font-size:12px;color:#3c3f46;padding:5px 0 8px;">${esc(clip(f.want, 260))}</div>
+            ${htmlPanel(`<tr><td style="padding:7px 9px;font-family:${FONT_MONO};font-size:11px;color:#3c3f46;">${stepRows}</td></tr>`, 'background-color:#faf9f5;')}
+            ${extra.length > 15 ? `<div style="font-size:11.5px;color:#6b6f78;padding-top:6px;font-style:italic;">${esc(clip(extra, 220))}</div>` : ''}
+          </td>
+        </tr>`);
+      }
+    }
+    const shown = Object.values(byKind).reduce((n, l) => n + Math.min(l.length, 12), 0);
+    sections.push(`<tr><td>${htmlTable()}${htmlSectionHeading('Lost to a fault', `all ${R.lostBookings.length}, with the trace`)}</table>
+      ${htmlPanel(cards.join('') + (R.lostBookings.length > shown
+        ? `<tr><td colspan="2" style="padding:10px 16px;background-color:#faf9f5;border-top:1px solid #e3e1da;font-family:${FONT_SANS};font-size:11px;color:#9a9c9a;font-style:italic;">+ ${R.lostBookings.length - shown} more below the fold in the full report</td></tr>`
+        : ''))}
+    </td></tr>`);
+    sections.push(htmlSpacer(18));
+  }
+
+  // --- bookings made --------------------------------------------------------------
+  const bookingRows = [
+    ...R.badBookings.map((b) => `<tr style="background-color:#faf0dd;">
+      <td style="padding:8px 14px;border-bottom:1px solid #e3e1da;color:#1b1d22;">${esc(b.garage)}</td>
+      <td style="padding:8px 14px;border-bottom:1px solid #e3e1da;color:#1b1d22;">${esc(b.who)} ${b.reg ? `&middot; ${esc(b.reg)}` : ''}</td>
+      <td style="padding:8px 14px;border-bottom:1px solid #e3e1da;color:#a6650a;">!! ${esc(b.problems.join('; '))}</td>
+    </tr>`),
+    ...R.goodBookings.slice(0, 15).map((b, i, arr) => `<tr>
+      <td style="padding:8px 14px;${i < arr.length - 1 ? 'border-bottom:1px solid #e3e1da;' : ''}color:#1b1d22;">${esc(b.garage)}</td>
+      <td style="padding:8px 14px;${i < arr.length - 1 ? 'border-bottom:1px solid #e3e1da;' : ''}">${esc(b.who)}</td>
+      <td style="padding:8px 14px;${i < arr.length - 1 ? 'border-bottom:1px solid #e3e1da;' : ''}">${esc(b.services)}</td>
+    </tr>`),
+  ];
+  sections.push(`<tr><td>${htmlTable()}${htmlSectionHeading('Bookings made', `${R.goodBookings.length} clean, ${R.badBookings.length} worth checking`)}</table>
+    ${htmlPanel(`<tr style="background-color:#faf9f5;">
+        <td style="padding:9px 14px;font-size:10.5px;text-transform:uppercase;letter-spacing:0.5px;color:#6b6f78;border-bottom:1px solid #e3e1da;font-family:${FONT_SANS};">Garage</td>
+        <td style="padding:9px 14px;font-size:10.5px;text-transform:uppercase;letter-spacing:0.5px;color:#6b6f78;border-bottom:1px solid #e3e1da;font-family:${FONT_SANS};">Customer</td>
+        <td style="padding:9px 14px;font-size:10.5px;text-transform:uppercase;letter-spacing:0.5px;color:#6b6f78;border-bottom:1px solid #e3e1da;font-family:${FONT_SANS};">Service / note</td>
+      </tr>${bookingRows.join('')}`, `font-family:${FONT_SANS};font-size:12px;`)}
+    ${R.goodBookings.length > 15 ? `<div style="padding:8px 2px;font-family:${FONT_SANS};font-size:11px;color:#9a9c9a;font-style:italic;">+ ${R.goodBookings.length - 15} more clean bookings</div>` : ''}
+  </td></tr>`);
+  sections.push(htmlSpacer(18));
+
+  // --- three callout boxes: stuck loops / one-way audio / call gaps ---------------
+  if (R.repeats.length || R.silentCalls.length || R.gaps.length) {
+    const callout = (icon, title, count, items, moreNote) => `<td width="33%" valign="top" style="padding:0 5px 8px 0;">
+      ${htmlPanel(`<tr><td style="padding:13px 14px;font-family:${FONT_SANS};">
+        <div style="font-size:12px;font-weight:bold;color:#1b1d22;padding-bottom:7px;">${icon} ${esc(title)} <span style="font-family:${FONT_MONO};font-weight:normal;color:#6b6f78;">(${count})</span></div>
+        ${items.map((i) => `<div style="font-size:11px;color:#3c3f46;padding-bottom:5px;">${i}</div>`).join('')}
+        ${moreNote ? `<div style="font-size:11px;color:#9a9c9a;">${esc(moreNote)}</div>` : ''}
+      </td></tr>`)}
+    </td>`;
+    sections.push(`<tr><td>${htmlTable()}${htmlSectionHeading('Flags worth a look')}</table>
+      ${htmlTable()}<tr>
+        ${R.repeats.length ? callout('&#128257;', 'Stuck loops', R.repeats.length,
+          R.repeats.slice(0, 4).map((r) => `<strong>${esc(r.garage)}</strong> &mdash; ${esc(r.who)}, ${esc(r.reps.map((x) => `${x.tool} x${x.times}`).join(', '))}`),
+          R.repeats.length > 4 ? `+ ${R.repeats.length - 4} more` : '') : '<td width="33%">&nbsp;</td>'}
+        ${R.silentCalls.length ? callout('&#128263;', 'One-way audio', R.silentCalls.length,
+          R.silentCalls.slice(0, 4).map((s) => `<strong>${esc(s.garage)}</strong> &mdash; ${s.secs}s`),
+          R.silentCalls.length > 4 ? `+ ${R.silentCalls.length - 4} more` : '') : '<td width="33%">&nbsp;</td>'}
+        ${R.gaps.length ? callout('&#128201;', 'Call gaps', R.gaps.length,
+          R.gaps.slice(0, 4).map((g) => `<strong>${esc(g.garage)}</strong> &mdash; usually ~${g.usual}/day`),
+          R.gaps.length > 4 ? `+ ${R.gaps.length - 4} more — check forwarding` : 'check forwarding') : '<td width="33%">&nbsp;</td>'}
+      </tr></table>
+    </td></tr>`);
+    sections.push(htmlSpacer(18));
+  }
+
+  // --- AI verdicts flagging a problem ----------------------------------------------
+  if (R.diagnosisIssues.length) {
+    const shown = R.diagnosisIssues.slice(0, 12);
+    const rows = shown.map((d, i) => `<tr><td style="padding:10px 14px;${i < shown.length - 1 ? 'border-bottom:1px solid #e3e1da;' : ''}font-family:${FONT_SANS};">
+      <div style="font-size:12.5px;font-weight:bold;color:#1b1d22;">${esc(d.garage)} &mdash; ${esc(d.headline)}</div>
+      <div style="font-size:11.5px;color:#6b6f78;padding-top:2px;">${esc(clip(d.detail, 200))}</div>
+    </td><td align="right" style="padding:10px 14px;${i < shown.length - 1 ? 'border-bottom:1px solid #e3e1da;' : ''}vertical-align:top;">
+      <span style="font-family:${FONT_MONO};font-size:10px;background-color:#faf9f5;border:1px solid #e3e1da;padding:2px 7px;border-radius:6px;color:#3c3f46;white-space:nowrap;">${esc(d.category)}</span>
+    </td></tr>`);
+    sections.push(`<tr><td>${htmlTable()}${htmlSectionHeading('AI verdicts flagging a problem', `${R.diagnosisIssues.length} total`)}</table>
+      ${htmlPanel(rows.join('') + (R.diagnosisIssues.length > 12
+        ? `<tr><td colspan="2" style="padding:10px 14px;background-color:#faf9f5;border-top:1px solid #e3e1da;font-family:${FONT_SANS};font-size:11px;color:#9a9c9a;font-style:italic;">+ ${R.diagnosisIssues.length - 12} more verdicts in the full report</td></tr>`
+        : ''))}
+    </td></tr>`);
+    sections.push(htmlSpacer(18));
+  }
+
+  // --- per garage -------------------------------------------------------------------
+  const garageRows = Object.entries(R.perGarage).sort((a, b) => b[1].calls - a[1].calls);
+  const shownGarages = garageRows.slice(0, 15);
+  const garageTr = shownGarages.map(([g, s], i) => {
+    const convPct = s.calls ? (s.booked / s.calls) * 100 : 0;
+    const convColor = convPct >= 15 ? '#1f7a4d' : convPct === 0 ? '#9a9c9a' : '#3c3f46';
+    const last = i === shownGarages.length - 1;
+    return `<tr>
+      <td style="padding:8px 14px;${last ? '' : 'border-bottom:1px solid #e3e1da;'}color:#1b1d22;">${esc(g)}</td>
+      <td align="right" style="padding:8px 14px;${last ? '' : 'border-bottom:1px solid #e3e1da;'}font-family:${FONT_MONO};">${s.calls}</td>
+      <td align="right" style="padding:8px 14px;${last ? '' : 'border-bottom:1px solid #e3e1da;'}font-family:${FONT_MONO};">${s.booked}</td>
+      <td align="right" style="padding:8px 14px;${last ? '' : 'border-bottom:1px solid #e3e1da;'}font-family:${FONT_MONO};color:${convColor};">${pct(s.booked, s.calls)}</td>
+      <td align="right" style="padding:8px 14px;${last ? '' : 'border-bottom:1px solid #e3e1da;'}font-family:${FONT_MONO};color:${s.failed ? '#b3261e' : '#9a9c9a'};">${s.failed}</td>
+    </tr>`;
+  }).join('');
+  sections.push(`<tr><td>${htmlTable()}${htmlSectionHeading('Per garage', `${garageRows.length} garages`)}</table>
+    ${htmlPanel(`<tr style="background-color:#faf9f5;">
+        <td style="padding:9px 14px;font-size:10.5px;text-transform:uppercase;color:#6b6f78;border-bottom:1px solid #e3e1da;font-family:${FONT_SANS};">Garage</td>
+        <td align="right" style="padding:9px 14px;font-size:10.5px;text-transform:uppercase;color:#6b6f78;border-bottom:1px solid #e3e1da;font-family:${FONT_SANS};">Calls</td>
+        <td align="right" style="padding:9px 14px;font-size:10.5px;text-transform:uppercase;color:#6b6f78;border-bottom:1px solid #e3e1da;font-family:${FONT_SANS};">Booked</td>
+        <td align="right" style="padding:9px 14px;font-size:10.5px;text-transform:uppercase;color:#6b6f78;border-bottom:1px solid #e3e1da;font-family:${FONT_SANS};">Conv.</td>
+        <td align="right" style="padding:9px 14px;font-size:10.5px;text-transform:uppercase;color:#6b6f78;border-bottom:1px solid #e3e1da;font-family:${FONT_SANS};">Fails</td>
+      </tr>${garageTr}`, `font-family:${FONT_SANS};font-size:12px;`)}
+    ${garageRows.length > 15 ? `<div style="padding:8px 2px;font-family:${FONT_SANS};font-size:11px;color:#9a9c9a;font-style:italic;">+ ${garageRows.length - 15} more garages</div>` : ''}
+  </td></tr>`);
+
+  // --- written analysis / dev note --------------------------------------------------
+  const briefBlock = brief
+    ? `<tr><td style="padding:16px 0;">${htmlPanel(`<tr><td style="padding:16px 18px;font-family:${FONT_SANS};font-size:13px;color:#1b1d22;line-height:1.6;white-space:pre-wrap;">${esc(brief)}</td></tr>`, 'background-color:#eaeef5;border-color:#c9d3e3;')}</td></tr>`
+    : `<tr><td style="padding:16px 0;">${htmlPanel(`<tr><td style="padding:11px 14px;font-family:${FONT_SANS};font-size:12px;color:#a6650a;">&#9888;&nbsp; <strong style="color:#1b1d22;">No written analysis:</strong> ANTHROPIC_API_KEY is not set on this host.</td></tr>`, 'background-color:#faf0dd;')}</td></tr>`;
+
+  return `<body style="margin:0;padding:0;background-color:#f0efe9;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f0efe9;">
+<tr><td align="center" style="padding:28px 12px 48px;">
+<table role="presentation" width="640" cellpadding="0" cellspacing="0" border="0" style="width:640px;max-width:640px;">
+${brief ? briefBlock : ''}
+${sections.join('')}
+${brief ? '' : briefBlock}
+<tr><td align="center" style="padding:20px 0 0;font-family:${FONT_SERIF};font-style:italic;font-size:11px;color:#9a9c9a;">
+  Generated nightly at 19:00 Europe/London &middot; daily-call-report.cjs
+</td></tr>
+</table>
+</td></tr>
+</table>
+</body>`;
+}
+
 /** Hand Claude the finished numbers AND the real traces; ask for judgement, never arithmetic. */
 async function narrate(report) {
   const key = process.env.ANTHROPIC_API_KEY;
@@ -491,7 +776,7 @@ async function narrate(report) {
   return (j.content || []).map((c) => c.text).join('').trim();
 }
 
-async function sendEmail(subject, text) {
+async function sendEmail(subject, text, html) {
   const key = process.env.MAILGUN_API_KEY, domain = process.env.MAILGUN_DOMAIN;
   const from = process.env.MAILGUN_FROM || `alerts@${domain}`;
   const base = (process.env.MAILGUN_API_BASE || 'https://api.mailgun.net').replace(/\/$/, '');
@@ -501,6 +786,9 @@ async function sendEmail(subject, text) {
   TO.forEach((t) => body.append('to', t));
   body.append('subject', subject);
   body.append('text', text);
+  // Mailgun sends both parts; a client that renders HTML shows it, everything else falls back
+  // to text. html is optional so the failure-path send (just a stack trace) stays plain text.
+  if (html) body.append('html', html);
   const res = await fetch(`${base}/v3/${domain}/messages`, {
     method: 'POST',
     headers: { Authorization: `Basic ${Buffer.from(`api:${key}`).toString('base64')}` },
@@ -517,9 +805,12 @@ async function sendEmail(subject, text) {
     const body = brief
       ? `${brief}\n\n${'='.repeat(72)}\nTHE UNDERLYING REPORT\n${'='.repeat(72)}\n\n${table}`
       : `${table}\n\n(No written analysis: ANTHROPIC_API_KEY is not set on this host.)`;
+    const html = renderHtml(R, brief);
     const subject = `ReceptionMate daily — ${R.total} calls, ${R.booked} booked, ${R.intentFailed} lost to faults`;
-    if (DRY) console.log(`SUBJECT: ${subject}\nTO: ${TO.join(', ')}\n\n${body}`);
-    else await sendEmail(subject, body);
+    if (DRY) {
+      console.log(`SUBJECT: ${subject}\nTO: ${TO.join(', ')}\n\n${body}`);
+      if (process.argv.includes('--html')) console.log(`\n${'='.repeat(72)}\nHTML PART\n${'='.repeat(72)}\n\n${html}`);
+    } else await sendEmail(subject, body, html);
   } catch (e) {
     console.error('daily call report failed:', e);
     if (!DRY) await sendEmail('ReceptionMate daily report FAILED', String((e && e.stack) || e));

@@ -117,7 +117,13 @@ async function main() {
     }
 
     let resolved = 0;
+    let duplicates = 0;
     const unmatched = [];
+    // One job is one booking. A customer who rings twice about the same car — to ask, then to
+    // chase — otherwise has both calls matched to the same job and counted as two bookings.
+    // Calls are ordered oldest first, so the call that earned the booking claims it and any
+    // later one asking about the same work does not.
+    const claimed = new Set();
     for (const call of calls) {
       // confirmedBooking tells the two matchers apart. True means we put it in the diary, so the
       // appointment date is ours and can be matched directly. False with a bookingAt means the
@@ -142,6 +148,11 @@ async function main() {
         unmatched.push(`${call.createdAt.toISOString().slice(0, 10)} ${call.registrationNumber}`);
         continue;
       }
+      if (claimed.has(hit.number)) {
+        duplicates++;
+        continue;
+      }
+      claimed.add(hit.number);
 
       const how = call.confirmedBooking ? 'placed' : 'message->callback';
       const marker = isAgentPlacedJob(hit.serviceType) ? ' [OB]' : '';
@@ -176,6 +187,7 @@ async function main() {
     totalResolved += resolved;
     console.log(
       `${label}: resolved ${resolved}/${calls.length}` +
+      (duplicates ? `, ${duplicates} later call(s) about a job already claimed` : '') +
       (unmatched.length ? `, unmatched: ${unmatched.slice(0, 8).join(', ')}` +
         (unmatched.length > 8 ? ` (+${unmatched.length - 8} more)` : '') : ''),
     );

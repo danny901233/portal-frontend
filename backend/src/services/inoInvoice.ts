@@ -53,8 +53,19 @@ export async function buildInoInvoiceData(now: Date = new Date()): Promise<InoIn
   const periodEnd = new Date(Date.UTC(y, m + 1, 1));
   const due = new Date(issued.getTime() + PAYMENT_TERMS_DAYS * 86400000);
 
+  // A branch that has left drops off the invoice. Both legs matter. `archivedAt` covers one the
+  // auto-archive sweep has already switched off; `archiveScheduledAt` covers one whose notice
+  // expires on the issue date itself, because the sweep runs at 00:20 and this job at 09:00 —
+  // for those nine hours the branch is still live by this query. Without the second leg a
+  // leaver still earns a line on the morning it goes: the sweep zeroes the subscription but not
+  // the per-minute rate, so In'n'out would get a £0-plus-pennies row for a branch they have
+  // already been told is gone, and a stray Invoice record for the chaser to find.
   const branches = await prisma.garage.findMany({
-    where: { name: { contains: 'autocentres', mode: 'insensitive' } },
+    where: {
+      name: { contains: 'autocentres', mode: 'insensitive' },
+      archivedAt: null,
+      OR: [{ archiveScheduledAt: null }, { archiveScheduledAt: { gt: issued } }],
+    },
     select: { id: true, name: true, businessId: true, subscriptionCostGbp: true, costPerMinuteGbp: true },
     orderBy: { name: 'asc' },
   });

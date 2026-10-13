@@ -236,6 +236,25 @@ function cleanVrm(vrm: string): string {
   return String(vrm || '').toUpperCase().replace(/\s+/g, '');
 }
 
+// Is this a registration at all, or the customer's words about their car?
+//
+// The agent kept putting the description straight into the `vrm` argument —
+// "2019 VW Touran 1.6 TDI", "T4 TRANSPORTER", "2018 qashqai", "BMW 330E 2016" —
+// Bookar 404s, and the agent then read the miss back as though we had checked:
+// "I couldn't find any information for your VW Touran, please give us a ring",
+// to a customer who had never been asked for a plate. Six times in a fortnight.
+//
+// Deliberately loose: every UK format (current, prefix, suffix, dateless and
+// private) is letters and digits, no separators once spaces are stripped, and
+// at most 7 characters — 8 for the odd Northern Irish plate. A description is
+// longer than that, or has no digit, long before it is anything else.
+export function looksLikeVrm(v: string): boolean {
+  const s = cleanVrm(v);
+  if (s.length < 2 || s.length > 8) return false;
+  if (!/^[A-Z0-9]+$/.test(s)) return false;
+  return /[0-9]/.test(s) && /[A-Z]/.test(s);
+}
+
 function addDaysIso(days: number): string {
   const d = new Date();
   d.setDate(d.getDate() + days);
@@ -246,11 +265,36 @@ function todayIso(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+// Bookar's availability does not always answer with a clock time. Drop-off
+// services come back as a symbolic window token instead — EAC Telford's services
+// 2 and 6 return "AM_DR" (AM drop-off) for every open day, so for those services
+// a token is the ONLY thing the diary ever offers. Tokens have to survive every
+// time helper untouched: Bookar's own availability response is the one thing that
+// can tell us a token is real, so mangling it loses the slot.
+export function isClockTime(t: string): boolean {
+  return /^\d{1,2}:\d{2}(:\d{2})?$/.test(String(t || '').trim());
+}
+
 // Bookar's slot times come back as "HH:MM:SS"; normalise to "HH:MM" for the LLM
 // so it doesn't parrot seconds back to the customer ("ten thirty and no seconds").
-function normaliseTime(t: string): string {
-  if (!t) return t;
-  return t.length >= 5 ? t.slice(0, 5) : t;
+export function normaliseTime(t: string): string {
+  const raw = String(t || '').trim();
+  if (!raw) return raw;
+  if (!isClockTime(raw)) return raw; // "AM_DR" is not a time — leave it whole
+  const [h, m] = raw.split(':');
+  return `${h.padStart(2, '0')}:${m}`;
+}
+
+// Bookar's write endpoints want hh:mm[:ss]. Pad a real time, and never a token.
+// The old test was `time.length === 5`, and "AM_DR" is five characters, so it
+// padded the token into "AM_DR:00" and posted it: Bookar answered
+// 400 {"app_time":["Time has wrong format..."]} and Mikey's £186 interim service
+// died at the final step on 10 Oct, one message after he gave his email.
+export function toWireTime(t: string): string {
+  const raw = String(t || '').trim();
+  if (!isClockTime(raw)) return raw;
+  const [h, m, s] = raw.split(':');
+  return `${h.padStart(2, '0')}:${m}:${s ?? '00'}`;
 }
 
 // Money format for logs/summaries — the LLM has its own natural-language rule
@@ -378,7 +422,7 @@ export async function getBookarChatResponse(
     // messagingHumanHandoff opts a garage OUT of human-handoff tools if false.
     // Same convention as chatAgentTyresoft: DEFAULT ON (only disable if explicitly false).
     const messagingHandoff = (config as any).messagingHumanHandoff !== false;
-    let tools = buildTools(hasCreds);
+    let tools = buildTools(hasCreds, messagingHandoff);
     if (!messagingHandoff) {
       tools = tools.filter(
         (t) => !['bk_take_message', 'bk_request_callback'].includes((t as any).function?.name),
@@ -452,7 +496,7 @@ export async function getBookarChatResponse(
         console.log(`[BOOKAR_AGENT] Tool call: ${call.function.name}`, args);
 
         const t0 = Date.now();
-        const result = await executeTool(call.function.name, args, conversationId, garageId, client);
+        const result = await executeTool(call.function.name, args, conversationId, garageId, client, messagingHandoff);
         logChatToolCall({
           conversationId,
           garageId,
@@ -499,7 +543,11 @@ export async function getBookarChatResponse(
 // Tool definitions
 // ---------------------------------------------------------------------------
 
-function buildTools(hasCreds: boolean): OpenAI.Chat.ChatCompletionTool[] {
+function buildTools(hasCreds: boolean, messagingHandoff: boolean = true): OpenAI.Chat.ChatCompletionTool[] {
+  // Named in the descriptions below only when the tool is actually in the list.
+  const unbookable = messagingHandoff
+    ? 'fall back to bk_take_message'
+    : 'tell the customer we cannot book that one over chat and give them the garage phone number';
   // ── Always-on tools (work with or without Bookar creds) ──────────────────
   const tools: OpenAI.Chat.ChatCompletionTool[] = [
     {
@@ -559,7 +607,7 @@ function buildTools(hasCreds: boolean): OpenAI.Chat.ChatCompletionTool[] {
       function: {
         name: 'bk_list_services',
         description:
-          'List services + REAL prices for THIS vehicle. MUST be called before quoting any price — Bookar prices are vehicle-specific and matrix-based. NEVER invent, estimate or carry over a price from another conversation. If the caller asks for a service not in the returned list (e.g. "wheel alignment" and the list is only MOT/Service), do NOT invent it — fall back to bk_take_message.',
+          'List services + REAL prices for THIS vehicle. MUST be called before quoting any price — Bookar prices are vehicle-specific and matrix-based. NEVER invent, estimate or carry over a price from another conversation. If the caller asks for a service not in the returned list (e.g. "wheel alignment" and the list is only MOT/Service), do NOT invent it — ' + unbookable + '.',
         parameters: {
           type: 'object',
           properties: {
@@ -705,12 +753,23 @@ function buildTools(hasCreds: boolean): OpenAI.Chat.ChatCompletionTool[] {
 // Tool execution
 // ---------------------------------------------------------------------------
 
+// What to tell the model to do when a booking can't be completed in the tool.
+// With messagingHumanHandoff off there is no tool to hand over WITH, so pointing
+// at bk_take_message would name something that isn't in the list — which is how
+// the agent ended up reciting the phone number as its only move.
+function handoverDirective(messagingHandoff: boolean): string {
+  return messagingHandoff
+    ? 'call bk_take_message with the date, service and vehicle so the team can finish it off.'
+    : 'tell them the team will confirm it shortly — you have no tool to pass this on, so do not promise that you have.';
+}
+
 async function executeTool(
   name: string,
   args: any,
   conversationId: string,
   garageId: string,
   client: BookarClient | null,
+  messagingHandoff: boolean = true,
 ): Promise<any> {
   const session = await loadSession(conversationId);
 
@@ -823,6 +882,20 @@ async function executeTool(
         if (!client) return { error: 'Bookar API not configured for this garage' };
         const vrm = cleanVrm(String(args.vrm || ''));
         if (!vrm) return { error: 'vrm required' };
+        // Don't spend a lookup on the customer's description of their car, and
+        // above all don't let the 404 come back as "we couldn't find your vehicle"
+        // when we have not asked for a plate yet.
+        if (!looksLikeVrm(vrm)) {
+          console.log(`[BOOKAR_AGENT] lookupVehicle rejected non-registration: "${String(args.vrm || '').trim()}"`);
+          return {
+            error: 'not_a_registration',
+            directive:
+              `"${String(args.vrm || '').trim()}" is a description of the vehicle, not a registration. ` +
+              'We have NOT looked the vehicle up, so do not tell the customer we could not find ' +
+              'it or that it is not on our system. Ask them for the registration — the number ' +
+              'plate — and call bk_lookup_vehicle again with just that.',
+          };
+        }
         const vehicle = await client.lookupVehicle(vrm);
         // Title-case any ALL-CAPS make/model from DVLA so the LLM doesn't shout at the customer.
         const make  = toTitleCase(vehicle.make  || '');
@@ -971,7 +1044,7 @@ async function executeTool(
                 `The only bookable ids are: ${bookable.map((s) => `${s.id} = ${s.name}`).join('; ')}. ` +
                 'Call bk_list_availability again using ids copied exactly from that list. ' +
                 'If the customer wants something that is not on it, that service cannot be ' +
-                'booked here — use bk_take_message instead of guessing an id.',
+                `booked here — ${messagingHandoff ? 'use bk_take_message' : 'say so and give them the garage phone number'} instead of guessing an id.`,
             };
           }
         }
@@ -1022,6 +1095,26 @@ async function executeTool(
               'offer to take a message.',
           };
         }
+        // Drop-off days come back as a token, not a time. Say so here, where the
+        // model is about to turn these rows into a sentence — the same lesson as
+        // the voice agent's drop-off fix: the instruction has to sit at the point
+        // the decision is made, not only in the prompt. Without this the agent
+        // offered a tyre inspection at "08:00" off an AM_DR day, then could not
+        // confirm it, and the customer rang the garage instead.
+        const dropOffDays = flat.filter((s) => !isClockTime(s.time));
+        if (dropOffDays.length > 0) {
+          return {
+            count: flat.length,
+            next_slots: flat,
+            searched: { from: dateFrom, to: dateTo, service_ids: serviceIds },
+            directive:
+              `Slots shown as "${dropOffDays[0].time}" are DROP-OFF days, not appointment ` +
+              'times: the customer leaves the vehicle with us that morning. Offer the DATE ' +
+              'only and say they can drop it in that morning. NEVER read one of these back ' +
+              'as a clock time, and never pass a time of your own to bk_confirm_slot — pass ' +
+              'the token exactly as it appears here.',
+          };
+        }
         return {
           count: flat.length,
           next_slots: flat,
@@ -1057,7 +1150,7 @@ async function executeTool(
             directive: 'That date/time was not in the last bk_list_availability result. Call bk_list_availability again and pick from the returned slots.',
           };
         }
-        session.selectedSlot = { date, time: time.length === 5 ? `${time}:00` : time };
+        session.selectedSlot = { date, time: toWireTime(time) };
         await saveSession(conversationId, session);
         console.log(`[BOOKAR_AGENT] Slot confirmed: ${date} ${time}`);
         return { success: true, date, time };
@@ -1096,7 +1189,7 @@ async function executeTool(
 
       case 'bk_create_booking': {
         if (!client) return { error: 'Bookar API not configured for this garage' };
-        return await bookarCreateBooking(session, conversationId, garageId, client);
+        return await bookarCreateBooking(session, conversationId, garageId, client, messagingHandoff);
       }
 
       case 'bk_retrieve_booking': {
@@ -1135,7 +1228,7 @@ async function executeTool(
             directive: 'That date/time was not in the last bk_list_availability result. Call bk_list_availability again and pick from the returned slots.',
           };
         }
-        const wireTime = time.length === 5 ? `${time}:00` : time;
+        const wireTime = toWireTime(time);
         const booking = await client.rescheduleBooking(ref, { date, time: wireTime });
         console.log(`[BOOKAR_AGENT] rescheduleBooking OK: ${ref} → ${date} ${time}`);
         return {
@@ -1180,7 +1273,8 @@ async function executeTool(
       return {
         error: 'bookar_auth_error',
         directive:
-          'The garage credentials for the booking system are not working right now. Apologise briefly and use bk_take_message so the team can follow up.',
+          'The garage credentials for the booking system are not working right now. Apologise briefly and ' +
+          handoverDirective(messagingHandoff),
       };
     }
     if (error instanceof BookarError) {
@@ -1222,6 +1316,7 @@ async function bookarCreateBooking(
   conversationId: string,
   garageId: string,
   client: BookarClient,
+  messagingHandoff: boolean = true,
 ): Promise<any> {
   // ── Preflight checks — bail early with a directive the LLM can act on ──
   if (!session.vrm) {
@@ -1232,6 +1327,29 @@ async function bookarCreateBooking(
   }
   if (!session.selectedSlot) {
     return { error: 'no_slot', directive: 'Call bk_list_availability, offer slots, and call bk_confirm_slot once the customer picks one.' };
+  }
+  // A drop-off token is not a time Bookar will accept on a write: POST /v1/bookings
+  // validates app_time as a clock time, so sending "AM_DR" is a guaranteed 400 and
+  // burns the booking at the very last step, after the customer has given us
+  // everything. Stop here instead and hand over while we still have them.
+  //
+  // This is a whole category, not an edge case — EAC Telford's services 2 and 6
+  // offer nothing BUT drop-off days, so every booking attempt on them ends here
+  // until we know how Bookar wants a drop-off written.
+  if (!isClockTime(session.selectedSlot.time)) {
+    console.error(
+      `[BOOKAR_AGENT] Drop-off slot cannot be written to Bookar: ` +
+        `${session.selectedSlot.date} "${session.selectedSlot.time}" ` +
+        `(garage=${garageId}, services=${session.selectedServiceIds.join(',')})`,
+    );
+    return {
+      error: 'dropoff_slot_not_bookable',
+      directive:
+        'That day is a drop-off rather than a timed appointment, and the booking system ' +
+        'will not take it directly. Do NOT retry bk_create_booking, and do NOT invent a ' +
+        'clock time for it. Tell the customer we can take the vehicle in that morning, ' +
+        `then ${handoverDirective(messagingHandoff)}`,
+    };
   }
   if (!session.customerName)  return { error: 'no_name',  directive: 'Ask for the customer name and call bk_save_customer_details.' };
   if (!session.customerPhone) return { error: 'no_phone', directive: 'Confirm the phone number and call bk_save_customer_details.' };
@@ -1290,9 +1408,8 @@ async function bookarCreateBooking(
                 `Bookar rejected the booking details we sent${fields ? ` (field(s): ${fields})` : ''}. ` +
                 'This is OUR data, not a mistake by the customer — do NOT ask them to repeat ' +
                 'the same detail and do NOT retry bk_create_booking unchanged. If you cannot ' +
-                'correct it from what they have already told you, apologise once, call ' +
-                'bk_take_message so the team can finish the booking, and tell them someone ' +
-                'will confirm shortly.',
+                'correct it from what they have already told you, apologise once and ' +
+                handoverDirective(messagingHandoff),
             }
           : {}),
       };
@@ -1386,6 +1503,12 @@ function buildSystemPrompt(
   hasCreds: boolean,
   humanEscalation: boolean,
 ): string {
+  // With handoff off there is no bk_take_message in the tool list, so the prompt
+  // must not send the model looking for it — it would flounder and recite the
+  // phone number as its only remaining move.
+  const unbookableFallback = humanEscalation
+    ? 'fall back to bk_take_message so the team can help'
+    : 'say we cannot book that one over chat and give them the garage phone number';
   const branchName = config.branchName || 'our garage';
   const agentName = (config.agentName || '').trim();
   const who = agentName ? `${agentName}, a friendly receptionist` : 'a friendly receptionist';
@@ -1493,7 +1616,7 @@ function buildSystemPrompt(
     prompt += `2. NAME: If we don't already have a name, ask for it in one short sentence.\n`;
     prompt += `3. REG: Ask for their vehicle registration. Once you have it, call bk_lookup_vehicle. Read back the make/model naturally, e.g. "I can see that's a 2019 Ford Focus — is that right?" If mot_expiry is present, weave it in naturally if relevant.\n`;
     prompt += `3b. WHAT THEY NEED: Unless they have already said, ask what they would like booking in for — one short sentence, e.g. "What are you after — a service, an MOT, or something else?". Do NOT open the catalogue at them. bk_list_services returns EVERYTHING the garage offers (31 items at EAC Telford), and picking three to recite answers a question they did not ask — the first widget conversation was quoted a Major Service, a Full Service and an MOT off the back of "book car in".\n`;
-    prompt += `4. SERVICES: Call bk_list_services with the same VRM and match what they ASKED for. Name at most two options, and only when their answer genuinely leaves a choice (e.g. they said "a service" and there is a Full and an Interim) — then ask which. If they were specific, go straight to that service and its price. Only if they say they are unsure should you suggest the likeliest couple. Quote prices ONLY from the returned list — never invent, estimate or carry over a price from memory. If the customer asks for a service NOT in the returned list (e.g. wheel alignment but the list only has MOT/Service), do NOT invent it — apologise briefly and fall back to bk_take_message so the team can help.\n`;
+    prompt += `4. SERVICES: Call bk_list_services with the same VRM and match what they ASKED for. Name at most two options, and only when their answer genuinely leaves a choice (e.g. they said "a service" and there is a Full and an Interim) — then ask which. If they were specific, go straight to that service and its price. Only if they say they are unsure should you suggest the likeliest couple. Quote prices ONLY from the returned list — never invent, estimate or carry over a price from memory. If the customer asks for a service NOT in the returned list (e.g. wheel alignment but the list only has MOT/Service), do NOT invent it — apologise briefly and ${unbookableFallback}.\n`;
     prompt += `4b. ADVISORY UPSELL: If bk_lookup_vehicle returned \`advisories_upsell\` + \`advisories_pitch\`, offer them as an add-on ONCE — WEAVE the pitch into the SAME reply as the price quote for the service they picked, so it feels like one natural thought (not two separate messages). Use \`advisories_pitch\` as a wording guide but adapt it for natural flow. Preferred style: past-tense, uses "the [item]", ends with "would you like that sorted too whilst the vehicle is in with us?". If they say yes, include those items in the booking alongside their main service. If they say no or ignore it, drop the upsell and move on — do NOT re-pitch.\n`;
     prompt += `5. AVAILABILITY: Once the customer picks a service, call bk_list_availability with the chosen service_ids. Offer 1 or 2 slots naturally — don't dump the whole list.\n`;
     prompt += `6. SLOT: When the customer picks a slot, IMMEDIATELY call bk_confirm_slot with the exact date + time from the availability result.\n`;
@@ -1513,7 +1636,7 @@ function buildSystemPrompt(
     prompt += `- NEVER call bk_create_booking twice in one conversation. If a booking has already been created in this session (session.bookingReference is set) and the customer wants a different slot, use bk_reschedule_booking with that reference — do NOT create a second booking.\n`;
     prompt += `- NEVER re-run bk_lookup_vehicle for a VRM already captured in this session.\n`;
     prompt += `- NEVER ask for information already saved in the active session (see below).\n`;
-    prompt += `- If the customer wants a service that isn't in the bk_list_services result, do NOT try to force it — use bk_take_message so a human can follow up.\n`;
+    prompt += `- If the customer wants a service that isn't in the bk_list_services result, do NOT try to force it — ${unbookableFallback}.\n`;
     prompt += `- CRITICAL: When a customer provides their name, phone number, email or reg, do NOT greet them again or start over. Continue from where you left off.\n`;
     prompt += `- CRITICAL: If they give only their name and you still need phone/email, say "Thanks [name] — what's the best number to reach you on?" — do NOT say "Hello [name]! How can I assist you today?"\n`;
     prompt += `- Never use markdown: no **bold**, no bullets, no dashes. Plain sentences only.\n`;

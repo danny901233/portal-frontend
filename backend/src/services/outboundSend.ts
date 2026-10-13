@@ -54,6 +54,14 @@ function loadCampaign(id: string) {
  * `phone` is the CUSTOMER's number and always has been. `garage_phone` is the garage's, and is
  * what "call us on ..." wants.
  */
+/**
+ * Who the reminder signs itself as when the garage has no agent name configured. Every sender
+ * used to hard-code this, so every garage's reminders went out as "Leah" regardless of the name
+ * their callers actually hear. It survives only as the fallback: an unset name must not render
+ * an empty "it's  from Ecotest".
+ */
+export const DEFAULT_AGENT_NAME = 'Leah';
+
 export function buildTemplateFields(args: {
   customerName?: string | null;
   phone?: string | null;
@@ -62,6 +70,7 @@ export function buildTemplateFields(args: {
   serviceDueDate?: string | null;
   garageName?: string | null;
   garagePhone?: string | null;
+  agentName?: string | null;
 }): Record<string, string> {
   const fullName = (args.customerName || '').trim();
   return {
@@ -73,6 +82,7 @@ export function buildTemplateFields(args: {
     service_due_date: args.serviceDueDate || '',
     garage_name: (args.garageName || '').trim() || 'our garage',
     garage_phone: (args.garagePhone || '').trim(),
+    agent_name: (args.agentName || '').trim() || DEFAULT_AGENT_NAME,
   };
 }
 
@@ -80,6 +90,7 @@ export interface SendContext {
   campaign: SendableCampaign;
   garageName: string;
   garagePhone: string;
+  agentName: string;
   variableMapping: Record<string, string>;
   whatsappPhoneNumberId: string;
   accessToken: string;
@@ -124,7 +135,7 @@ export async function getCampaignSendContext(campaignId: string): Promise<SendCo
   const [agentConfig, waConnection, template] = await Promise.all([
     prisma.agentConfiguration.findUnique({
       where: { garageId: campaign.garageId },
-      select: { branchName: true, phoneNumber: true },
+      select: { branchName: true, phoneNumber: true, agentName: true },
     }),
     prisma.socialMediaConnection.findFirst({
       where: { garageId: campaign.garageId, platform: 'whatsapp', isActive: true },
@@ -161,6 +172,7 @@ export async function getCampaignSendContext(campaignId: string): Promise<SendCo
       campaign,
       garageName: agentConfig?.branchName || 'our garage',
       garagePhone: (agentConfig?.phoneNumber || '').trim(),
+      agentName: (agentConfig?.agentName || '').trim(),
       variableMapping: (campaign.variableMapping as Record<string, string> | null) || {},
       whatsappPhoneNumberId: waConnection.whatsappPhoneNumberId,
 accessToken: whatsappToken(waConnection.accessToken),
@@ -367,7 +379,7 @@ function escapeHtml(s: string): string {
 
 /** Run the actual per-contact send loop and finalise the campaign status. */
 export async function runCampaignSend(ctx: SendContext): Promise<{ sent: number; total: number }> {
-  const { campaign, garageName, garagePhone, variableMapping, whatsappPhoneNumberId, accessToken, template } = ctx;
+  const { campaign, garageName, garagePhone, agentName, variableMapping, whatsappPhoneNumberId, accessToken, template } = ctx;
 
   // The garage-level cap is the real ceiling: staff-set, deliberately under Meta's tier, and
   // counted across every campaign. The per-campaign tierLimit stays as a stricter-only override.
@@ -457,6 +469,7 @@ export async function runCampaignSend(ctx: SendContext): Promise<{ sent: number;
         serviceDueDate: contact.serviceDueDate,
         garageName,
         garagePhone,
+        agentName,
       });
 
       let payload: Record<string, unknown>;

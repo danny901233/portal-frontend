@@ -18,7 +18,7 @@ import axios from 'axios';
 import cron from 'node-cron';
 import { sweepAbandonedCheckouts } from './abandonedCheckout.js';
 import { prisma } from '../db.js';
-import { normalisePhone, buildTemplateFields, activeHalt, haltOutboundForGarage } from './outboundSend.js';
+import { normalisePhone, buildTemplateFields, activeHalt, haltOutboundForGarage, DEFAULT_AGENT_NAME } from './outboundSend.js';
 import { whatsappToken } from '../utils/whatsappToken.js';
 import { daysUntil } from '../utils/dueDate.js';
 
@@ -67,7 +67,12 @@ export async function runReminderSweep(): Promise<{ garages: number; sent: numbe
 
   const garages = await prisma.garage.findMany({
     where: { hasMessagingAccess: true, accessRestricted: false },
-    select: { id: true, name: true, dailyMessageLimit: true, twilioNumber: true },
+    select: {
+      id: true, name: true, dailyMessageLimit: true, twilioNumber: true,
+      // The agent's name is what the reminder signs itself as. It has to travel with the garage:
+      // a template that says "it's {{2}} from {{3}}" renders empty without it.
+      agentConfiguration: { select: { agentName: true } },
+    },
   });
 
   for (const garage of garages) {
@@ -215,6 +220,7 @@ export async function runReminderSweep(): Promise<{ garages: number; sent: numbe
             serviceDueDate: c.serviceDueDate,
             garageName: garage.name,
             garagePhone: garage.twilioNumber,
+            agentName: garage.agentConfiguration?.agentName,
           });
           const samples = (staged.variableSamples as Record<string, string> | null) || {};
           const varNums = [...new Set(Object.keys(samples)
@@ -226,7 +232,8 @@ export async function runReminderSweep(): Promise<{ garages: number; sent: numbe
           const dueStr = c.motDueDate || c.serviceDueDate || '';
           // Variable order matches the seeded templates exactly:
           // 1 customer, 2 agent, 3 branch, 4 registration, 5 due date.
-          parameters = [firstName, 'Leah', garage.name, (c.registration || '').toUpperCase(), dueStr]
+          const agentName = garage.agentConfiguration?.agentName?.trim() || DEFAULT_AGENT_NAME;
+          parameters = [firstName, agentName, garage.name, (c.registration || '').toUpperCase(), dueStr]
             .map((text) => ({ type: 'text', text: text || '' }));
         }
 

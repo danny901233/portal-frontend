@@ -285,7 +285,7 @@ router.post('/meta-whatsapp', async (req: Request, res: Response) => {
                   const varMap = (campaign.variableMapping as Record<string, string>) || {};
                   const agentCfg = await prisma.agentConfiguration.findUnique({
                     where: { garageId: connection.garageId },
-                    select: { branchName: true, phoneNumber: true },
+                    select: { branchName: true, phoneNumber: true, agentName: true },
                   });
                   const contactFields = buildTemplateFields({
                     customerName: outboundContact.customerName,
@@ -295,6 +295,7 @@ router.post('/meta-whatsapp', async (req: Request, res: Response) => {
                     serviceDueDate: outboundContact.serviceDueDate,
                     garageName: agentCfg?.branchName,
                     garagePhone: agentCfg?.phoneNumber,
+                    agentName: agentCfg?.agentName,
                   });
                   let body = tmpl.bodyText;
                   for (const [varNum, field] of Object.entries(varMap)) {

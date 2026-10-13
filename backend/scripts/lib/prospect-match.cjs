@@ -18,6 +18,7 @@ const GENERIC = new Set([
   'and', 'to', 'at', 'with', 'for', 'from', 'this', 'that', 'all', 'as', 'they',
   // trade words that describe what a garage does rather than which garage it is
   'tuning', 'servicing', 'diagnostics', 'bodyshop', 'bodyworks', 'coachworks', 'mots',
+  'mechanic', 'mechanics', 'autocentre', 'autocentres', 'workshop', 'point', 'care',
 ]);
 
 const SUFFIXES = /\b(ltd|limited|llp|plc|uk|co|company|the)\b/g;
@@ -115,6 +116,20 @@ const MATCH_MAYBE = 0.62;
  * contact that already has an open opportunity. So when the evidence is one shared word,
  * lean towards new.
  */
+/*
+ * One name containing the other is only evidence when the contained part says WHICH
+ * business it is. "Drive Safe MOT Centre" contains "The MOT Centre" and "FD Mechanics"
+ * contains "The Mechanic", and both were being dropped as existing customers -- silently,
+ * because unlike a flagged match nobody ever reviews those.
+ */
+function containsSomethingDistinctive(a, b, ignore) {
+  const dA = distinctive(a, ignore), dB = distinctive(b, ignore);
+  const shorter = norm(a).length <= norm(b).length ? dA : dB;
+  const longer = shorter === dA ? dB : dA;
+  if (!shorter.size) return false;
+  return [...shorter].every((t) => longer.has(t));
+}
+
 function bestMatch(name, known, town) {
   const ignore = town ? tokens(town) : null;
   let best = null;
@@ -123,7 +138,8 @@ function bestMatch(name, known, town) {
     if (!nA || !nB) continue;
     let score, how;
     if (nA === nB) { score = 1; how = 'exact'; }
-    else if (nA.length > 6 && nB.length > 6 && (nA.includes(nB) || nB.includes(nA))) { score = 0.95; how = 'contains'; }
+    else if (nA.length > 6 && nB.length > 6 && (nA.includes(nB) || nB.includes(nA)) &&
+             containsSomethingDistinctive(name, g.name, ignore)) { score = 0.95; how = 'contains'; }
     else {
       const j = jaccard(name, g.name);
       const e = distinctiveEditRatio(name, g.name, ignore);

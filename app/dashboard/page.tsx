@@ -196,6 +196,18 @@ export default function DashboardPage() {
         'Quick overview of how often each tag is used. Use this to prioritise scripts and team training.',
       showMoreInsights: 'Show more insights',
       hideInsights: 'Hide insights',
+      jobsBooked: 'Jobs booked',
+      jobsBookedHint: 'Appointments the AI booked, or booking requests your team booked in afterwards.',
+      dueIn: 'Due in',
+      dueInHint: 'Booked work still ahead of its appointment date.',
+      invoiced: 'Invoiced',
+      invoicedHint: 'What those jobs actually invoiced for, read from your diary. Excludes drafts.',
+      invoicedJobs: (count: number) => `${count} ${count === 1 ? 'job' : 'jobs'} invoiced`,
+      quotedLabel: (value: string) => `${value} quoted`,
+      upliftLine: (quoted: string, invoiced: string, extra: string) =>
+        `Quoted ${quoted} \u2192 invoiced ${invoiced}. ${extra} more found on the job.`,
+      upliftLineDown: (quoted: string, invoiced: string) =>
+        `Quoted ${quoted} \u2192 invoiced ${invoiced}.`,
     },
     fr: {
       title: 'Tableau de bord',
@@ -246,6 +258,20 @@ export default function DashboardPage() {
         'Aperçu rapide de la fréquence d’utilisation de chaque étiquette. Utilisez-le pour prioriser les scripts et la formation de l’équipe.',
       showMoreInsights: 'Afficher plus de détails',
       hideInsights: 'Masquer les détails',
+      jobsBooked: 'Travaux réservés',
+      jobsBookedHint:
+        'Rendez-vous pris par l’IA, ou demandes de réservation que votre équipe a ensuite planifiées.',
+      dueIn: 'À venir',
+      dueInHint: 'Travaux réservés dont la date de rendez-vous n’est pas encore passée.',
+      invoiced: 'Facturé',
+      invoicedHint:
+        'Le montant réellement facturé pour ces travaux, lu depuis votre agenda. Hors brouillons.',
+      invoicedJobs: (count: number) => `${count} ${count === 1 ? 'travail facturé' : 'travaux facturés'}`,
+      quotedLabel: (value: string) => `${value} devisé`,
+      upliftLine: (quoted: string, invoiced: string, extra: string) =>
+        `Devisé ${quoted} \u2192 facturé ${invoiced}. ${extra} de travaux supplémentaires trouvés.`,
+      upliftLineDown: (quoted: string, invoiced: string) =>
+        `Devisé ${quoted} \u2192 facturé ${invoiced}.`,
     },
   }[lang];
   const today = useMemo(() => new Date(), []);
@@ -405,6 +431,59 @@ export default function DashboardPage() {
     start.setHours(0, 0, 0, 0);
     const t = start.getTime();
     return calls.filter((cl) => new Date(cl.createdAt).getTime() >= t).length;
+  }, [calls]);
+
+  // ── Booked -> due in -> invoiced ──────────────────────────────────────────────────────────────
+  // What the agent booked, and what it turned out to be worth. bookingDetails is prose and cannot
+  // be totalled; these come off the booking identity the agent now records (the appointment) plus
+  // the invoice value read back nightly from the garage's own system.
+  const bookingOutcome = useMemo(() => {
+    const now = Date.now();
+
+    // A booking is one we placed, OR one where the caller asked for a date and the garage booked
+    // it by hand. The second kind is how Ecotest, Great Hollands and JDK work: they publish no
+    // availability, so the agent takes the day they want. confirmedBooking is the fallback for
+    // rows predating bookingAt.
+    const booked = calls.filter((cl) => cl.confirmedBooking === true || Boolean(cl.bookingAt));
+
+    const quotedOf = (cl: CallRecord) =>
+      typeof cl.capturedRevenue === 'number' ? cl.capturedRevenue : 0;
+
+    // Invoiced = the garage has billed the work. Paid AND Open both count: the job is done and
+    // billed, and whether the customer has settled up is credit control rather than anything the
+    // agent did. A Draft is not issued yet, and a cancelled invoice is not revenue.
+    const BILLED = new Set(['paid', 'open', 'corrective']);
+    const invoiced = booked.filter(
+      (cl) =>
+        typeof cl.invoicedValue === 'number' &&
+        BILLED.has((cl.invoiceStatus ?? '').trim().toLowerCase()),
+    );
+
+    // Still ahead of us: an appointment in the future that has not been billed.
+    const dueIn = booked.filter(
+      (cl) => cl.bookingAt && new Date(cl.bookingAt).getTime() > now && cl.invoicedValue == null,
+    );
+
+    const invoicedTotal = invoiced.reduce((sum, cl) => sum + (cl.invoicedValue ?? 0), 0);
+
+    // The quoted figure here is deliberately the quote for the SAME jobs that have been invoiced,
+    // not for every booking. Comparing all-quoted against some-invoiced would overstate the gap
+    // badly, because most bookings have not been billed yet.
+    const quotedForInvoiced = invoiced.reduce((sum, cl) => sum + quotedOf(cl), 0);
+
+    return {
+      bookedCount: booked.length,
+      bookedQuoted: booked.reduce((sum, cl) => sum + quotedOf(cl), 0),
+      dueInCount: dueIn.length,
+      dueInQuoted: dueIn.reduce((sum, cl) => sum + quotedOf(cl), 0),
+      invoicedCount: invoiced.length,
+      invoicedTotal,
+      quotedForInvoiced,
+      uplift: invoicedTotal - quotedForInvoiced,
+      // Only garages whose diary we can read back have invoice values at all. Everyone else must
+      // see no Invoiced tile rather than a £0 one, which would read as "the AI earned nothing".
+      hasInvoiceData: booked.some((cl) => cl.invoicedValue != null),
+    };
   }, [calls]);
 
   // "Recent activity" = recent calls + recent chat conversations, interleaved newest-first.
@@ -1035,6 +1114,74 @@ export default function DashboardPage() {
           <p className="mt-2 hidden text-xs text-slate-500 md:block">{c.topCallTagHint}</p>
         </div>
       </div>
+
+      {/* Booked -> due in -> invoiced. Shown only once there is a booking to report, so a garage
+          that has not had one yet sees nothing rather than a row of zeroes. The Invoiced tile
+          needs more: it appears only where we can read the garage's diary back, because a £0
+          invoiced figure on a garage we cannot read would say the AI earned nothing. */}
+      {bookingOutcome.bookedCount > 0 && (
+        <div
+          className={cn(
+            'grid gap-2 md:gap-4',
+            bookingOutcome.hasInvoiceData ? 'grid-cols-3' : 'grid-cols-2',
+          )}
+        >
+          <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm md:rounded-2xl md:p-5">
+            <div className="text-[10px] font-medium uppercase tracking-wide text-slate-500 md:text-xs">{c.jobsBooked}</div>
+            <div className="mt-1 text-lg font-semibold text-slate-900 md:mt-3 md:text-3xl">
+              {loading ? '—' : bookingOutcome.bookedCount}
+            </div>
+            <div className="mt-1 text-xs text-slate-500">
+              {loading ? '' : c.quotedLabel(formatCurrency(bookingOutcome.bookedQuoted))}
+            </div>
+            <p className="mt-2 hidden text-xs text-slate-500 md:block">{c.jobsBookedHint}</p>
+          </div>
+
+          <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm md:rounded-2xl md:p-5">
+            <div className="text-[10px] font-medium uppercase tracking-wide text-slate-500 md:text-xs">{c.dueIn}</div>
+            <div className="mt-1 text-lg font-semibold text-slate-900 md:mt-3 md:text-3xl">
+              {loading ? '—' : bookingOutcome.dueInCount}
+            </div>
+            <div className="mt-1 text-xs text-slate-500">
+              {loading ? '' : c.quotedLabel(formatCurrency(bookingOutcome.dueInQuoted))}
+            </div>
+            <p className="mt-2 hidden text-xs text-slate-500 md:block">{c.dueInHint}</p>
+          </div>
+
+          {bookingOutcome.hasInvoiceData && (
+            <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm md:rounded-2xl md:p-5">
+              <div className="text-[10px] font-medium uppercase tracking-wide text-slate-500 md:text-xs">{c.invoiced}</div>
+              <div className="mt-1 text-lg font-semibold text-slate-900 md:mt-3 md:text-3xl">
+                {loading ? '—' : formatCurrency(bookingOutcome.invoicedTotal)}
+              </div>
+              <div className="mt-1 text-xs text-slate-500">
+                {loading ? '' : c.invoicedJobs(bookingOutcome.invoicedCount)}
+              </div>
+              <p className="mt-2 hidden text-xs text-slate-500 md:block">{c.invoicedHint}</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* The line worth reading: what the work was quoted at against what it billed. Both figures
+          cover the SAME jobs — the invoiced ones — because comparing every quote against the few
+          jobs already billed would overstate the gap badly. Only shown when the work came in
+          above the quote, which is the case worth drawing attention to; when it came in at or
+          under, the plain two figures are stated without a claim attached. */}
+      {!loading && bookingOutcome.invoicedCount > 0 && bookingOutcome.quotedForInvoiced > 0 && (
+        <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600 shadow-sm md:rounded-2xl">
+          {bookingOutcome.uplift > 0
+            ? c.upliftLine(
+                formatCurrency(bookingOutcome.quotedForInvoiced),
+                formatCurrency(bookingOutcome.invoicedTotal),
+                formatCurrency(bookingOutcome.uplift),
+              )
+            : c.upliftLineDown(
+                formatCurrency(bookingOutcome.quotedForInvoiced),
+                formatCurrency(bookingOutcome.invoicedTotal),
+              )}
+        </div>
+      )}
 
       {hasMessagingAccess && selectedGarageId && !shouldAggregateAllBranches && (
         <div className="grid gap-4 md:grid-cols-2">

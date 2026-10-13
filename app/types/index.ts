@@ -44,6 +44,18 @@ export interface CallRecord {
   confirmedBookingCategory?: ConfirmedBookingCategory | null;
   capturedRevenue?: number | null;
   bookingDetails?: string | null;
+  // ── Booking identity (see the Call model) ──────────────────────────────────────────────────
+  // bookingAt is the appointment; on a garage that books by hand it is the date the caller asked
+  // for. diaryJobNumber is the garage's own job number, resolved nightly against their diary.
+  bookingAt?: string | null;
+  diaryJobNumber?: string | null;
+  // What that job invoiced for, EX VAT, read back from the garage's system once they post it.
+  // Null means "not invoiced yet", which is the normal state for a booking still in the diary —
+  // it is NOT the same as £0, and the dashboard must not total it as though it were.
+  invoicedValue?: number | null;
+  invoicedAt?: string | null;
+  // Draft | Open | Paid | Corrective | Canceled, as the garage's system reports it.
+  invoiceStatus?: string | null;
   createdAt: string;
   // Set by the backend when the owning garage is in arrears: caller identity, summary,
   // transcript and recording have been withheld; only date + tag are populated.

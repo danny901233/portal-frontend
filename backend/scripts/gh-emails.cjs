@@ -26,6 +26,19 @@ const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
 const JUNK = /(^|@).*(sentry\.|wixpress|wix\.com|example\.|godaddy|squarespace|shopify|cloudflare|schema\.org|w3\.org|jquery|bootstrap|googleapis|\.png$|\.jpg$|\.jpeg$|\.gif$|\.webp$|\.svg$)/i;
 const NOREPLY = /^(no-?reply|donotreply|postmaster|abuse|webmaster)@/i;
 
+/*
+ * Garages obfuscate addresses against exactly this kind of scraping, most often by HTML
+ * entity-encoding them: info&#64;&#115;r&#99;... is info@src... Decode before matching,
+ * or the regex grabs the mangled text and produces a plausible-looking wrong address.
+ */
+const NAMED = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', '#64': '@' };
+function decodeEntities(html) {
+  return html
+    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCharCode(parseInt(h, 16)))
+    .replace(/&#(\d+);/g, (_, d) => String.fromCharCode(parseInt(d, 10)))
+    .replace(/&([a-z]+);/gi, (m, n) => (NAMED[n.toLowerCase()] !== undefined ? NAMED[n.toLowerCase()] : m));
+}
+
 async function get(url) {
   try {
     const ctl = new AbortController();
@@ -35,7 +48,7 @@ async function get(url) {
     clearTimeout(t);
     if (!r.ok) return null;
     if (!/html/i.test(r.headers.get('content-type') || '')) return null;
-    return (await r.text()).slice(0, 600000);
+    return decodeEntities((await r.text()).slice(0, 600000));
   } catch { return null; }
 }
 
@@ -44,6 +57,7 @@ function harvest(html, siteHost) {
   const add = (e, score) => {
     e = e.trim().toLowerCase().replace(/[.,;:)]+$/, '');
     if (JUNK.test(e) || NOREPLY.test(e) || e.length > 70) return;
+    if (/[&;<>#]/.test(e)) return;          // leftover markup means we mis-read it
     const host = e.split('@')[1] || '';
     // an address on the garage's own domain beats a gmail beats anything else
     let s = score;

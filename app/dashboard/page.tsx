@@ -1076,14 +1076,18 @@ export default function DashboardPage() {
         <div className="absolute -bottom-24 -left-24 h-48 w-48 rounded-full bg-fuchsia-500/20 blur-3xl" aria-hidden />
         <div
           className={cn(
-            // stretch, not center: the two boxed figures carry hint text of different lengths,
-            // and centring left them sitting at different heights beside each other.
-            'relative grid gap-3 sm:items-stretch md:gap-6',
+            'relative grid gap-3 md:gap-6',
             // Invoiced joins the quoted figure HERE rather than in a row of its own. Quoted
             // against actual is the comparison worth making, and it only reads as one when the
             // two numbers sit together — a separate tile forty pixels below, under a different
             // heading, was just the same money said twice.
-            bookingOutcome.hasInvoiceData ? 'sm:grid-cols-3' : 'sm:grid-cols-2',
+            // stretch ONLY with three across, where two boxed figures sit side by side carrying
+            // hint text of different lengths and centring leaves them at different heights. With
+            // two across there is nothing to align against, and stretching stops the left column
+            // centring — which left the headline figure stranded above a large empty gap.
+            bookingOutcome.hasInvoiceData
+              ? 'sm:grid-cols-3 sm:items-stretch'
+              : 'sm:grid-cols-2 sm:items-center',
           )}
         >
           <div className="space-y-1 md:space-y-3">
@@ -1119,17 +1123,15 @@ export default function DashboardPage() {
 
         {/* One line, not a box. What is still coming, and what the billed work did against its
             quote — both only when there is something to say. */}
-        {!loading && (bookingOutcome.dueInCount > 0 || bookingOutcome.comparableCount > 0) && (
+        {!loading && bookingOutcome.comparableCount > 0 && bookingOutcome.quotedForInvoiced > 0 && (
           <p className="relative mt-4 text-sm text-brand-100">
             {[
               bookingOutcome.dueInCount > 0 ? c.stillDueIn(bookingOutcome.dueInCount) : null,
-              bookingOutcome.comparableCount > 0 && bookingOutcome.quotedForInvoiced > 0
-                ? c.becameLine(
-                    bookingOutcome.comparableCount,
-                    formatCurrency(bookingOutcome.quotedForInvoiced),
-                    formatCurrency(bookingOutcome.invoicedForComparable),
-                  )
-                : null,
+              c.becameLine(
+                bookingOutcome.comparableCount,
+                formatCurrency(bookingOutcome.quotedForInvoiced),
+                formatCurrency(bookingOutcome.invoicedForComparable),
+              ),
             ].filter(Boolean).join(' · ')}
           </p>
         )}

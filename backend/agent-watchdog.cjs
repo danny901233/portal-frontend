@@ -69,12 +69,71 @@ function londonParts() {
 }
 function inBusinessHours() {
   const { day, hour } = londonParts();
+  // 08:00, NOT 09:00. The garages open at eight — ASC and Speedy both run 08:00-17:30 — so an
+  // 09:00 gate left a full hour every weekday morning where the agent took live calls and
+  // nothing was watching. On 29 Sep a bad deploy silenced every call from 21:02; by 08:40 it
+  // had gone through 20 calls at 8 garages, 7 of them greeting-then-silence, and the watchdog
+  // was still twenty minutes away from being allowed to speak. The check that exists for
+  // exactly that failure would have caught it on merit. It was simply gated off.
   if (day === 0) return false;                 // Sunday off
-  if (day === 6) return hour >= 9 && hour < 13; // Sat morning
-  return hour >= 9 && (hour < 17 || (hour === 17 && londonParts().minute <= 30)); // Mon-Fri 9:00-17:30
+  if (day === 6) return hour >= 8 && hour < 13; // Sat morning
+  return hour >= 8 && (hour < 17 || (hour === 17 && londonParts().minute <= 30)); // Mon-Fri 8:00-17:30
 }
 
 // ---- checks ----
+
+// ---- DATABASE: can we reach the database at all? --------------------------------------------
+// The gap that made 2026-10-13 invisible. The managed Postgres went unreachable at 10:36 and did
+// not come back until it restarted itself at 11:19 — 43 minutes in which every DB-backed route
+// returned 500 (~1,221 of them) and the portal was unusable for every garage. Nothing paged.
+//
+// Every existing check was blind by construction, and all for the same reason: they ask the
+// DATABASE what the agents are doing. With the database gone there was nothing to ask, so they
+// did not report a problem — they threw. main()'s top-level catch exits(1) on a throw, which is
+// silent, and pm2 relaunched the script to throw again. 164,905 times. The monitor was the
+// loudest casualty of that outage and the only part of the system that never said a word.
+//
+// portal-backend meanwhile sat at "online" in pm2 and /health answered 200, because /health does
+// not touch the database. Every surface we had said the box was healthy while it served nothing
+// but 500s. That specific lie is what this check exists to catch.
+//
+// It works only because the alert path has no database in it: Mailgun and Twilio are plain HTTPS
+// and the dedupe state is a file on disk. A watchdog that needed the database in order to report
+// on the database would be useless at precisely the moment it is needed.
+const DB_PROBE_TIMEOUT_MS = 10000;
+const DB_DOWN_KEY = 'db-down:portal';
+
+async function checkDatabase() {
+  const started = Date.now();
+  let timer;
+  try {
+    // Bounded on purpose. A dead Postgres does not refuse the connection, it leaves it hanging —
+    // today's requests sat there until the backend's own 30s timeout killed them. Without a race
+    // this probe would outlive the 5-minute cron and the runs would pile up on top of each other.
+    await Promise.race([
+      prisma.$queryRaw`SELECT 1`,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`no answer in ${DB_PROBE_TIMEOUT_MS}ms`)), DB_PROBE_TIMEOUT_MS);
+      }),
+    ]);
+    return { ok: true, ms: Date.now() - started };
+  } catch (e) {
+    // Pull out the one line worth putting in an SMS. Prisma's message opens with a useless
+    // "Invalid `prisma.$queryRaw()` invocation:" header and only then says what actually went
+    // wrong ("Can't reach database server at ..."), so taking the first non-empty line gets you
+    // the header and tells the reader nothing. Drop the header and take what follows.
+    const detail = String((e && e.message) || e)
+      .split('\n')
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .filter((s) => !/^Invalid `prisma\..*` invocation:?$/.test(s))[0] || 'unknown error';
+    const code = e && e.code ? ` [${e.code}]` : '';
+    return { ok: false, ms: Date.now() - started, detail: `${detail}${code}` };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function checkHeartbeat() {
   const issues = [];
   const cfgs = await prisma.agentConfiguration.findMany({ select: { garageId: true, agentType: true } });
@@ -735,6 +794,35 @@ async function main() {
   }
 
   const prev = loadState(); // { key: msg }
+
+  // DATABASE FIRST — and nothing else if it is down. Every check below opens with a Prisma query,
+  // so against a dead database they each throw and the process dies long before reaching the
+  // alert dispatch at the bottom of this function. Probing here and returning early is the whole
+  // difference between a silent crash loop and a message.
+  //
+  // Judged around the clock, unlike the heartbeat checks. A database that is gone is not a
+  // question of call volume or opening hours: the portal is down for every garage and not one
+  // call can be logged, at 3am as much as at 3pm.
+  const db = await checkDatabase();
+  if (!db.ok) {
+    const msg = `Portal DATABASE unreachable after ${db.ms}ms — ${db.detail}. The portal will be serving 500s and no calls are being logged.`;
+    console.error(`[watchdog] ${DB_DOWN_KEY} — ${msg}`);
+    if (!(DB_DOWN_KEY in prev)) {
+      await sendEmail('🔴 ReceptionMate ALERT: portal database unreachable', `${msg}\n\nTime: ${new Date().toISOString()}`);
+      await sendSms(`🔴 RM ALERT: portal DATABASE unreachable — portal down, no calls logging. ${db.detail}`);
+    } else {
+      console.log('[watchdog] database still down — already alerted, staying quiet');
+    }
+    // Hold every other open issue exactly as it was. The checks never ran, so we have learned
+    // nothing new about any of them, and letting them drop out of state here would read as
+    // "recovered" and fire an all-clear in the middle of an outage.
+    saveState({ ...prev, [DB_DOWN_KEY]: msg });
+    try { await prisma.$disconnect(); } catch {}
+    return;
+  }
+  // Reachable. DB_DOWN_KEY is deliberately NOT written into `current`, so if it is sitting in
+  // `prev` the ordinary resolved-issue path below sends its recovery note like any other fault.
+
   const routing = await checkRouting();
   // Routing for unified garages, which checkRouting deliberately skips. Judged around the clock
   // like the other routing checks: a missing trunk is a fact about configuration, not about how

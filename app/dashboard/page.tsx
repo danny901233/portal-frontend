@@ -82,10 +82,10 @@ const CONFIRMED_BOOKING_CATEGORY_COLORS: Record<ConfirmedBookingCategory, string
   other: '#64748b',
 };
 
+// Rolling-day ranges only. The month ranges are calendar-based and have their own buttons.
 const QUICK_RANGES = [
   { label: '7 days', days: 7 },
   { label: '14 days', days: 14 },
-  { label: '30 days', days: 30 },
 ];
 
 type DateRange = {
@@ -98,7 +98,12 @@ type DailyBucket = {
   count: number;
 };
 
-const formatDateInput = (date: Date) => date.toISOString().slice(0, 10);
+// Local date parts, NOT toISOString(). These are calendar dates for a date input, and
+// toISOString converts to UTC first — in BST that makes local midnight 23:00 the previous day,
+// so every date built at midnight came out a day early. It also meant that between midnight and
+// 1am in summer, "Today" selected yesterday.
+const formatDateInput = (date: Date) =>
+  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 
 const toIsoRangeBoundary = (date: string, boundary: 'start' | 'end') => {
   if (!date) return undefined;
@@ -158,7 +163,8 @@ export default function DashboardPage() {
       last: (label: string) => `Last ${label}`,
       range7: '7 days',
       range14: '14 days',
-      range30: '30 days',
+      monthToDate: 'Month to date',
+      lastMonth: 'Last month',
       preparingCsv: 'Preparing CSV…',
       downloadCsv: 'Download confirmed bookings CSV',
       capturedRevenue: 'Captured Revenue',
@@ -218,7 +224,8 @@ export default function DashboardPage() {
       last: (label: string) => `${label} derniers`,
       range7: '7 jours',
       range14: '14 jours',
-      range30: '30 jours',
+      monthToDate: 'Mois en cours',
+      lastMonth: 'Mois dernier',
       preparingCsv: 'Préparation du CSV…',
       downloadCsv: 'Télécharger le CSV des réservations confirmées',
       capturedRevenue: 'Chiffre d’affaires capté',
@@ -277,7 +284,7 @@ export default function DashboardPage() {
   const [startDate, setStartDate] = useState<string>(defaultStart);
   const [endDate, setEndDate] = useState<string>(defaultEnd);
   // Which quick range is active (drives the mobile segmented control's highlight).
-  const [rangeMode, setRangeMode] = useState<'today' | 'r7' | 'r14' | 'r30' | 'custom'>('r7');
+  const [rangeMode, setRangeMode] = useState<'today' | 'r7' | 'r14' | 'mtd' | 'lastMonth' | 'custom'>('r7');
   const [calls, setCalls] = useState<CallRecord[]>([]);
   const [conversations, setConversations] = useState<ConversationRow[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -709,7 +716,28 @@ export default function DashboardPage() {
     start.setDate(end.getDate() - (days - 1));
     setStartDate(formatDateInput(start));
     setEndDate(formatDateInput(end));
-    setRangeMode(days === 7 ? 'r7' : days === 14 ? 'r14' : 'r30');
+    setRangeMode(days === 7 ? 'r7' : 'r14');
+  };
+
+  // Calendar months, not rolling windows. "Last 30 days" and "last month" answer different
+  // questions, and it is the calendar one a garage reconciles against — their invoicing, their
+  // targets and their accounts all run to month ends.
+  //
+  // Built from local date parts rather than by subtracting days: month lengths differ, and the
+  // 31st of a month has no counterpart in the one before it.
+  const applyMonthToDate = () => {
+    const now = new Date();
+    setStartDate(formatDateInput(new Date(now.getFullYear(), now.getMonth(), 1)));
+    setEndDate(formatDateInput(now));
+    setRangeMode('mtd');
+  };
+
+  const applyLastMonth = () => {
+    const now = new Date();
+    // Day 0 of this month is the last day of the previous one, whatever its length.
+    setStartDate(formatDateInput(new Date(now.getFullYear(), now.getMonth() - 1, 1)));
+    setEndDate(formatDateInput(new Date(now.getFullYear(), now.getMonth(), 0)));
+    setRangeMode('lastMonth');
   };
 
   const handleStartChange = (value: string) => {
@@ -785,7 +813,8 @@ export default function DashboardPage() {
               { k: 'today', label: c.today, on: applyTodayRange },
               { k: 'r7', label: c.range7, on: () => applyQuickRange(7) },
               { k: 'r14', label: c.range14, on: () => applyQuickRange(14) },
-              { k: 'r30', label: c.range30, on: () => applyQuickRange(30) },
+              { k: 'mtd', label: c.monthToDate, on: applyMonthToDate },
+              { k: 'lastMonth', label: c.lastMonth, on: applyLastMonth },
               { k: 'custom', label: lang === 'fr' ? 'Personnalisé' : 'Custom', on: () => setRangeMode('custom') },
             ] as const).map((o) => (
               <button
@@ -867,20 +896,31 @@ export default function DashboardPage() {
             >
               {c.today}
             </button>
-            {QUICK_RANGES.map((range) => {
-              const rangeLabel =
-                range.days === 7 ? c.range7 : range.days === 14 ? c.range14 : c.range30;
-              return (
-                <button
-                  key={range.label}
-                  type="button"
-                  onClick={() => applyQuickRange(range.days)}
-                  className="rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-medium uppercase tracking-wide text-slate-700 transition hover:border-brand-300 hover:bg-brand-50 hover:text-brand-700"
-                >
-                  {c.last(rangeLabel)}
-                </button>
-              );
-            })}
+            {QUICK_RANGES.map((range) => (
+              <button
+                key={range.label}
+                type="button"
+                onClick={() => applyQuickRange(range.days)}
+                className="rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-medium uppercase tracking-wide text-slate-700 transition hover:border-brand-300 hover:bg-brand-50 hover:text-brand-700"
+              >
+                {c.last(range.days === 7 ? c.range7 : c.range14)}
+              </button>
+            ))}
+            {/* Calendar months carry their own wording — "last Month to date" is not a phrase. */}
+            <button
+              type="button"
+              onClick={applyMonthToDate}
+              className="rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-medium uppercase tracking-wide text-slate-700 transition hover:border-brand-300 hover:bg-brand-50 hover:text-brand-700"
+            >
+              {c.monthToDate}
+            </button>
+            <button
+              type="button"
+              onClick={applyLastMonth}
+              className="rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-medium uppercase tracking-wide text-slate-700 transition hover:border-brand-300 hover:bg-brand-50 hover:text-brand-700"
+            >
+              {c.lastMonth}
+            </button>
           </div>
           <button
             type="button"

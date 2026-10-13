@@ -199,11 +199,14 @@ export default function DashboardPage() {
       invoiced: 'Invoiced',
       // Replaces the usual captured-revenue hint once Invoiced sits beside it, so the two
       // numbers are plainly labelled as quote and actual rather than two unrelated totals.
-      // Each figure states the jobs it covers. Without that the two were read against each
-      // other as though they were the same set, which they are not.
-      quotedAcross: (booked: number) => `Quoted across ${booked} bookings.`,
-      invoicedOfBooked: (invoiced: number, booked: number) =>
-        `Billed so far on ${invoiced} of those ${booked}.`,
+      // The three figures partition one set, so they can be read as a pipeline and checked
+      // against each other: booked in = invoiced + still to be invoiced.
+      bookedIn: 'Booked in',
+      bookedInHint: (quoted: string) => `Appointments the AI booked, quoted at ${quoted}.`,
+      invoicedJobCount: (count: number) =>
+        `${count} of those jobs have been done and billed.`,
+      stillToInvoice: 'Still to be invoiced',
+      stillToInvoiceHint: 'Booked jobs the garage has not billed yet.',
     },
     fr: {
       title: 'Tableau de bord',
@@ -255,9 +258,12 @@ export default function DashboardPage() {
       showMoreInsights: 'Afficher plus de détails',
       hideInsights: 'Masquer les détails',
       invoiced: 'Facturé',
-      quotedAcross: (booked: number) => `Devisé sur ${booked} réservations.`,
-      invoicedOfBooked: (invoiced: number, booked: number) =>
-        `Déjà facturé sur ${invoiced} de ces ${booked}.`,
+      bookedIn: 'Réservés',
+      bookedInHint: (quoted: string) => `Rendez-vous pris par l’IA, devisés à ${quoted}.`,
+      invoicedJobCount: (count: number) =>
+        `${count} de ces travaux sont terminés et facturés.`,
+      stillToInvoice: 'Reste à facturer',
+      stillToInvoiceHint: 'Travaux réservés que le garage n’a pas encore facturés.',
     },
   }[lang];
   const today = useMemo(() => new Date(), []);
@@ -443,6 +449,11 @@ export default function DashboardPage() {
       bookedCount: booked.length,
       invoicedCount: invoiced.length,
       invoicedTotal: invoiced.reduce((sum, cl) => sum + (cl.invoicedValue ?? 0), 0),
+      // The remainder, so the three figures partition the same set and add up: a reader can
+      // check 24 = 8 + 16, which is the whole reason this reads straight where the previous
+      // version did not. Counts, not money — the billed jobs came in well above their quotes,
+      // so the pounds would not add up even though the jobs do.
+      awaitingInvoiceCount: booked.length - invoiced.length,
       // Only garages whose diary we can read back have invoice values at all. Everyone else must
       // see no Invoiced figure rather than a £0 one, which would read as "the AI earned nothing".
       hasInvoiceData: booked.some((cl) => cl.invoicedValue != null),
@@ -1051,33 +1062,47 @@ export default function DashboardPage() {
           )}
         >
           <div className="space-y-1 md:space-y-3">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.3em] text-brand-100 md:text-xs md:tracking-[0.35em]">{c.capturedRevenue}</span>
+            <span className="text-[10px] font-semibold uppercase tracking-[0.3em] text-brand-100 md:text-xs md:tracking-[0.35em]">
+              {bookingOutcome.hasInvoiceData ? c.bookedIn : c.capturedRevenue}
+            </span>
             <div className="text-3xl font-semibold text-white md:text-5xl">
-              {loading ? '—' : formatCurrency(bookingRevenueTotal)}
+              {loading
+                ? '—'
+                : bookingOutcome.hasInvoiceData
+                ? bookingOutcome.bookedCount
+                : formatCurrency(bookingRevenueTotal)}
             </div>
             <p className="mt-2 hidden max-w-lg text-sm text-brand-100 md:block">
               {bookingOutcome.hasInvoiceData
-                ? c.quotedAcross(bookingOutcome.bookedCount)
+                ? c.bookedInHint(formatCurrency(bookingRevenueTotal))
                 : c.capturedRevenueHint}
             </p>
           </div>
           <div className="flex flex-row items-center justify-between gap-3 rounded-xl border border-white/15 bg-white/10 px-3.5 py-2.5 text-left backdrop-blur-sm md:flex-col md:items-start md:rounded-2xl md:px-7 md:py-7">
-            <div className="text-xs font-semibold uppercase tracking-[0.25em] text-brand-100">{c.confirmedBookings}</div>
+            <div className="text-xs font-semibold uppercase tracking-[0.25em] text-brand-100">
+              {bookingOutcome.hasInvoiceData ? c.invoiced : c.confirmedBookings}
+            </div>
             <div className="text-3xl font-semibold text-white md:text-4xl">
-              {loading ? '—' : callTypeCounts['confirmed booking'] ?? 0}
+              {loading
+                ? '—'
+                : bookingOutcome.hasInvoiceData
+                ? formatCurrency(bookingOutcome.invoicedTotal)
+                : callTypeCounts['confirmed booking'] ?? 0}
             </div>
             <p className="hidden max-w-sm text-sm text-brand-100/90 md:block">
-              {c.confirmedBookingsHint}
+              {bookingOutcome.hasInvoiceData
+                ? c.invoicedJobCount(bookingOutcome.invoicedCount)
+                : c.confirmedBookingsHint}
             </p>
           </div>
           {bookingOutcome.hasInvoiceData && (
             <div className="flex flex-row items-center justify-between gap-3 rounded-xl border border-white/15 bg-white/10 px-3.5 py-2.5 text-left backdrop-blur-sm md:flex-col md:items-start md:rounded-2xl md:px-7 md:py-7">
-              <div className="text-xs font-semibold uppercase tracking-[0.25em] text-brand-100">{c.invoiced}</div>
+              <div className="text-xs font-semibold uppercase tracking-[0.25em] text-brand-100">{c.stillToInvoice}</div>
               <div className="text-3xl font-semibold text-white md:text-4xl">
-                {loading ? '—' : formatCurrency(bookingOutcome.invoicedTotal)}
+                {loading ? '—' : bookingOutcome.awaitingInvoiceCount}
               </div>
               <p className="hidden max-w-sm text-sm text-brand-100/90 md:block">
-                {c.invoicedOfBooked(bookingOutcome.invoicedCount, bookingOutcome.bookedCount)}
+                {c.stillToInvoiceHint}
               </p>
             </div>
           )}

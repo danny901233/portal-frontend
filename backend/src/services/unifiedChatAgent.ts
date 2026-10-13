@@ -23,6 +23,7 @@
 
 import OpenAI from 'openai';
 import { prisma } from '../db.js';
+import { bookingAtFrom } from './garageHiveJobMatch.js';
 import { GarageHiveChatDiary } from './chatDiaries/garageHive.js';
 import { TyresoftChatDiary } from './chatDiaries/tyresoft.js';
 import { tyreStockFor } from './chatDiaries/tyreStock.js';
@@ -49,6 +50,12 @@ export interface UnifiedChatResponse {
 /** Per-conversation working state. Deliberately small: anything the diary owns lives on
  *  the adapter, so this holds only what the conversation itself knows. */
 interface UnifiedSession {
+  /**
+   * Which conversation this session belongs to. The sessions Map is already keyed by it; holding
+   * it here too lets a tool persist against the conversation without runTool growing a parameter
+   * that only one of its twenty branches would use.
+   */
+  conversationId?: string;
   registration?: string;
   customerName?: string;
   phone?: string;
@@ -66,6 +73,8 @@ interface UnifiedSession {
   slots: DiarySlot[];
   tyreOptions: DiaryTyre[];
   bookingReference?: string;
+  /** The appointment, as the diary gave it back. Kept so it can be persisted and matched later. */
+  bookingWhenIso?: string;
   /** The slot they settled on, kept even when the booking then fails. */
   chosenSlotLabel?: string;
   messageTaken?: boolean;
@@ -601,9 +610,13 @@ export async function runTool(
         // TS-6100, same slot). A double booking costs the garage a slot and the customer
         // their trust, so it cannot rest on the model reading a note.
         if (s.bookingReference) {
-          return `STATUS: ALREADY_BOOKED — this is already booked, reference `
-            + `${s.bookingReference}. Do not book it again. Tell them it is confirmed, and if `
-            + `they want a change, move or cancel that booking instead.`;
+          // The reference is deliberately NOT quoted back here. It is the diary's internal id
+          // (Garage Hive's is a bare integer like 1739272) and means nothing to a customer, but
+          // anything in a tool result is something the model can read out — and on a chat agent
+          // it will happily paste it into the thread.
+          return `STATUS: ALREADY_BOOKED — this is already booked. Do not book it again, and do `
+            + `not quote any reference number. Tell them it is confirmed, and if they want a `
+            + `change, move or cancel that booking instead.`;
         }
         if (!args.read_back) {
           return 'STATUS: READ_BACK_FIRST — read the whole thing back in one natural sentence: '
@@ -637,10 +650,35 @@ export async function runTool(
           notes: String(args.notes || ''),
         });
         s.bookingReference = b.reference;
+        s.bookingWhenIso = b.whenIso;
         // The one line that says a booking is real. Without it "all booked" in the transcript
-        // is just the model's word for it.
+        // is just the model's word for it. The log is ours; the tool result below is the
+        // customer's, by way of the model, and the two must not carry the same detail.
         console.log(`[UNIFIED_CHAT] BOOKED ${b.reference} ${b.whenIso} — ${b.serviceName || ''}`);
-        return `STATUS: OK — booked, reference ${b.reference}. Only now tell them it is booked.`;
+        // Persist the booking's identity so it can be tied to what the garage invoices. The
+        // reference is the diary's own id; whenIso is the appointment. bookingDetails is prose
+        // and joins to nothing, which is why valuing these bookings previously meant guessing
+        // which of a customer's invoices was ours.
+        try {
+          // The guard is not defensive clutter: Prisma drops an `undefined` filter rather than
+          // matching nothing, so `where: { id: undefined }` would write this one booking's
+          // reference onto EVERY conversation in the table.
+          if (!s.conversationId) throw new Error('no conversationId on the session');
+          await prisma.chatConversation.updateMany({
+            where: { id: s.conversationId },
+            data: {
+              bookingReference: String(b.reference || '').trim() || null,
+              bookingAt: bookingAtFrom(b.whenIso?.slice(0, 10), b.whenIso?.slice(11, 16)),
+            },
+          });
+        } catch (e: any) {
+          // Non-fatal: the booking is already live in the diary. Losing the reference costs us
+          // the invoice join, not the customer's appointment.
+          console.error('[UNIFIED_CHAT] failed to persist booking identity:', e?.message);
+        }
+        // No reference in the result. See the ALREADY_BOOKED note above.
+        return `STATUS: OK — booked. Only now tell them it is booked, and do not quote a `
+          + `reference number.`;
       }
       case 'retrieve_booking': {
         const b = await adapter.retrieveBooking!(String(args.reference));
@@ -992,6 +1030,7 @@ export async function getUnifiedChatResponse(
   const adapter = entry.adapter;
 
   const session = sessions.get(conversationId) || blankSession();
+  session.conversationId = conversationId;
   sessions.set(conversationId, session);
   if (seedContact?.phone && !session.phone) session.phone = seedContact.phone;
   // Not guarded on being empty, unlike `phone` above: this tracks the channel, so if the

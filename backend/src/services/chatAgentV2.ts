@@ -6,6 +6,7 @@ import axios from 'axios';
 import { logChatToolCall } from './chatToolLog.js';
 import { imageMessageContent } from './chatMedia.js';
 import { getVehicleAdvisories, getLastServiceSuggestion, getServicePairLabels, optOutRemindersForVehicle } from './garageHiveBc.js';
+import { bookingAtFrom } from './garageHiveJobMatch.js';
 import { notifyFlaggedConversation } from '../utils/push.js';
 import { deriveEnquiryTypeFromSession, maybeUpdateEnquiryType } from './conversationEnquiryType.js';
 import { splitPersonName } from '../utils/personName.js';
@@ -4182,6 +4183,16 @@ async function handleSetContactInfo(args: any, session: ChatSession, conversatio
       const basePrice = parseFloat(String(session.servicePrice));
       const extraPrice = parseFloat(String(session.additionalServicePrice ?? '0'));
       const revenue = (isNaN(basePrice) ? 0 : basePrice) + (isNaN(extraPrice) ? 0 : extraPrice);
+      // Garage Hive answers a committed booking with its own id for it, nested as
+      // { booking: { id: 1739272 } }. ghSetContactInfo wraps the whole body as `booking`, hence
+      // the double hop. It is an integer, so it is stringified rather than stored as a number.
+      //
+      // This is NOT the garage's jobsheet number and cannot be turned into one by asking — see
+      // garageHiveJobMatch, which resolves that from the registration and the appointment date.
+      const diaryRef = (result as any)?.booking?.booking?.id;
+      // The appointment as a real timestamp. Stored separately from the bookingSummary prose
+      // because prose joins to nothing, and this is half the key that reaches the invoice.
+      const bookedAt = bookingAtFrom(session.bookingDate, session.bookingTime);
       await prisma.chatConversation.updateMany({
         where: { id: conversationId },
         data: {
@@ -4191,6 +4202,8 @@ async function handleSetContactInfo(args: any, session: ChatSession, conversatio
           confirmedBookingCategory: categoriseBooking(bookedNames),
           bookingDetails: bookingSummary,
           capturedRevenue: revenue > 0 ? revenue : null,
+          bookingReference: diaryRef != null && String(diaryRef).trim() ? String(diaryRef).trim() : null,
+          bookingAt: bookedAt,
         },
       });
       console.log(`[SET_CONTACT] Recorded on conversation: ${bookingSummary} (£${revenue})`);

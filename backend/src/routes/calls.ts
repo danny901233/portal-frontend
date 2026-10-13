@@ -431,6 +431,26 @@ router.post('/calls', async (req: Request, res: Response) => {
       console.log(`[CALL] Derived capturedRevenue £${capturedRevenue.toFixed(2)} from bookingDetails`);
     }
 
+    // Same safety net as the price above, for the appointment date. Agents that have not yet been
+    // taught to send bookingAt still write the date into their bookingDetails prose, and without
+    // this every one of their bookings lands unmatchable — the job number can only be resolved
+    // from registration plus date.
+    //
+    // ISO only, deliberately. extractBookingDate also returns whatever followed a "Date:" label,
+    // and that is spoken English ("Tuesday 27th October") with no year; guessing a year lands the
+    // appointment in the wrong one and attaches the wrong job. An unparseable date is left null,
+    // where the sweep skips it, rather than being wrong.
+    const bookingAtFromDetails = (() => {
+      const text = extractBookingDate(payload.bookingDetails);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return null;
+      const parsed = new Date(`${text}T00:00:00Z`);
+      return Number.isNaN(parsed.getTime()) ? null : parsed;
+    })();
+
+    if (!payload.bookingAt && bookingAtFromDetails) {
+      console.log(`[CALL] Derived bookingAt ${bookingAtFromDetails.toISOString().slice(0, 10)} from bookingDetails`);
+    }
+
     // The caller's number, when the agent did not send one.
     //
     // Every SIP room is named `garage-<id>__<caller>_<suffix>`, so the number is
@@ -482,6 +502,13 @@ router.post('/calls', async (req: Request, res: Response) => {
         confirmedBookingCategory,
         capturedRevenue,
         bookingDetails: payload.bookingDetails,
+        // Booking identity. bookingReference is the diary's own id for the booking; bookingAt is
+        // the appointment (or, on a message-only garage, the date the caller asked for). Together
+        // with the registration they are what garageHiveJobMatch later turns into the garage's own
+        // job number — and a job number is the same string as the invoice number, so it is the one
+        // route to what a booking was actually worth. bookingDetails is prose and joins to nothing.
+        bookingReference: payload.bookingReference ?? null,
+        bookingAt: payload.bookingAt ?? bookingAtFromDetails,
         metrics: payload.metrics,
         transcript: payload.transcript,
         summary: payload.summary,

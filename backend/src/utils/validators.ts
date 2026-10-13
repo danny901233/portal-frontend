@@ -90,6 +90,20 @@ export const createCallSchema = z
     confirmedBookingCategory: z.enum(['service', 'mot', 'diagnostic', 'other']).optional(),
     capturedRevenue: z.number().nonnegative().optional(),
     bookingDetails: z.string().min(1).optional(),
+    // ── Booking identity ──────────────────────────────────────────────────────────────────────
+    // A field absent from this schema is dropped silently, which is how Quick Onboard lost
+    // billingMethod and trialDays, so these are declared explicitly rather than passed through.
+    //
+    // The diary provider's own id for the booking. Garage Hive's online-booking API returns a
+    // bare integer (1739272), so this is coerced to a string rather than typed as a number.
+    bookingReference: z.coerce.string().trim().min(1).max(100).optional(),
+    // The appointment. On a booking we placed, the slot we took; on a message-only garage, the
+    // date the caller ASKED for — which is what makes a later manual booking attributable, and
+    // what distinguishes a booking request from a progress chase.
+    //
+    // Rejected rather than nulled when unparseable: a bad date here silently un-books a booking
+    // in every report downstream, and the agent should be told it sent rubbish.
+    bookingAt: z.coerce.date().optional(),
     emotionData: z.record(z.any()).optional(),
   })
   .transform((payload) => {

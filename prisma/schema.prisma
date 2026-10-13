@@ -202,6 +202,18 @@ model GarageHiveConnection {
   // group's garages on the same morning — the exact pattern that gets a WhatsApp number reported.
   // The daily run re-checks that at use and claims nothing if it is ever set on more than one.
   claimUnattributed  Boolean   @default(false)
+  /// Credit work the GARAGE booked by hand to the call that asked for it.
+  ///
+  /// Only for garages whose agent books nothing. Ecotest, Great Hollands and JDK Camberley allow
+  /// bookings on paper but publish no availability, so the agent always falls back to taking a
+  /// date preference and the team rings back and books it. Their won work is otherwise invisible
+  /// — 646 calls since 1 September, zero bookings recorded.
+  ///
+  /// OFF by default, and deliberately not inferred: allowBookings is true on these garages too,
+  /// so nothing in the config distinguishes them. On a garage that does book, a message carrying
+  /// a date is usually a booking that FAILED, and crediting those would quietly mix "we booked
+  /// it" with "they might have booked it" in the same revenue figure.
+  attributeCallbackBookings Boolean @default(false)
   // Caller recognition — on an inbound call, look the caller's number up in the
   // Garage Hive phonebook so the agent confirms their vehicle instead of asking
   // for the reg. Off by default; GarageHive-agent only.
@@ -264,12 +276,31 @@ model Call {
   confirmedBookingCategory ConfirmedBookingCategory?
   capturedRevenue          Float?
   bookingDetails           String?
+  // ── Booking identity, for joining a booking we placed back to what the garage invoiced ──
+  // bookingDetails is free prose and cannot be joined on. These three can.
+  //
+  // bookingReference: the diary provider's own id for the booking (Garage Hive's online-booking
+  // API returns a bare integer, e.g. 1739272). Durable key for "did it land", dedupe and
+  // reschedule-by-reference. NOT the garage's jobsheet number — see diaryJobNumber.
+  bookingReference         String?
+  // bookingAt: the appointment itself, as a real timestamp. Supersedes scraping "Date:" out of
+  // bookingDetails. On message-only garages (Ecotest/Great Hollands/JDK) this is the date the
+  // caller ASKED for, which is the only thing a later manual booking can be matched against.
+  bookingAt                DateTime?
+  // diaryJobNumber: the garage's own job number (Garage Hive "SJ000829"), resolved after the
+  // fact by garageHiveJobMatch. In Business Central the posted invoice carries the SAME number,
+  // so this is the one field that ties a booking to its invoiced value exactly.
+  diaryJobNumber           String?
   metrics                  Json
   transcript               Json
   summary                  String
   emotionData              Json?
   createdAt                DateTime                  @default(now())
   feedback                 CallFeedback?
+
+  // The sweep asks "which bookings still need a job number?" — a full scan of Call without this,
+  // and this database OOMs on those.
+  @@index([garageId, bookingAt])
 }
 
 model TwilioRecording {
@@ -758,6 +789,11 @@ model ChatConversation {
   confirmedBookingCategory ConfirmedBookingCategory?
   capturedRevenue          Float?
   bookingDetails           String?
+  // Same three as Call — a chat booking and a voice booking are the same event to the garage,
+  // so they must be joinable to an invoice the same way. See the Call model for what each holds.
+  bookingReference         String?
+  bookingAt                DateTime?
+  diaryJobNumber           String?
   tags                     String[]                  @default([])
   // Auto-derived enquiry category for garage-side Messages inbox filters.
   // App-code enum: parts | sales | booking | complaint | general. Nullable
@@ -787,6 +823,7 @@ model ChatConversation {
   @@index([garageId, needsAttention])
   @@index([garageId, assigneeId])
   @@index([garageId, enquiryType])
+  @@index([garageId, bookingAt])
 }
 
 model ChatMessage {

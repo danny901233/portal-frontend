@@ -32,7 +32,15 @@ const norm = (s) => (s || '').toLowerCase()
   .trim();
 
 const tokens = (s) => new Set(norm(s).split(' ').filter(Boolean));
-const distinctive = (s) => new Set([...tokens(s)].filter((t) => !GENERIC.has(t) && t.length > 1));
+
+/*
+ * `ignore` carries the garage's town. A place name is not a distinguishing word: "Oxford
+ * Commercials" and "J S Motors Oxford" both reduce to "oxford" once the trade words go,
+ * and scored a perfect match despite being unrelated businesses. Same for Bicester,
+ * Bristol, Bridgnorth and Winton across the Companies House sweep.
+ */
+const distinctive = (s, ignore) => new Set([...tokens(s)]
+  .filter((t) => !GENERIC.has(t) && t.length > 1 && !(ignore && ignore.has(t))));
 
 function jaccard(a, b) {
   const A = tokens(a), B = tokens(b);
@@ -73,9 +81,9 @@ function editRatio(a, b) {
  * Limited") stays at 1.0. With no distinctive word on either side there is nothing to
  * judge, so it scores nothing rather than guessing.
  */
-function distinctiveEditRatio(a, b) {
-  const A = [...distinctive(a)].sort().join('');
-  const B = [...distinctive(b)].sort().join('');
+function distinctiveEditRatio(a, b, ignore) {
+  const A = [...distinctive(a, ignore)].sort().join('');
+  const B = [...distinctive(b, ignore)].sort().join('');
   if (!A || !B) return 0;
   return 1 - levenshtein(A, B) / Math.max(A.length, B.length);
 }
@@ -85,20 +93,30 @@ function distinctiveEditRatio(a, b) {
  * 0.75, which would bin the real VGS/VWGS Performance match. One character out is a typo
  * at any length, so allow it alongside the ratio.
  */
-function nearlySameName(a, b) {
-  const A = [...distinctive(a)].sort().join('');
-  const B = [...distinctive(b)].sort().join('');
+function nearlySameName(a, b, ignore) {
+  const A = [...distinctive(a, ignore)].sort().join('');
+  const B = [...distinctive(b, ignore)].sort().join('');
   if (!A || !B) return false;
   // One character out is a typo on a reasonable-length name, but on a three-letter
   // initialism it is a different business: "AFS" and "ADS" are not each other.
   if (Math.max(A.length, B.length) >= 4 && levenshtein(A, B) <= 1) return true;
-  return distinctiveEditRatio(a, b) >= 0.85;
+  return distinctiveEditRatio(a, b, ignore) >= 0.85;
 }
 
 const MATCH_SURE = 0.9;
 const MATCH_MAYBE = 0.62;
 
-function bestMatch(name, known) {
+/*
+ * `town` is the prospect's town, excluded from the distinguishing words.
+ *
+ * Errors here are not symmetric. Wrongly calling a garage a duplicate drops it from the
+ * pipeline and nobody ever looks again; wrongly calling it new costs almost nothing,
+ * because HighLevel's upsert merges contacts on phone number and the push skips any
+ * contact that already has an open opportunity. So when the evidence is one shared word,
+ * lean towards new.
+ */
+function bestMatch(name, known, town) {
+  const ignore = town ? tokens(town) : null;
   let best = null;
   for (const g of known) {
     const nA = norm(name), nB = norm(g.name);
@@ -107,16 +125,34 @@ function bestMatch(name, known) {
     if (nA === nB) { score = 1; how = 'exact'; }
     else if (nA.length > 6 && nB.length > 6 && (nA.includes(nB) || nB.includes(nA))) { score = 0.95; how = 'contains'; }
     else {
-      const j = jaccard(name, g.name), e = distinctiveEditRatio(name, g.name);
-      score = Math.max(j, e);
+      const j = jaccard(name, g.name);
+      const e = distinctiveEditRatio(name, g.name, ignore);
+      // A near-identical full string catches compound-word splits the distinctive-word
+      // comparison cannot see -- "TWA Auto Electrics" and "TWA Autoelectrics" are the
+      // same characters. The bar is high on purpose: "MJS Garage Services" against
+      // "A J Garage Services" reaches 0.88 on shared trade words alone.
+      const whole = editRatio(name, g.name);
+      score = Math.max(j, e, whole >= 0.92 ? whole : 0);
       how = j >= e ? 'tokens' : 'edit';
     }
     // Require something distinctive in common before trusting a partial match.
     if (how !== 'exact' && how !== 'contains') {
-      const dA = distinctive(name), dB = distinctive(g.name);
-      let shared = false;
-      for (const t of dA) if (dB.has(t)) shared = true;
-      if (!shared && !nearlySameName(name, g.name)) score = 0;
+      const dA = distinctive(name, ignore), dB = distinctive(g.name, ignore);
+      const shared = [...dA].filter((t) => dB.has(t));
+      if (editRatio(name, g.name) >= 0.92) {
+        // the names are the same characters; nothing below should overrule that
+      } else if (!shared.length) {
+        if (!nearlySameName(name, g.name, ignore)) score = 0;
+      } else if (
+        shared.length === 1 &&
+        jaccard(name, g.name) < 0.5 &&
+        distinctiveEditRatio(name, g.name, ignore) < 0.85
+      ) {
+        // One word in common while the rest of the name goes its own way is a
+        // coincidence, not a duplicate. Names whose distinguishing content agrees as a
+        // whole ("Elite Land Rover" / "Elite Landrover") are unaffected.
+        score = 0;
+      }
     }
     if (!best || score > best.score) best = { garage: g.name, source: g.source, score, how };
   }
@@ -140,6 +176,27 @@ const PLACES_KEY =
 const hasPlacesKey = () => Boolean(PLACES_KEY);
 
 /*
+ * Places lookups are the only part of this that costs money, and a sweep re-runs the
+ * whole list every time -- seven iterations of the welcome-post sweep during development
+ * paid for the same ~150 garages seven times. Cache on disk by query so a re-run only
+ * pays for names it has never seen.
+ */
+const CACHE_PATH = process.env.PLACES_CACHE || '';
+let cache = null;
+function loadCache() {
+  if (cache) return cache;
+  cache = {};
+  if (CACHE_PATH) {
+    try { cache = JSON.parse(require('fs').readFileSync(CACHE_PATH, 'utf8')); } catch { cache = {}; }
+  }
+  return cache;
+}
+function saveCache() {
+  if (!CACHE_PATH) return;
+  try { require('fs').writeFileSync(CACHE_PATH, JSON.stringify(cache)); } catch { /* best effort */ }
+}
+
+/*
  * Places returns a confident result for any string, so a name we got slightly wrong comes
  * back enriched with someone else's phone number. A result is only accepted when the
  * distinctive words searched for actually appear in it -- that keeps a fuller trading
@@ -148,6 +205,9 @@ const hasPlacesKey = () => Boolean(PLACES_KEY);
  */
 async function enrich(name, hint) {
   if (!PLACES_KEY) return null;
+  const query = [name, hint, 'UK'].filter(Boolean).join(' ');
+  const c = loadCache();
+  if (Object.prototype.hasOwnProperty.call(c, query)) return c[query];
   try {
     const resp = await fetch('https://places.googleapis.com/v1/places:searchText', {
       method: 'POST',
@@ -157,12 +217,12 @@ async function enrich(name, hint) {
         'X-Goog-FieldMask':
           'places.id,places.displayName,places.formattedAddress,places.nationalPhoneNumber,places.websiteUri',
       },
-      body: JSON.stringify({ textQuery: [name, hint, 'UK'].filter(Boolean).join(' '), maxResultCount: 1 }),
+      body: JSON.stringify({ textQuery: query, maxResultCount: 1 }),
     });
     if (!resp.ok) return null;
     const j = await resp.json();
     const p = (j.places || [])[0];
-    if (!p) return null;
+    if (!p) { c[query] = null; saveCache(); return null; }
 
     const got = p.displayName?.text || '';
     const want = distinctive(name), gotTokens = tokens(got);
@@ -173,15 +233,17 @@ async function enrich(name, hint) {
       norm(got).includes(norm(name)) ||
       norm(name).includes(norm(got)) ||
       (want.size === 0 && jaccard(name, got) >= 0.4);
-    if (!resembles) return { rejected: got };
+    if (!resembles) { c[query] = { rejected: got }; saveCache(); return c[query]; }
 
-    return {
+    c[query] = {
       placeId: p.id || '',
       placeName: got,
       address: p.formattedAddress || '',
       phone: p.nationalPhoneNumber || '',
       website: p.websiteUri || '',
     };
+    saveCache();
+    return c[query];
   } catch {
     return null;
   }

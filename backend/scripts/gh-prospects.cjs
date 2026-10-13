@@ -218,7 +218,7 @@ async function loadGarages() {
 
   const rows = [];
   for (const c of uniq) {
-    const m = bestMatch(c.name, known) || { garage: '', source: '', score: 0, how: '' };
+    const m = bestMatch(c.name, known, c.hint) || { garage: '', source: '', score: 0, how: '' };
     // Only an exact or containment match is allowed to retire a prospect outright. A
     // near-identical spelling goes to 'check', because silently dropping a real new
     // garage costs more than asking Dan to glance at one line.

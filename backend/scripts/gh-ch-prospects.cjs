@@ -95,7 +95,7 @@ async function loadGarages() {
 
   const rows = [];
   for (const c of companies) {
-    const m = M.bestMatch(c.company, known);
+    const m = M.bestMatch(c.company, known, c.town);
     const status = M.statusFor(m);
     const found = status === 'existing' ? null : await M.enrich(c.company, c.town || c.postcode);
     rows.push({

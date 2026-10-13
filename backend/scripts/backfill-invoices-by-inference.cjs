@@ -28,6 +28,12 @@ const ONLY_GARAGE = arg('--garage', null);
 // is claiming about calls nobody remembers, and the invoices it matches drift further from the
 // call that supposedly caused them.
 const SINCE = arg('--since', '2026-10-01');
+// Same-day matches are excluded. This script matches INVOICES, so unlike the nightly sweep it
+// cannot see when the job was raised and therefore cannot apply the "it did not exist when they
+// rang" rule that keeps a progress chase out. An invoice posted the day of the call is the
+// signature of a car that was already in the workshop: the caller was chasing it, not booking it.
+// On the first October run this excluded 7 of 16 matches, £2,212 — nearly half the claim.
+const MIN_LAG_DAYS = Number(arg('--min-lag', '1'));
 
 async function token(c) {
   const b = new URLSearchParams({ client_id: c.clientId, client_secret: c.clientSecret,
@@ -114,13 +120,21 @@ const lag = (a, b) => Math.round((new Date(b) - new Date(a)) / 86400000);
 
     const used = new Set();
     const rows = [];
-    let n = 0, v = 0, unmatched = 0;
+    let n = 0, v = 0, unmatched = 0, sameDay = 0, sameDayValue = 0;
     for (const call of calls) {
       const day = call.createdAt.toISOString().slice(0, 10);
       const cust = vmap.get(norm(call.registrationNumber));
       const hit = (byCust.get(cust) || []).find((i) => !used.has(i.number)
         && i.postingDate >= day && i.postingDate <= addDays(day, WINDOW));
       if (!hit) { unmatched++; continue; }
+      if (lag(day, hit.postingDate) < MIN_LAG_DAYS) {
+        sameDay++;
+        sameDayValue += hit.totalAmountExcludingTax || 0;
+        // Consumed, not left floating: if this invoice stays available it will be claimed by the
+        // next call for the same customer, which is the double-count this script exists to avoid.
+        used.add(hit.number);
+        continue;
+      }
       used.add(hit.number);
       n++; v += hit.totalAmountExcludingTax || 0;
       if (COMMIT) {
@@ -141,7 +155,8 @@ const lag = (a, b) => Math.round((new Date(b) - new Date(a)) / 86400000);
         + ` -> ${hit.number} ${hit.postingDate} £${(hit.totalAmountExcludingTax || 0).toFixed(2)} ${hit.status}`
         + ` (+${lag(day, hit.postingDate)}d${q != null ? `, quoted £${q.toFixed(2)}` : ', no quote'})`);
     }
-    console.log(`\n${label}: ${COMMIT ? 'wrote' : 'would write'} ${n} of ${calls.length} bookings — £${v.toFixed(2)} ex VAT; ${unmatched} unmatched`);
+    console.log(`\n${label}: ${COMMIT ? 'wrote' : 'would write'} ${n} of ${calls.length} bookings — £${v.toFixed(2)} ex VAT;`
+      + ` ${unmatched} unmatched; ${sameDay} same-day excluded (£${sameDayValue.toFixed(2)} — almost certainly already in the workshop)`);
     rows.forEach((r) => console.log(r));
     grandN += n; grandV += v;
   }

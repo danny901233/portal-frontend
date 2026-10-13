@@ -429,11 +429,18 @@ export default function DashboardPage() {
   // bookingDetails is prose and totals to nothing; these come off the booking identity the agent
   // records plus the invoice value read back nightly from the garage's own system.
   const bookingOutcome = useMemo(() => {
-    // A booking is one we placed, OR one where the caller asked for a date and the garage booked
-    // it by hand. The second kind is how Ecotest, Great Hollands and JDK work: they publish no
-    // availability, so the agent takes the day they want. confirmedBooking is the fallback for
-    // rows predating bookingAt.
-    const booked = calls.filter((cl) => cl.confirmedBooking === true || Boolean(cl.bookingAt));
+    // Three ways a call counts as a booking, because there are three ways we come to know one
+    // happened:
+    //   confirmedBooking  we placed it in the diary ourselves
+    //   bookingAt         an appointment is recorded — ours, or the date the caller asked for
+    //   diaryJobNumber    we later found the job in the garage's own diary
+    //
+    // The third matters for the garages that publish no availability: nothing is ever flagged
+    // confirmed and no appointment is ours, so the ONLY evidence is the job that turned up
+    // afterwards. Without it their bookings are invisible here however much work they billed.
+    const booked = calls.filter(
+      (cl) => cl.confirmedBooking === true || Boolean(cl.bookingAt) || Boolean(cl.diaryJobNumber),
+    );
 
     // Invoiced = the garage has billed the work. Paid AND Open both count: the job is done and
     // billed, and whether the customer has settled up is credit control rather than anything the

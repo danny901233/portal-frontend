@@ -1068,7 +1068,10 @@ export default function DashboardPage() {
               : 'sm:grid-cols-2 sm:items-center',
           )}
         >
-          <div className="space-y-1 md:space-y-3">
+          {/* The same vertical padding the boxed figures carry. Without it this column starts at
+              the top of the row while they start 28px inside their card, so the three headings
+              sat at two different heights. */}
+          <div className="space-y-1 md:space-y-3 md:py-7">
             <span className="text-[10px] font-semibold uppercase tracking-[0.3em] text-brand-100 md:text-xs md:tracking-[0.35em]">
               {bookingOutcome.hasInvoiceData ? c.bookedIn : c.capturedRevenue}
             </span>

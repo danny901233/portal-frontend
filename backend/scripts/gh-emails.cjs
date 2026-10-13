@@ -91,7 +91,12 @@ async function emailsFor(site) {
     await new Promise((r) => setTimeout(r, 300));
   }
   const ranked = [...all.entries()].sort((a, b) => b[1] - a[1]).map(([e]) => e);
-  return { emails: ranked, best: ranked[0] || '', checked: tried.length };
+  // An address on neither the garage's domain nor a webmail provider belongs to someone
+  // else -- usually whoever built the site. Eastmains Garage was about to be contacted on
+  // micah@micahrich.com. Scoring gave own-domain +10 and webmail +3, so anything that
+  // scored below that is a third party and must not be offered as the garage's address.
+  const trusted = [...all.entries()].filter(([, s]) => s >= 3).sort((a, b) => b[1] - a[1]).map(([e]) => e);
+  return { emails: ranked, best: trusted[0] || '', rejected: ranked.filter((e) => !trusted.includes(e)), checked: tried.length };
 }
 
 function readRows(file) {

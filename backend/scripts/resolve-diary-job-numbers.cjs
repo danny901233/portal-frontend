@@ -27,6 +27,11 @@
 //     defensible: without it, someone ringing about a car already in the bay counts as won work,
 //     which inflated a first pass on those three by £12,737 of same-day invoices.
 
+// Loaded here rather than relying on `node -r dotenv/config`, so the script works the same way
+// however it is started — by hand, or by pm2's cron, which passes no interpreter args. Run it from
+// the backend directory so @prisma/client and dotenv resolve.
+require('dotenv').config();
+
 const path = require('path');
 const { PrismaClient } = require('@prisma/client');
 

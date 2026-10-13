@@ -58,19 +58,35 @@ function csvRows(file) {
 const read = (f) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return {}; } };
 
 /*
- * The harvest ranked every address it found, but an early version could pick one
- * belonging to whoever built the site. Re-derive the choice here: the address must sit on
- * the garage's own domain or a recognised webmail provider.
+ * A garage's email often sits on a domain that is close to, but not the same as, its
+ * website: sftebbyandson.com mails from sftebbyandson.co.uk, bandtmotorrepairs.co.uk from
+ * bandtmotors.co.uk, and gashereford.com from grandstandautoservices.co.uk. Comparing
+ * whole hostnames rejected all of those. Compare the distinctive label instead, and let
+ * the company's own name vouch for a domain the website does not match.
  */
 const WEBMAIL = /(gmail|outlook|hotmail|yahoo|btinternet|icloud|live\.|aol\.|sky\.com|talktalk)/i;
-function trustedEmail(entry, website) {
+const label = (h) => (h || '').replace(/^www\./, '').split('.')[0].toLowerCase();
+function sharedPrefix(a, b) {
+  let n = 0;
+  while (n < a.length && n < b.length && a[n] === b[n]) n++;
+  return n;
+}
+function trustedEmail(entry, website, company) {
   if (!entry) return '';
-  let host = '';
-  try { host = new URL(website.startsWith('http') ? website : 'https://' + website).hostname.replace(/^www\./, ''); } catch { /* none */ }
+  let siteLabel = '';
+  try { siteLabel = label(new URL(website.startsWith('http') ? website : 'https://' + website).hostname); } catch { /* none */ }
+  const nameWords = String(company || '').toLowerCase().replace(/[^a-z0-9 ]/g, ' ')
+    .split(/\s+/).filter((w) => w.length >= 4 && !['limited', 'motor', 'motors', 'garage', 'services', 'service', 'auto', 'autos', 'centre'].includes(w));
+
   for (const e of entry.emails || []) {
+    if (/[&;<>#]/.test(e)) continue;                       // mangled by entity encoding
     const d = (e.split('@')[1] || '').toLowerCase();
-    if (host && (d === host || host.endsWith('.' + d) || d.endsWith('.' + host))) return e;
+    if (!d || d === 'domain.com' || d === 'example.com') continue;
     if (WEBMAIL.test(d)) return e;
+    const el = label(d);
+    if (siteLabel && el === siteLabel) return e;
+    if (siteLabel && sharedPrefix(el, siteLabel) >= 6) return e;
+    if (nameWords.some((w) => el.includes(w))) return e;
   }
   return '';
 }
@@ -90,7 +106,7 @@ function trustedEmail(entry, website) {
       r,
       confirmed,
       instance: w.instance || '',
-      email: trustedEmail(emails[r.company], r.website || ''),
+      email: trustedEmail(emails[r.company], r.website || '', r.company),
       value: confirmed ? VALUE_CONFIRMED : VALUE_OTHER,
     };
   });

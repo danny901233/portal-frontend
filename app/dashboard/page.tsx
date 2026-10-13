@@ -199,12 +199,11 @@ export default function DashboardPage() {
       invoiced: 'Invoiced',
       // Replaces the usual captured-revenue hint once Invoiced sits beside it, so the two
       // numbers are plainly labelled as quote and actual rather than two unrelated totals.
-      quotedAtBooking: 'Quoted at the time of booking.',
+      // Each figure states the jobs it covers. Without that the two were read against each
+      // other as though they were the same set, which they are not.
+      quotedAcross: (booked: number) => `Quoted across ${booked} bookings.`,
       invoicedOfBooked: (invoiced: number, booked: number) =>
-        `${invoiced} of ${booked} booked jobs billed so far.`,
-      stillDueIn: (count: number) => `${count} still due in`,
-      becameLine: (count: number, quoted: string, invoiced: string) =>
-        `on the ${count} billed, ${quoted} quoted became ${invoiced}`,
+        `Billed so far on ${invoiced} of those ${booked}.`,
     },
     fr: {
       title: 'Tableau de bord',
@@ -256,12 +255,9 @@ export default function DashboardPage() {
       showMoreInsights: 'Afficher plus de détails',
       hideInsights: 'Masquer les détails',
       invoiced: 'Facturé',
-      quotedAtBooking: 'Devisé au moment de la réservation.',
+      quotedAcross: (booked: number) => `Devisé sur ${booked} réservations.`,
       invoicedOfBooked: (invoiced: number, booked: number) =>
-        `${invoiced} des ${booked} travaux réservés déjà facturés.`,
-      stillDueIn: (count: number) => `${count} encore à venir`,
-      becameLine: (count: number, quoted: string, invoiced: string) =>
-        `sur les ${count} facturés, ${quoted} devisé est devenu ${invoiced}`,
+        `Déjà facturé sur ${invoiced} de ces ${booked}.`,
     },
   }[lang];
   const today = useMemo(() => new Date(), []);
@@ -423,21 +419,15 @@ export default function DashboardPage() {
     return calls.filter((cl) => new Date(cl.createdAt).getTime() >= t).length;
   }, [calls]);
 
-  // ── Booked -> due in -> invoiced ──────────────────────────────────────────────────────────────
-  // What the agent booked, and what it turned out to be worth. bookingDetails is prose and cannot
-  // be totalled; these come off the booking identity the agent now records (the appointment) plus
-  // the invoice value read back nightly from the garage's own system.
+  // ── What the agent booked, and what it has billed ────────────────────────────────────────────
+  // bookingDetails is prose and totals to nothing; these come off the booking identity the agent
+  // records plus the invoice value read back nightly from the garage's own system.
   const bookingOutcome = useMemo(() => {
-    const now = Date.now();
-
     // A booking is one we placed, OR one where the caller asked for a date and the garage booked
     // it by hand. The second kind is how Ecotest, Great Hollands and JDK work: they publish no
     // availability, so the agent takes the day they want. confirmedBooking is the fallback for
     // rows predating bookingAt.
     const booked = calls.filter((cl) => cl.confirmedBooking === true || Boolean(cl.bookingAt));
-
-    const quotedOf = (cl: CallRecord) =>
-      typeof cl.capturedRevenue === 'number' ? cl.capturedRevenue : 0;
 
     // Invoiced = the garage has billed the work. Paid AND Open both count: the job is done and
     // billed, and whether the customer has settled up is credit control rather than anything the
@@ -449,42 +439,12 @@ export default function DashboardPage() {
         BILLED.has((cl.invoiceStatus ?? '').trim().toLowerCase()),
     );
 
-    // Still ahead of us: an appointment in the future that has not been billed.
-    const dueIn = booked.filter(
-      (cl) => cl.bookingAt && new Date(cl.bookingAt).getTime() > now && cl.invoicedValue == null,
-    );
-
-    const invoicedTotal = invoiced.reduce((sum, cl) => sum + (cl.invoicedValue ?? 0), 0);
-
-    // The uplift compares like with like, and that takes TWO restrictions, not one.
-    //
-    // First, only jobs that have been invoiced — comparing every booking's quote against the few
-    // jobs already billed would overstate the gap badly, because most bookings are simply not
-    // billed yet.
-    //
-    // Second, only jobs that actually carry a quote. Five of Speedy's 33 invoiced bookings have
-    // no capturedRevenue at all, and treating a missing quote as £0 turns ordinary work into
-    // "found on the job" — about £675 of it on that garage alone. A job we never recorded a price
-    // for says nothing about how far the final bill moved, so it belongs in neither side.
-    const comparable = invoiced.filter((cl) => typeof cl.capturedRevenue === 'number' && cl.capturedRevenue > 0);
-    const quotedForInvoiced = comparable.reduce((sum, cl) => sum + quotedOf(cl), 0);
-    const invoicedForComparable = comparable.reduce((sum, cl) => sum + (cl.invoicedValue ?? 0), 0);
-
     return {
       bookedCount: booked.length,
-      bookedQuoted: booked.reduce((sum, cl) => sum + quotedOf(cl), 0),
-      dueInCount: dueIn.length,
-      dueInQuoted: dueIn.reduce((sum, cl) => sum + quotedOf(cl), 0),
       invoicedCount: invoiced.length,
-      invoicedTotal,
-      quotedForInvoiced,
-      // Both sides of the line cover `comparable`, never invoicedTotal — that one is the tile's
-      // headline and legitimately includes jobs with no quote.
-      invoicedForComparable,
-      comparableCount: comparable.length,
-      uplift: invoicedForComparable - quotedForInvoiced,
+      invoicedTotal: invoiced.reduce((sum, cl) => sum + (cl.invoicedValue ?? 0), 0),
       // Only garages whose diary we can read back have invoice values at all. Everyone else must
-      // see no Invoiced tile rather than a £0 one, which would read as "the AI earned nothing".
+      // see no Invoiced figure rather than a £0 one, which would read as "the AI earned nothing".
       hasInvoiceData: booked.some((cl) => cl.invoicedValue != null),
     };
   }, [calls]);
@@ -1096,7 +1056,9 @@ export default function DashboardPage() {
               {loading ? '—' : formatCurrency(bookingRevenueTotal)}
             </div>
             <p className="mt-2 hidden max-w-lg text-sm text-brand-100 md:block">
-              {bookingOutcome.hasInvoiceData ? c.quotedAtBooking : c.capturedRevenueHint}
+              {bookingOutcome.hasInvoiceData
+                ? c.quotedAcross(bookingOutcome.bookedCount)
+                : c.capturedRevenueHint}
             </p>
           </div>
           <div className="flex flex-row items-center justify-between gap-3 rounded-xl border border-white/15 bg-white/10 px-3.5 py-2.5 text-left backdrop-blur-sm md:flex-col md:items-start md:rounded-2xl md:px-7 md:py-7">
@@ -1121,20 +1083,6 @@ export default function DashboardPage() {
           )}
         </div>
 
-        {/* One line, not a box. What is still coming, and what the billed work did against its
-            quote — both only when there is something to say. */}
-        {!loading && bookingOutcome.comparableCount > 0 && bookingOutcome.quotedForInvoiced > 0 && (
-          <p className="relative mt-4 text-sm text-brand-100">
-            {[
-              bookingOutcome.dueInCount > 0 ? c.stillDueIn(bookingOutcome.dueInCount) : null,
-              c.becameLine(
-                bookingOutcome.comparableCount,
-                formatCurrency(bookingOutcome.quotedForInvoiced),
-                formatCurrency(bookingOutcome.invoicedForComparable),
-              ),
-            ].filter(Boolean).join(' · ')}
-          </p>
-        )}
       </div>
 
       <div className="hidden grid-cols-3 gap-2 md:grid md:gap-4 md:grid-cols-3">

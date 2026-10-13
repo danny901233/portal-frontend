@@ -86,12 +86,14 @@ async function main() {
         garageId: conn.garageId,
         createdAt: { gte: since },
         registrationNumber: { not: null },
-        bookingAt: { not: null },
         diaryJobNumber: null,
-        // Unless this garage is opted in to callback attribution, only bookings WE placed count.
-        // Without this a failed booking that fell back to a message would be credited as won
-        // work on every booking-capable garage in the estate.
-        ...(conn.attributeCallbackBookings ? {} : { confirmedBooking: true }),
+        // On a garage we book for, an appointment date is what the match is made on, so a call
+        // without one cannot be matched. On a callback garage there is no appointment of ours at
+        // all — the match is "a job appeared for this registration that did not exist when they
+        // rang" — so requiring a date here would exclude almost every call they take.
+        ...(conn.attributeCallbackBookings
+          ? {}
+          : { bookingAt: { not: null }, confirmedBooking: true }),
       },
       select: {
         id: true, createdAt: true, registrationNumber: true,

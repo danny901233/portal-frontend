@@ -208,8 +208,14 @@ export interface MessageLeadToMatch {
   /** When the call happened. A job raised before this was not won by it. */
   calledAt: Date;
   /**
-   * The date the caller asked for. REQUIRED — a call without one is an enquiry or a progress
-   * chase, and counting it is how the figure stopped being defensible.
+   * The date the caller asked for, when the agent captured one. OPTIONAL.
+   *
+   * It began as a hard requirement, on the reasoning that a call without a date is an enquiry or
+   * a progress chase. The structural rule below turned out to do that work on its own — a car
+   * already in the workshop has a jobsheet raised BEFORE the call, so it is excluded whether or
+   * not a date was taken. Meanwhile the date is only present when the model remembers to pass an
+   * optional parameter, so requiring it meant a figure that could sit at zero indefinitely while
+   * real bookings went uncounted.
    */
   preferredDate?: Date | null;
 }
@@ -217,10 +223,13 @@ export interface MessageLeadToMatch {
 /**
  * How long after the message the garage's callback booking may be raised and still count.
  *
- * Long enough for a garage to work through a message backlog over a week or two, short enough
- * that an unrelated return visit months later is not credited to this call.
+ * Two weeks. A service advisor rings back the same day or the next, so a job appearing inside a
+ * fortnight is plausibly that callback. Wider than this and it starts crediting us with a
+ * customer who rang for a price, did not book, and came back of their own accord weeks later —
+ * which is the main way this measure can overstate itself now that a preferred date is no longer
+ * required.
  */
-const CALLBACK_WINDOW_DAYS = 45;
+const CALLBACK_WINDOW_DAYS = 14;
 
 /**
  * The job the garage raised off the back of this message, or null.
@@ -234,8 +243,7 @@ export function matchMessageLead(
   candidates: CandidateJob[],
 ): CandidateJob | null {
   const reg = normaliseReg(lead.registration);
-  // No preferred date means this was never a booking request. This is the whole qualifying rule.
-  if (!reg || !lead.preferredDate) return null;
+  if (!reg) return null;
 
   const calledOn = toIsoDay(lead.calledAt);
   const deadline = toIsoDay(new Date(lead.calledAt.getTime() + CALLBACK_WINDOW_DAYS * 86_400_000));

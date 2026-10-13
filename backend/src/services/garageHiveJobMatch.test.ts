@@ -171,22 +171,33 @@ test('a job that already existed when they rang is NOT ours', () => {
   assert.equal(hit, null, 'the car was already booked in before the call — we did not win it');
 });
 
-// This is the user's constraint, and it is what makes the figure defensible.
-test('a call with no preferred date never counts, however well the reg matches', () => {
+// The preferred date is no longer required. It is only ever present when the model passes an
+// optional parameter, so requiring it meant real bookings going uncounted indefinitely. The
+// "job did not exist when they rang" rule is what actually excludes a progress chase.
+test('a call with no preferred date still counts when a job appeared afterwards', () => {
   const candidates = [job({ number: 'SJ062583', serviceType: 'MOT4', vehicleRegistrationNo: 'LM65TWV', bookingDate: '2026-09-04', documentDate: '2026-09-02' })];
   assert.equal(
-    matchMessageLead({ registration: 'LM65TWV', calledAt: new Date('2026-09-01T10:00:00Z'), preferredDate: null }, candidates),
-    null,
-    'without a preferred date this is an enquiry or a progress chase, not a booking request',
+    matchMessageLead({ registration: 'LM65TWV', calledAt: new Date('2026-09-01T10:00:00Z'), preferredDate: null }, candidates)?.number,
+    'SJ062583',
   );
 });
 
-test('a job raised long after the call is not attributed', () => {
-  const hit = matchMessageLead(
-    { registration: 'LM65TWV', calledAt: new Date('2026-09-01T10:00:00Z'), preferredDate: new Date('2026-09-04') },
-    [job({ number: 'SJ062583', serviceType: 'MOT4', vehicleRegistrationNo: 'LM65TWV', bookingDate: '2026-12-20', documentDate: '2026-12-15' })],
+// Fourteen days, not forty-five. With no preferred date to qualify the call, the window is the
+// main thing standing between "the advisor rang them back" and "they came back weeks later of
+// their own accord, and we took the credit".
+test('a job raised beyond the fortnight is not attributed', () => {
+  const beyond = [job({ number: 'SJ062583', serviceType: 'MOT4', vehicleRegistrationNo: 'LM65TWV', bookingDate: '2026-09-20', documentDate: '2026-09-18' })];
+  assert.equal(
+    matchMessageLead({ registration: 'LM65TWV', calledAt: new Date('2026-09-01T10:00:00Z'), preferredDate: null }, beyond),
+    null,
+    '17 days later is outside the callback window',
   );
-  assert.equal(hit, null, 'three months later is not the callback from this message');
+  const inside = [job({ number: 'SJ062583', serviceType: 'MOT4', vehicleRegistrationNo: 'LM65TWV', bookingDate: '2026-09-16', documentDate: '2026-09-14' })];
+  assert.equal(
+    matchMessageLead({ registration: 'LM65TWV', calledAt: new Date('2026-09-01T10:00:00Z'), preferredDate: null }, inside)?.number,
+    'SJ062583',
+    '13 days later is inside it',
+  );
 });
 
 test('the earliest qualifying job wins when a car returns more than once', () => {

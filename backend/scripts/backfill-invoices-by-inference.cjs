@@ -14,7 +14,9 @@
 require('dotenv').config();
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
-const WINDOW = 45;
+// Same fortnight the nightly sweep uses. A backfill that reached further would claim bookings
+// the live system would never credit, and the two figures would disagree forever after.
+const WINDOW = 14;
 
 function arg(flag, fallback) {
   const i = process.argv.indexOf(flag);
@@ -22,6 +24,10 @@ function arg(flag, fallback) {
 }
 const COMMIT = process.argv.includes('--commit');
 const ONLY_GARAGE = arg('--garage', null);
+// How far back to look. Deliberately not "all history": the further back it reaches the more it
+// is claiming about calls nobody remembers, and the invoices it matches drift further from the
+// call that supposedly caused them.
+const SINCE = arg('--since', '2026-10-01');
 
 async function token(c) {
   const b = new URLSearchParams({ client_id: c.clientId, client_secret: c.clientSecret,
@@ -50,7 +56,8 @@ const lag = (a, b) => Math.round((new Date(b) - new Date(a)) / 86400000);
   const conns = await prisma.garageHiveConnection.findMany({
     where: ONLY_GARAGE ? { garageId: ONLY_GARAGE } : {},
     select: { garageId: true, tenantId: true, environmentName: true, companyId: true,
-              clientId: true, clientSecret: true, garage: { select: { name: true } } },
+              clientId: true, clientSecret: true, attributeCallbackBookings: true,
+              garage: { select: { name: true } } },
   });
 
   let grandN = 0, grandV = 0;
@@ -62,9 +69,17 @@ const lag = (a, b) => Math.round((new Date(b) - new Date(a)) / 86400000);
 
     // Bookings WE placed that still have no job number. Message-only leads are excluded: their
     // attribution is a different, looser question and is not what this recovers.
+    // On a callback garage nothing is ever flagged confirmedBooking — they publish no
+    // availability, so the agent books nothing and every booking request arrives as a message.
+    // Requiring that flag there would match nothing at all.
     const calls = await prisma.call.findMany({
-      where: { garageId: conn.garageId, confirmedBooking: true,
-               registrationNumber: { not: null }, diaryJobNumber: null },
+      where: {
+        garageId: conn.garageId,
+        createdAt: { gte: new Date(`${SINCE}T00:00:00Z`) },
+        registrationNumber: { not: null },
+        diaryJobNumber: null,
+        ...(conn.attributeCallbackBookings ? {} : { confirmedBooking: true }),
+      },
       select: { id: true, createdAt: true, registrationNumber: true, customerName: true, capturedRevenue: true },
       orderBy: { createdAt: 'asc' },
     });

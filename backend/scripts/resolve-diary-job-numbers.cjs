@@ -52,7 +52,8 @@ async function main() {
   const matcher = await import(
     require('url').pathToFileURL(path.join(__dirname, '..', 'dist', 'services', 'garageHiveJobMatch.js')).href
   );
-  const { matchJobsheet, matchMessageLead, fetchOpenJobsheets, isAgentPlacedJob } = matcher;
+  const { matchJobsheet, matchMessageLead, fetchOpenJobsheets, isAgentPlacedJob,
+          fetchInvoicesByJobNumber } = matcher;
 
   const since = new Date(Date.now() - DAYS * 86_400_000);
 
@@ -167,6 +168,71 @@ async function main() {
   console.log(
     `\n${COMMIT ? 'Wrote' : 'Would write'} ${totalResolved} job number(s).` +
     (COMMIT ? '' : ' Re-run with --commit to save.'),
+  );
+
+  // ── Second pass: what did those jobs invoice for? ────────────────────────────────────────────
+  // Separate from the first on purpose. Resolving the job number is urgent — the jobsheet has to
+  // still be open — whereas the invoice appears days or weeks later and can be picked up at
+  // leisure. A job with no invoice yet is simply absent from the lookup and gets asked about
+  // again tomorrow, so this is safe to run every night from the moment the number is known.
+  let totalInvoiced = 0;
+  let totalValue = 0;
+  for (const conn of connections) {
+    const label = conn.garage?.name || conn.garageId;
+
+    const awaiting = await prisma.call.findMany({
+      where: { garageId: conn.garageId, diaryJobNumber: { not: null }, invoicedValue: null },
+      select: { id: true, diaryJobNumber: true, registrationNumber: true, capturedRevenue: true },
+    });
+    if (!awaiting.length) continue;
+
+    let invoices;
+    try {
+      invoices = await fetchInvoicesByJobNumber(
+        conn.garageId,
+        awaiting.map((c) => c.diaryJobNumber),
+      );
+    } catch (e) {
+      console.error(`${label}: invoice read failed — ${e.message.slice(0, 80)}`);
+      continue;
+    }
+
+    let found = 0;
+    for (const call of awaiting) {
+      const facts = invoices.get(call.diaryJobNumber);
+      if (!facts) continue;
+      found++;
+      totalValue += facts.invoicedValue;
+
+      // The gap between what we quoted and what it invoiced is the number worth having: an MOT
+      // quoted at £54.85 that invoices at £208 is work the garage found on the ramp, and it is
+      // invisible anywhere else.
+      const quoted = typeof call.capturedRevenue === 'number' ? call.capturedRevenue : null;
+      const delta = quoted == null ? '' :
+        ` (quoted £${quoted.toFixed(2)}, ${facts.invoicedValue >= quoted ? '+' : ''}£${(facts.invoicedValue - quoted).toFixed(2)})`;
+      console.log(
+        `${label}: ${call.diaryJobNumber} ${call.registrationNumber || ''} invoiced ` +
+        `£${facts.invoicedValue.toFixed(2)} ex VAT ${facts.invoiceStatus}${delta}`,
+      );
+
+      if (COMMIT) {
+        await prisma.call.update({
+          where: { id: call.id },
+          data: {
+            invoicedValue: facts.invoicedValue,
+            invoicedAt: facts.invoicedAt,
+            invoiceStatus: facts.invoiceStatus,
+          },
+        });
+      }
+    }
+    totalInvoiced += found;
+    console.log(`${label}: ${found}/${awaiting.length} resolved job(s) now invoiced`);
+  }
+
+  console.log(
+    `${COMMIT ? 'Wrote' : 'Would write'} ${totalInvoiced} invoice value(s), ` +
+    `£${totalValue.toFixed(2)} ex VAT in total.`,
   );
 }
 

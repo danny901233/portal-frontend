@@ -291,6 +291,15 @@ model Call {
   // fact by garageHiveJobMatch. In Business Central the posted invoice carries the SAME number,
   // so this is the one field that ties a booking to its invoiced value exactly.
   diaryJobNumber           String?
+  // What that job actually invoiced for, read back from Business Central once the garage posts it.
+  // EX VAT: it is the garage's revenue, and it is the basis every figure we quote uses. The
+  // inc-VAT total is on the invoice too and can be backfilled later if wanted — invoices persist
+  // in BC, unlike the open jobsheet the number itself had to be caught from.
+  invoicedValue            Float?
+  invoicedAt               DateTime?
+  // Draft | Open | Paid | Corrective | Canceled, as BC reports it. Stored rather than collapsed
+  // to a boolean so a dashboard can keep a Draft out of a revenue total without another read.
+  invoiceStatus            String?
   metrics                  Json
   transcript               Json
   summary                  String
@@ -794,6 +803,9 @@ model ChatConversation {
   bookingReference         String?
   bookingAt                DateTime?
   diaryJobNumber           String?
+  invoicedValue            Float?
+  invoicedAt               DateTime?
+  invoiceStatus            String?
   tags                     String[]                  @default([])
   // Auto-derived enquiry category for garage-side Messages inbox filters.
   // App-code enum: parts | sales | booking | complaint | general. Nullable

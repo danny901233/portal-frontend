@@ -282,3 +282,115 @@ export function bookingAtFrom(date?: string | null, time?: string | null): Date 
   const parsed = new Date(`${day}T${clock}:00Z`);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
+
+// ---------------------------------------------------------------------------
+// Reading back what the job invoiced for
+// ---------------------------------------------------------------------------
+// This needs no matching at all. In Business Central a posted sales invoice carries the SAME
+// number as the jobsheet it came from — SJ000827 as a job posts as SJ000827 as an invoice — so the
+// job number resolved earlier IS the lookup key.
+//
+// It lives on the STANDARD BC API (api/v2.0/.../salesInvoices), not the garageHive groups, which
+// expose no invoice entity at all. The invoice carries no registration, on the header or the
+// lines, which is exactly why the job number had to be caught while the jobsheet was still open.
+
+/** A sales invoice, as the sweep needs it. Mirrors the BC field names. */
+export interface RawInvoice {
+  number?: string;
+  postingDate?: string;
+  status?: string;
+  totalAmountExcludingTax?: number | null;
+  totalAmountIncludingTax?: number | null;
+}
+
+export interface InvoiceFacts {
+  /** EX VAT — the garage's revenue, and the basis every figure we quote uses. */
+  invoicedValue: number;
+  invoicedAt: Date;
+  /** BC's own word: Draft | Open | Paid | Corrective | Canceled. */
+  invoiceStatus: string;
+}
+
+/**
+ * Turn a BC invoice row into the three facts worth storing, or null if it says nothing usable.
+ *
+ * Zero and negative values are REAL answers and are kept. A job can invoice at nothing (a goodwill
+ * check-over, or the work moved onto another invoice), and a credit note is negative — dropping
+ * either would leave the sweep re-reading the same invoice every night and would report refunded
+ * work as if it had simply not happened.
+ */
+export function parseInvoice(row: RawInvoice | null | undefined): InvoiceFacts | null {
+  if (!row) return null;
+
+  const amount = row.totalAmountExcludingTax;
+  if (typeof amount !== 'number' || !Number.isFinite(amount)) return null;
+
+  const posted = (row.postingDate || '').slice(0, 10);
+  if (!posted || posted === EMPTY_DATE) return null;
+  const invoicedAt = new Date(`${posted}T00:00:00Z`);
+  if (Number.isNaN(invoicedAt.getTime())) return null;
+
+  return {
+    invoicedValue: amount,
+    invoicedAt,
+    invoiceStatus: (row.status || '').trim() || 'Unknown',
+  };
+}
+
+/** Split job numbers into URL-sized batches. A hundred in one $filter is rejected outright. */
+export function chunkJobNumbers(numbers: string[], size = 20): string[][] {
+  const out: string[][] = [];
+  for (let i = 0; i < numbers.length; i += size) out.push(numbers.slice(i, i + size));
+  return out;
+}
+
+/**
+ * An OData filter matching any of these job numbers.
+ *
+ * OR within ONE field, which BC allows — an OR across two different fields it refuses outright
+ * ("OR operator not supported on distinct fields"). AND here would match nothing.
+ */
+export function invoiceFilter(numbers: string[]): string {
+  return numbers.map((n) => `number eq ${odataStrLocal(n)}`).join(' or ');
+}
+
+/** BC OData string literal: single quotes are doubled. */
+function odataStrLocal(value: string): string {
+  return `'${String(value).replace(/'/g, "''")}'`;
+}
+
+/**
+ * Look up invoices for these job numbers. Read-only.
+ *
+ * A number with no invoice yet is simply absent from the result — the job is still open, and the
+ * sweep will ask again tomorrow.
+ */
+export async function fetchInvoicesByJobNumber(
+  garageId: string,
+  jobNumbers: string[],
+): Promise<Map<string, InvoiceFacts>> {
+  const out = new Map<string, InvoiceFacts>();
+  if (!jobNumbers.length) return out;
+
+  const creds = await resolveCreds(garageId);
+  if (!creds) return out;
+
+  const { default: axios } = await import('axios');
+  const token = await getBcToken(creds);
+  const select = 'number,postingDate,status,totalAmountExcludingTax,totalAmountIncludingTax';
+  const base =
+    `https://api.businesscentral.dynamics.com/v2.0/${creds.tenantId}/${creds.environmentName}` +
+    `/api/v2.0/companies(${creds.companyId})/salesInvoices`;
+
+  for (const chunk of chunkJobNumbers(jobNumbers)) {
+    const url = `${base}?$filter=${encodeURIComponent(invoiceFilter(chunk))}&$select=${select}`;
+    const res: { data?: { value?: RawInvoice[] } } = await axios.get(url, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    for (const row of res.data?.value ?? []) {
+      const facts = parseInvoice(row);
+      if (facts && row.number) out.set(row.number, facts);
+    }
+  }
+  return out;
+}

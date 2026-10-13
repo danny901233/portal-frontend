@@ -5,6 +5,9 @@ import {
   matchJobsheet,
   matchMessageLead,
   bookingAtFrom,
+  parseInvoice,
+  chunkJobNumbers,
+  invoiceFilter,
   isAgentPlacedJob,
   normaliseReg,
   type CandidateJob,
@@ -226,4 +229,65 @@ test('an unreadable date returns null rather than guessing', () => {
 test('an early and a late slot both stay on the booked day', () => {
   assert.equal(bookingAtFrom('2026-10-27', '00:15')?.toISOString().slice(0, 10), '2026-10-27');
   assert.equal(bookingAtFrom('2026-10-27', '23:45')?.toISOString().slice(0, 10), '2026-10-27');
+});
+
+// ── Reading the invoice back ──────────────────────────────────────────────────────────────────
+// No matching needed here: in Business Central a posted sales invoice carries the SAME number as
+// the jobsheet it came from, so the job number IS the lookup key. What needs testing is the
+// parsing, because this value gets shown to garages as revenue.
+
+test('an invoice is parsed into the value, date and status', () => {
+  const got = parseInvoice({
+    number: 'SJ000727', postingDate: '2026-10-07', status: 'Paid',
+    totalAmountExcludingTax: 133.64, totalAmountIncludingTax: 160.37,
+  });
+  assert.equal(got?.invoicedValue, 133.64, 'ex VAT is the garage revenue figure');
+  assert.equal(got?.invoiceStatus, 'Paid');
+  assert.equal(got?.invoicedAt?.toISOString().slice(0, 10), '2026-10-07');
+});
+
+// A job can be invoiced at nothing — a goodwill check-over, or work moved onto another invoice.
+// That is a real answer, not a missing one, and it must stick so the sweep stops re-reading it.
+test('a zero-value invoice is recorded, not discarded', () => {
+  const got = parseInvoice({ number: 'SJ000620', postingDate: '2026-10-01', status: 'Paid', totalAmountExcludingTax: 0 });
+  assert.equal(got?.invoicedValue, 0);
+  assert.equal(got?.invoiceStatus, 'Paid');
+});
+
+test('a credit note comes through as a negative value rather than being dropped', () => {
+  const got = parseInvoice({ number: 'SJ000700', postingDate: '2026-10-02', status: 'Paid', totalAmountExcludingTax: -54.85 });
+  assert.equal(got?.invoicedValue, -54.85, 'a refunded job must not read as £0 of work');
+});
+
+test('an unpostable or unreadable invoice yields nothing', () => {
+  assert.equal(parseInvoice(null), null);
+  assert.equal(parseInvoice({ number: 'SJ1', postingDate: '', status: 'Draft', totalAmountExcludingTax: 10 }), null);
+  assert.equal(parseInvoice({ number: 'SJ1', postingDate: '0001-01-01', status: 'Draft', totalAmountExcludingTax: 10 }), null,
+    "Garage Hive's empty date is not a posting date");
+  assert.equal(parseInvoice({ number: 'SJ1', postingDate: '2026-10-02', status: 'Paid', totalAmountExcludingTax: null }), null,
+    'no amount means nothing to record');
+});
+
+// A Draft is not money. It is kept rather than filtered out so a dashboard can exclude it without
+// another API round trip — but it must be visibly a draft.
+test('a draft invoice keeps its status so it can be excluded from revenue', () => {
+  const got = parseInvoice({ number: 'SJ000900', postingDate: '2026-10-10', status: 'Draft', totalAmountExcludingTax: 95 });
+  assert.equal(got?.invoiceStatus, 'Draft');
+  assert.equal(got?.invoicedValue, 95);
+});
+
+// BC refuses an OR across two different fields but allows one field against a list, which is all
+// this needs. Chunking matters: the filter goes in a URL, and a hundred job numbers in one query
+// is a request the API rejects outright.
+test('job numbers are batched into chunks for the filter', () => {
+  const numbers = Array.from({ length: 47 }, (_, i) => `SJ${String(i).padStart(6, '0')}`);
+  const chunks = chunkJobNumbers(numbers, 20);
+  assert.deepEqual(chunks.map((c) => c.length), [20, 20, 7]);
+  assert.equal(chunks.flat().length, 47, 'no job number may be lost in the chunking');
+});
+
+test('the filter quotes each number and ORs within the single number field', () => {
+  const filter = invoiceFilter(['SJ000727', "SJ'X"]);
+  assert.equal(filter, "number eq 'SJ000727' or number eq 'SJ''X'");
+  assert.ok(!filter.includes(' and '), 'an AND here would return nothing');
 });

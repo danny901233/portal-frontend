@@ -53,7 +53,7 @@ async function main() {
     require('url').pathToFileURL(path.join(__dirname, '..', 'dist', 'services', 'garageHiveJobMatch.js')).href
   );
   const { matchJobsheet, matchMessageLead, fetchOpenJobsheets, isAgentPlacedJob,
-          fetchInvoicesByJobNumber } = matcher;
+          fetchInvoicesByJobNumber, bookingAtFrom } = matcher;
 
   const since = new Date(Date.now() - DAYS * 86_400_000);
 
@@ -145,8 +145,14 @@ async function main() {
 
       const how = call.confirmedBooking ? 'placed' : 'message->callback';
       const marker = isAgentPlacedJob(hit.serviceType) ? ' [OB]' : '';
+      // bookingAt is null on a callback garage — there is no appointment of OURS, which is the
+      // whole point of that path. Report the call date instead of assuming one exists; reading
+      // .toISOString() off null here crashed the sweep before it reached a single one of them.
+      const when = call.bookingAt
+        ? `appt ${call.bookingAt.toISOString().slice(0, 10)}`
+        : `called ${call.createdAt.toISOString().slice(0, 10)}`;
       console.log(
-        `${label}: ${call.registrationNumber} ${call.bookingAt.toISOString().slice(0, 10)}` +
+        `${label}: ${call.registrationNumber} ${when}` +
         ` -> ${hit.number} (${hit.serviceType || 'no service type'})${marker} [${how}]`,
       );
 
@@ -155,7 +161,13 @@ async function main() {
           where: { id: call.id },
           // 'matched': this came off a real jobsheet, registration and appointment date agreeing.
           // Distinct from the inference backfill, which cannot claim that.
-          data: { diaryJobNumber: hit.number, diaryJobSource: 'matched' },
+          data: {
+            diaryJobNumber: hit.number,
+            diaryJobSource: 'matched',
+            // On a callback garage we have no appointment of our own; the one the garage set when
+            // they booked it by hand is the only appointment there is, so take it from the job.
+            ...(call.bookingAt ? {} : { bookingAt: bookingAtFrom(hit.bookingDate, hit.bookingTime) }),
+          },
         });
       }
       resolved++;

@@ -196,18 +196,15 @@ export default function DashboardPage() {
         'Quick overview of how often each tag is used. Use this to prioritise scripts and team training.',
       showMoreInsights: 'Show more insights',
       hideInsights: 'Hide insights',
-      jobsBooked: 'Jobs booked',
-      jobsBookedHint: 'Appointments the AI booked, or booking requests your team booked in afterwards.',
-      dueIn: 'Due in',
-      dueInHint: 'Booked work still ahead of its appointment date.',
       invoiced: 'Invoiced',
-      invoicedHint: 'What those jobs actually invoiced for, read from your diary. Excludes drafts.',
-      invoicedJobs: (count: number) => `${count} ${count === 1 ? 'job' : 'jobs'} invoiced`,
-      quotedLabel: (value: string) => `${value} quoted`,
-      upliftLine: (quoted: string, invoiced: string, extra: string) =>
-        `Quoted ${quoted} \u2192 invoiced ${invoiced}. ${extra} more found on the job.`,
-      upliftLineDown: (quoted: string, invoiced: string) =>
-        `Quoted ${quoted} \u2192 invoiced ${invoiced}.`,
+      // Replaces the usual captured-revenue hint once Invoiced sits beside it, so the two
+      // numbers are plainly labelled as quote and actual rather than two unrelated totals.
+      quotedAtBooking: 'Quoted at the time of booking.',
+      invoicedOfBooked: (invoiced: number, booked: number) =>
+        `${invoiced} of ${booked} booked jobs billed so far.`,
+      stillDueIn: (count: number) => `${count} still due in`,
+      becameLine: (count: number, quoted: string, invoiced: string) =>
+        `on the ${count} billed, ${quoted} quoted became ${invoiced}`,
     },
     fr: {
       title: 'Tableau de bord',
@@ -258,20 +255,13 @@ export default function DashboardPage() {
         'Aperçu rapide de la fréquence d’utilisation de chaque étiquette. Utilisez-le pour prioriser les scripts et la formation de l’équipe.',
       showMoreInsights: 'Afficher plus de détails',
       hideInsights: 'Masquer les détails',
-      jobsBooked: 'Travaux réservés',
-      jobsBookedHint:
-        'Rendez-vous pris par l’IA, ou demandes de réservation que votre équipe a ensuite planifiées.',
-      dueIn: 'À venir',
-      dueInHint: 'Travaux réservés dont la date de rendez-vous n’est pas encore passée.',
       invoiced: 'Facturé',
-      invoicedHint:
-        'Le montant réellement facturé pour ces travaux, lu depuis votre agenda. Hors brouillons.',
-      invoicedJobs: (count: number) => `${count} ${count === 1 ? 'travail facturé' : 'travaux facturés'}`,
-      quotedLabel: (value: string) => `${value} devisé`,
-      upliftLine: (quoted: string, invoiced: string, extra: string) =>
-        `Devisé ${quoted} \u2192 facturé ${invoiced}. ${extra} de travaux supplémentaires trouvés.`,
-      upliftLineDown: (quoted: string, invoiced: string) =>
-        `Devisé ${quoted} \u2192 facturé ${invoiced}.`,
+      quotedAtBooking: 'Devisé au moment de la réservation.',
+      invoicedOfBooked: (invoiced: number, booked: number) =>
+        `${invoiced} des ${booked} travaux réservés déjà facturés.`,
+      stillDueIn: (count: number) => `${count} encore à venir`,
+      becameLine: (count: number, quoted: string, invoiced: string) =>
+        `sur les ${count} facturés, ${quoted} devisé est devenu ${invoiced}`,
     },
   }[lang];
   const today = useMemo(() => new Date(), []);
@@ -1084,14 +1074,25 @@ export default function DashboardPage() {
       <div className="relative hidden overflow-hidden rounded-2xl bg-brand-600 p-4 shadow-lg shadow-brand-600/20 md:block md:rounded-3xl md:px-8 md:py-10">
         <div className="absolute -top-24 -right-24 h-48 w-48 rounded-full bg-brand-400/30 blur-3xl" aria-hidden />
         <div className="absolute -bottom-24 -left-24 h-48 w-48 rounded-full bg-fuchsia-500/20 blur-3xl" aria-hidden />
-        <div className="relative grid gap-3 sm:grid-cols-2 sm:items-center md:gap-6">
+        <div
+          className={cn(
+            // stretch, not center: the two boxed figures carry hint text of different lengths,
+            // and centring left them sitting at different heights beside each other.
+            'relative grid gap-3 sm:items-stretch md:gap-6',
+            // Invoiced joins the quoted figure HERE rather than in a row of its own. Quoted
+            // against actual is the comparison worth making, and it only reads as one when the
+            // two numbers sit together — a separate tile forty pixels below, under a different
+            // heading, was just the same money said twice.
+            bookingOutcome.hasInvoiceData ? 'sm:grid-cols-3' : 'sm:grid-cols-2',
+          )}
+        >
           <div className="space-y-1 md:space-y-3">
             <span className="text-[10px] font-semibold uppercase tracking-[0.3em] text-brand-100 md:text-xs md:tracking-[0.35em]">{c.capturedRevenue}</span>
             <div className="text-3xl font-semibold text-white md:text-5xl">
               {loading ? '—' : formatCurrency(bookingRevenueTotal)}
             </div>
             <p className="mt-2 hidden max-w-lg text-sm text-brand-100 md:block">
-              {c.capturedRevenueHint}
+              {bookingOutcome.hasInvoiceData ? c.quotedAtBooking : c.capturedRevenueHint}
             </p>
           </div>
           <div className="flex flex-row items-center justify-between gap-3 rounded-xl border border-white/15 bg-white/10 px-3.5 py-2.5 text-left backdrop-blur-sm md:flex-col md:items-start md:rounded-2xl md:px-7 md:py-7">
@@ -1103,7 +1104,35 @@ export default function DashboardPage() {
               {c.confirmedBookingsHint}
             </p>
           </div>
+          {bookingOutcome.hasInvoiceData && (
+            <div className="flex flex-row items-center justify-between gap-3 rounded-xl border border-white/15 bg-white/10 px-3.5 py-2.5 text-left backdrop-blur-sm md:flex-col md:items-start md:rounded-2xl md:px-7 md:py-7">
+              <div className="text-xs font-semibold uppercase tracking-[0.25em] text-brand-100">{c.invoiced}</div>
+              <div className="text-3xl font-semibold text-white md:text-4xl">
+                {loading ? '—' : formatCurrency(bookingOutcome.invoicedTotal)}
+              </div>
+              <p className="hidden max-w-sm text-sm text-brand-100/90 md:block">
+                {c.invoicedOfBooked(bookingOutcome.invoicedCount, bookingOutcome.bookedCount)}
+              </p>
+            </div>
+          )}
         </div>
+
+        {/* One line, not a box. What is still coming, and what the billed work did against its
+            quote — both only when there is something to say. */}
+        {!loading && (bookingOutcome.dueInCount > 0 || bookingOutcome.comparableCount > 0) && (
+          <p className="relative mt-4 text-sm text-brand-100">
+            {[
+              bookingOutcome.dueInCount > 0 ? c.stillDueIn(bookingOutcome.dueInCount) : null,
+              bookingOutcome.comparableCount > 0 && bookingOutcome.quotedForInvoiced > 0
+                ? c.becameLine(
+                    bookingOutcome.comparableCount,
+                    formatCurrency(bookingOutcome.quotedForInvoiced),
+                    formatCurrency(bookingOutcome.invoicedForComparable),
+                  )
+                : null,
+            ].filter(Boolean).join(' · ')}
+          </p>
+        )}
       </div>
 
       <div className="hidden grid-cols-3 gap-2 md:grid md:gap-4 md:grid-cols-3">
@@ -1128,73 +1157,6 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Booked -> due in -> invoiced. Shown only once there is a booking to report, so a garage
-          that has not had one yet sees nothing rather than a row of zeroes. The Invoiced tile
-          needs more: it appears only where we can read the garage's diary back, because a £0
-          invoiced figure on a garage we cannot read would say the AI earned nothing. */}
-      {bookingOutcome.bookedCount > 0 && (
-        <div
-          className={cn(
-            'grid gap-2 md:gap-4',
-            bookingOutcome.hasInvoiceData ? 'grid-cols-3' : 'grid-cols-2',
-          )}
-        >
-          <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm md:rounded-2xl md:p-5">
-            <div className="text-[10px] font-medium uppercase tracking-wide text-slate-500 md:text-xs">{c.jobsBooked}</div>
-            <div className="mt-1 text-lg font-semibold text-slate-900 md:mt-3 md:text-3xl">
-              {loading ? '—' : bookingOutcome.bookedCount}
-            </div>
-            <div className="mt-1 text-xs text-slate-500">
-              {loading ? '' : c.quotedLabel(formatCurrency(bookingOutcome.bookedQuoted))}
-            </div>
-            <p className="mt-2 hidden text-xs text-slate-500 md:block">{c.jobsBookedHint}</p>
-          </div>
-
-          <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm md:rounded-2xl md:p-5">
-            <div className="text-[10px] font-medium uppercase tracking-wide text-slate-500 md:text-xs">{c.dueIn}</div>
-            <div className="mt-1 text-lg font-semibold text-slate-900 md:mt-3 md:text-3xl">
-              {loading ? '—' : bookingOutcome.dueInCount}
-            </div>
-            <div className="mt-1 text-xs text-slate-500">
-              {loading ? '' : c.quotedLabel(formatCurrency(bookingOutcome.dueInQuoted))}
-            </div>
-            <p className="mt-2 hidden text-xs text-slate-500 md:block">{c.dueInHint}</p>
-          </div>
-
-          {bookingOutcome.hasInvoiceData && (
-            <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm md:rounded-2xl md:p-5">
-              <div className="text-[10px] font-medium uppercase tracking-wide text-slate-500 md:text-xs">{c.invoiced}</div>
-              <div className="mt-1 text-lg font-semibold text-slate-900 md:mt-3 md:text-3xl">
-                {loading ? '—' : formatCurrency(bookingOutcome.invoicedTotal)}
-              </div>
-              <div className="mt-1 text-xs text-slate-500">
-                {loading ? '' : c.invoicedJobs(bookingOutcome.invoicedCount)}
-              </div>
-              <p className="mt-2 hidden text-xs text-slate-500 md:block">{c.invoicedHint}</p>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* The line worth reading: what the work was quoted at against what it billed. Both figures
-          cover the SAME jobs — the invoiced ones — because comparing every quote against the few
-          jobs already billed would overstate the gap badly. Only shown when the work came in
-          above the quote, which is the case worth drawing attention to; when it came in at or
-          under, the plain two figures are stated without a claim attached. */}
-      {!loading && bookingOutcome.comparableCount > 0 && bookingOutcome.quotedForInvoiced > 0 && (
-        <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600 shadow-sm md:rounded-2xl">
-          {bookingOutcome.uplift > 0
-            ? c.upliftLine(
-                formatCurrency(bookingOutcome.quotedForInvoiced),
-                formatCurrency(bookingOutcome.invoicedForComparable),
-                formatCurrency(bookingOutcome.uplift),
-              )
-            : c.upliftLineDown(
-                formatCurrency(bookingOutcome.quotedForInvoiced),
-                formatCurrency(bookingOutcome.invoicedForComparable),
-              )}
-        </div>
-      )}
 
       {hasMessagingAccess && selectedGarageId && !shouldAggregateAllBranches && (
         <div className="grid gap-4 md:grid-cols-2">

@@ -151,7 +151,9 @@ async function main() {
       if (COMMIT) {
         await prisma.call.update({
           where: { id: call.id },
-          data: { diaryJobNumber: hit.number },
+          // 'matched': this came off a real jobsheet, registration and appointment date agreeing.
+          // Distinct from the inference backfill, which cannot claim that.
+          data: { diaryJobNumber: hit.number, diaryJobSource: 'matched' },
         });
       }
       resolved++;

@@ -124,6 +124,8 @@ async function main() {
           where: { id: call.id },
           data: {
             diaryJobNumber: job.number,
+            // Read off a real open jobsheet, so 'matched' like the nightly sweep.
+            diaryJobSource: 'matched',
             // Only fill the appointment if we do not already have one. A date the agent actually
             // sent is better evidence than one inferred from the diary afterwards.
             ...(call.bookingAt ? {} : { bookingAt: appointment }),

@@ -300,6 +300,16 @@ model Call {
   // Draft | Open | Paid | Corrective | Canceled, as BC reports it. Stored rather than collapsed
   // to a boolean so a dashboard can keep a Draft out of a revenue total without another read.
   invoiceStatus            String?
+  // How the job number was arrived at, because the two are not equally trustworthy and look
+  // identical once stored:
+  //   'matched'  — tied to a real jobsheet (registration + appointment date, or the one-off
+  //                online-booking sweep). Exact.
+  //   'inferred' — the job was already posted, so the jobsheet was gone and the link was
+  //                reconstructed as "this customer's first unclaimed invoice within 45 days of
+  //                the call". Right far more often than not, but a guess.
+  // Null on rows predating this. Kept so a figure can be caveated, or the inferred ones dropped,
+  // without having to work out months later which was which.
+  diaryJobSource           String?
   metrics                  Json
   transcript               Json
   summary                  String
@@ -806,6 +816,7 @@ model ChatConversation {
   invoicedValue            Float?
   invoicedAt               DateTime?
   invoiceStatus            String?
+  diaryJobSource           String?
   tags                     String[]                  @default([])
   // Auto-derived enquiry category for garage-side Messages inbox filters.
   // App-code enum: parts | sales | booking | complaint | general. Nullable

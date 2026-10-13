@@ -201,7 +201,7 @@ export default function DashboardPage() {
       // numbers are plainly labelled as quote and actual rather than two unrelated totals.
       // The three figures partition one set, so they can be read as a pipeline and checked
       // against each other: booked in = invoiced + still to be invoiced.
-      bookedIn: 'Booked in',
+      bookedIn: 'Bookings',
       bookedInHint: (quoted: string) => `Appointments the AI booked, quoted at ${quoted}.`,
       invoicedJobCount: (count: number) =>
         `${count} of those jobs have been done and billed.`,
@@ -258,7 +258,7 @@ export default function DashboardPage() {
       showMoreInsights: 'Afficher plus de détails',
       hideInsights: 'Masquer les détails',
       invoiced: 'Facturé',
-      bookedIn: 'Réservés',
+      bookedIn: 'Réservations',
       bookedInHint: (quoted: string) => `Rendez-vous pris par l’IA, devisés à ${quoted}.`,
       invoicedJobCount: (count: number) =>
         `${count} de ces travaux sont terminés et facturés.`,

@@ -34,6 +34,9 @@ export interface CandidateJob {
   vehicleRegistrationNo?: string;
   /** The appointment. Garage Hive writes an absent date as 0001-01-01, not null. */
   bookingDate?: string;
+  /** The slot time, as HH:MM:SS. Matching compares the day only, but storing the real time means
+   *  a recovered appointment reads correctly rather than sitting at midnight. */
+  bookingTime?: string;
   /** When the job was raised, which is not the appointment. */
   documentDate?: string;
   locationCode?: string;
@@ -140,7 +143,7 @@ export async function fetchOpenJobsheets(garageId: string): Promise<CandidateJob
 async function fetchOpenJobsheetsWith(creds: GarageHiveCreds): Promise<CandidateJob[]> {
   const { default: axios } = await import('axios');
   const token = await getBcToken(creds);
-  const select = 'number,serviceType,vehicleRegistrationNo,bookingDate,documentDate,locationCode';
+  const select = 'number,serviceType,vehicleRegistrationNo,bookingDate,bookingTime,documentDate,locationCode';
   const base =
     `https://api.businesscentral.dynamics.com/v2.0/${creds.tenantId}/${creds.environmentName}` +
     `/api/garageHive/service/v2.0/companies(${creds.companyId})/jobsheets?$select=${select}`;

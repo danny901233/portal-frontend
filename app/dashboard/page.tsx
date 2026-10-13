@@ -466,10 +466,19 @@ export default function DashboardPage() {
 
     const invoicedTotal = invoiced.reduce((sum, cl) => sum + (cl.invoicedValue ?? 0), 0);
 
-    // The quoted figure here is deliberately the quote for the SAME jobs that have been invoiced,
-    // not for every booking. Comparing all-quoted against some-invoiced would overstate the gap
-    // badly, because most bookings have not been billed yet.
-    const quotedForInvoiced = invoiced.reduce((sum, cl) => sum + quotedOf(cl), 0);
+    // The uplift compares like with like, and that takes TWO restrictions, not one.
+    //
+    // First, only jobs that have been invoiced — comparing every booking's quote against the few
+    // jobs already billed would overstate the gap badly, because most bookings are simply not
+    // billed yet.
+    //
+    // Second, only jobs that actually carry a quote. Five of Speedy's 33 invoiced bookings have
+    // no capturedRevenue at all, and treating a missing quote as £0 turns ordinary work into
+    // "found on the job" — about £675 of it on that garage alone. A job we never recorded a price
+    // for says nothing about how far the final bill moved, so it belongs in neither side.
+    const comparable = invoiced.filter((cl) => typeof cl.capturedRevenue === 'number' && cl.capturedRevenue > 0);
+    const quotedForInvoiced = comparable.reduce((sum, cl) => sum + quotedOf(cl), 0);
+    const invoicedForComparable = comparable.reduce((sum, cl) => sum + (cl.invoicedValue ?? 0), 0);
 
     return {
       bookedCount: booked.length,
@@ -479,7 +488,11 @@ export default function DashboardPage() {
       invoicedCount: invoiced.length,
       invoicedTotal,
       quotedForInvoiced,
-      uplift: invoicedTotal - quotedForInvoiced,
+      // Both sides of the line cover `comparable`, never invoicedTotal — that one is the tile's
+      // headline and legitimately includes jobs with no quote.
+      invoicedForComparable,
+      comparableCount: comparable.length,
+      uplift: invoicedForComparable - quotedForInvoiced,
       // Only garages whose diary we can read back have invoice values at all. Everyone else must
       // see no Invoiced tile rather than a £0 one, which would read as "the AI earned nothing".
       hasInvoiceData: booked.some((cl) => cl.invoicedValue != null),
@@ -1168,17 +1181,17 @@ export default function DashboardPage() {
           jobs already billed would overstate the gap badly. Only shown when the work came in
           above the quote, which is the case worth drawing attention to; when it came in at or
           under, the plain two figures are stated without a claim attached. */}
-      {!loading && bookingOutcome.invoicedCount > 0 && bookingOutcome.quotedForInvoiced > 0 && (
+      {!loading && bookingOutcome.comparableCount > 0 && bookingOutcome.quotedForInvoiced > 0 && (
         <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600 shadow-sm md:rounded-2xl">
           {bookingOutcome.uplift > 0
             ? c.upliftLine(
                 formatCurrency(bookingOutcome.quotedForInvoiced),
-                formatCurrency(bookingOutcome.invoicedTotal),
+                formatCurrency(bookingOutcome.invoicedForComparable),
                 formatCurrency(bookingOutcome.uplift),
               )
             : c.upliftLineDown(
                 formatCurrency(bookingOutcome.quotedForInvoiced),
-                formatCurrency(bookingOutcome.invoicedTotal),
+                formatCurrency(bookingOutcome.invoicedForComparable),
               )}
         </div>
       )}

@@ -110,16 +110,21 @@ const parseWeeklyOpeningHours = (value: unknown): WeeklyOpeningHours => {
 /**
  * Who may change `shortCallCallback`, as a pure rule.
  *
- * Staff get what they asked for. Everyone else keeps whatever is saved, including when the field
- * is absent from their payload — their form does not render the toggle, so an undefined value
- * from a customer means "not mine to touch" rather than "off".
+ * Staff get what they asked for. Everyone else keeps whatever is saved.
+ *
+ * An ABSENT field never changes anything, for anybody. "Not provided" is not "off": a customer's
+ * form does not render the toggle at all, and any writer that PUTs a partial config as staff — an
+ * admin script, quick-onboard, or a frontend deployed before the toggle existed — would otherwise
+ * switch outbound calling off behind us. That is the same silent-revert family as the validator
+ * strip that wiped a garage's FAQs.
  */
 export function resolveShortCallCallback(
   requested: boolean | undefined,
   existing: boolean | undefined,
   isStaff: boolean,
 ): boolean {
-  if (isStaff) return requested === true;
+  if (typeof requested !== 'boolean') return existing === true;
+  if (isStaff) return requested;
   return existing === true;
 }
 
@@ -1056,14 +1061,14 @@ router.put(
     // toggle from customers, but that is a client-side gate and this endpoint takes the field
     // from the request body — so a garage user could have posted it directly. Same rule, and
     // the same shape, as agentScript above.
-    const existingCallbackFlag = isStaff
-      ? undefined
-      : (
-          await prisma.agentConfiguration.findUnique({
-            where: { garageId },
-            select: { shortCallCallback: true },
-          })
-        )?.shortCallCallback;
+    // Read it on BOTH paths now: staff who omit the field keep the saved value too, so the
+    // existing value has to be in hand either way.
+    const existingCallbackFlag = (
+      await prisma.agentConfiguration.findUnique({
+        where: { garageId },
+        select: { shortCallCallback: true },
+      })
+    )?.shortCallCallback;
     const resolvedShortCallCallback = resolveShortCallCallback(
       data.shortCallCallback,
       existingCallbackFlag ?? undefined,

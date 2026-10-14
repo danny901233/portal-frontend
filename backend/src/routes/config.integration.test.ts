@@ -116,6 +116,11 @@ test('a garage user saving other settings does not switch it off either', () => 
   assert.equal(resolveShortCallCallback(false, true, false), true);
 });
 
-test('an absent field from staff means off, since the form always sends it', () => {
-  assert.equal(resolveShortCallCallback(undefined, true, true), false);
+
+test('an absent field never changes the flag, even from staff', () => {
+  // "Not provided" is not "off". Any writer that PUTs a partial config as staff — an admin
+  // script, quick-onboard, or a frontend deployed before the toggle existed — would otherwise
+  // switch the flag off behind us. The same silent-revert family as the validator strip.
+  assert.equal(resolveShortCallCallback(undefined, true, true), true);
+  assert.equal(resolveShortCallCallback(undefined, false, true), false);
 });

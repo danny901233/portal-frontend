@@ -4,6 +4,7 @@ import { prisma } from '../db.js';
 import { raisesTickets, raiseTicketFromScreenedCall } from '../services/callTickets.js';
 import { sendCallSummaryEmail, sendPaymentSetupReminderEmail } from '../utils/email.js';
 import { isBlockedCaller } from '../utils/callerBlocklist.js';
+import { requestCallback } from '../services/callbackRequest.js';
 
 const router = Router();
 
@@ -61,6 +62,40 @@ function takeHumanAnswered(callSid: string): { garageId: string; from: string } 
   return { garageId: v.garageId, from: v.from };
 }
 
+/**
+ * Every inbound call, by Twilio CallSid, so a SHORT one can be chased once its real duration is
+ * known.
+ *
+ * The agent cannot be the trigger for these. On a one- or two-second hangup the room empties
+ * before its job is really running, so no shutdown runs and nothing is ever reported — proved
+ * live on 2026-10-14 with eight test calls of 1-6 seconds and zero reports. And those are the
+ * majority of the problem: 619 of 1,246 sub-30s calls in a fortnight were five seconds or less.
+ *
+ * This handler, by contrast, runs in about 5ms for every single call, before it is even
+ * answered. So the number and the garage are captured here, and Twilio's recording-status
+ * callback supplies the duration a few seconds later.
+ *
+ * In memory on purpose, like the screening maps above: the backend is a single pm2 fork and an
+ * entry is only meaningful for the minutes between the call starting and its recording landing.
+ * A restart loses a few callbacks, which is a far smaller cost than a table and a sweep.
+ */
+const inboundCalls = new Map<string, { garageId: string; from: string; at: number }>();
+const INBOUND_TTL_MS = 30 * 60 * 1000;
+
+function rememberInboundCall(callSid: string, garageId: string, from: string): void {
+  if (!callSid) return;
+  const now = Date.now();
+  for (const [sid, v] of inboundCalls) if (now - v.at > INBOUND_TTL_MS) inboundCalls.delete(sid);
+  inboundCalls.set(callSid, { garageId, from, at: now });
+}
+
+function takeInboundCall(callSid: string): { garageId: string; from: string } | null {
+  const v = inboundCalls.get(callSid);
+  if (!v) return null;
+  inboundCalls.delete(callSid);
+  return { garageId: v.garageId, from: v.from };
+}
+
 function xmlEscape(v: string): string {
   return v.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
@@ -83,6 +118,11 @@ router.post('/voice', async (req: Request, res: Response) => {
       .type('text/xml')
       .send('<?xml version="1.0" encoding="UTF-8"?><Response><Reject reason="busy"/></Response>');
   }
+
+  // Remember the call so a SHORT one can be chased once Twilio reports its real duration. Done
+  // here because this is the one place that sees every inbound call, within milliseconds, and
+  // before anything can go wrong downstream.
+  rememberInboundCall(String(req.body?.CallSid || ''), garageId, from || '');
 
   // Fetch garage configuration to determine routing (agent type + which LK account)
   let agentType = 'assist';
@@ -428,6 +468,27 @@ router.post('/recording-status', async (req: Request, res: Response) => {
       });
 
       console.log(`[RECORDING] Stored recording for CallSid ${CallSid}`);
+
+      // ── The authoritative short-call trigger ────────────────────────────────────────────
+      // RecordingDuration is the real length of the line, and this fires for every answered
+      // call however briefly it lasted — including the one- and two-second hangups the agent
+      // never lives long enough to report. Fire-and-forget: a callback must never be able to
+      // fail the recording callback, which also feeds call logs and transcription.
+      if (durationSeconds !== null && !Number.isNaN(durationSeconds) && durationSeconds < 30) {
+        const inbound = takeInboundCall(String(CallSid));
+        if (!inbound) {
+          console.log(`[RECORDING] ${CallSid} was ${durationSeconds}s but we have no record of the inbound call — not chasing`);
+        } else {
+          void requestCallback({
+            garageId: inbound.garageId,
+            callerPhone: inbound.from || null,
+            twilioCallSid: String(CallSid),
+            roomName: null,
+            durationSeconds,
+            source: 'twilio',
+          }).catch((e) => console.error('[RECORDING] callback request failed:', e?.message));
+        }
+      }
 
       // A screened call a PERSON answered. The AI never joined, so this recording
       // is the only account of what was said — transcribe it, KEEP it as a call in

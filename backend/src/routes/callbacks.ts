@@ -9,8 +9,7 @@ import { Router } from 'express';
 
 import { prisma } from '../db.js';
 import { authenticate } from '../middleware/auth.js';
-import { decideCallback } from '../services/callbackPolicy.js';
-import { loadCallbackPolicyInput, londonDayKey } from '../services/callbackState.js';
+import { requestCallback } from '../services/callbackRequest.js';
 
 export { londonDayKey } from '../services/callbackState.js';
 
@@ -79,73 +78,16 @@ router.post('/callbacks/request', async (req: Request, res: Response) => {
 
   const parsed = parseCallbackRequest(req.body);
   if (!parsed.ok) return res.status(400).json({ error: parsed.error });
-  const report = parsed.value;
 
   try {
-    const now = new Date();
-    const dayKey = londonDayKey(now);
-
-    const state = await loadCallbackPolicyInput({
-      garageId: report.garageId,
-      callerPhone: report.callerPhone,
-      originalRoom: report.roomName,
-      now,
-    });
-    if (!state.found) return res.status(404).json({ error: 'Garage not found' });
-
-    const decision = decideCallback(state.input);
-
-    // A refusal is recorded too. "Why did nobody get rung back?" is the first question anyone
-    // asks, and the gate name is the answer.
-    if (!decision.allow) {
-      await prisma.callbackAttempt
-        .create({
-          data: {
-            garageId: report.garageId,
-            toNumber: state.dialNumber ?? report.callerPhone ?? '',
-            // Refusals must never consume the one-per-day slot a real callback needs, so they
-            // are bucketed separately and can never collide with the unique index.
-            dedupeKey: `refused:${dayKey}:${Math.random().toString(36).slice(2, 10)}`,
-            status: 'refused',
-            refusedReason: decision.reason,
-            originalCallSid: report.twilioCallSid,
-            originalRoom: report.roomName,
-            originalDurationSeconds: report.durationSeconds,
-            dueAt: now,
-          },
-        })
-        .catch((e) => console.error('[callback] could not record refusal:', e?.message));
-      return res.json({ queued: false, reason: decision.reason });
-    }
-
-    try {
-      const attempt = await prisma.callbackAttempt.create({
-        data: {
-          garageId: report.garageId,
-          // The CANONICAL number, not the raw report. What was validated is what gets dialled;
-          // storing the raw string is how a SIP URI smuggled through the caller ID reached the
-          // dialler as a destination.
-          toNumber: state.dialNumber as string,
-          dedupeKey: dayKey,
-          status: 'pending',
-          originalCallSid: report.twilioCallSid,
-          originalRoom: report.roomName,
-          originalDurationSeconds: report.durationSeconds,
-          dueAt: new Date(now.getTime() + DIAL_DELAY_MS),
-        },
-      });
-      console.log(
-        `[callback] queued ${attempt.id} for ${state.dialNumber} (${report.durationSeconds}s call)`,
-      );
-      return res.json({ queued: true, attemptId: attempt.id });
-    } catch (e: unknown) {
-      // P2002 = the unique index. Another short call from this number today already queued a
-      // callback; that is the dedupe working, not an error.
-      if ((e as { code?: string })?.code === 'P2002') {
-        return res.json({ queued: false, reason: 'already_queued_today' });
-      }
-      throw e;
-    }
+    // The agent's trigger. It catches one thing Twilio's cannot: a 30-44s call where the caller
+    // never spoke, which does not reach the garage either. Everything else is caught by the
+    // recording-status hook in voice.ts, because on a one-second hangup the agent never gets
+    // far enough to report at all.
+    const outcome = await requestCallback({ ...parsed.value, source: 'agent' });
+    if (outcome.queued) return res.json({ queued: true, attemptId: outcome.attemptId });
+    if (outcome.reason === 'garage_not_found') return res.status(404).json({ error: 'Garage not found' });
+    return res.json({ queued: false, reason: outcome.reason });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'failed';
     console.error('[callback] request error:', msg);

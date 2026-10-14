@@ -21,6 +21,15 @@ const RING_SECONDS = 25;
 const MAX_CALL_SECONDS = 600;
 const SWEEP_BATCH = 10;
 
+/**
+ * Whether the outbound trunk will accept a per-call From.
+ *
+ * Only true for a trunk whose `numbers` is a wildcard, and that is not something to assume: a
+ * trunk with a fixed number rejects a different From with SIP 403 Forbidden. Opt in explicitly
+ * so a misconfiguration is a caller ID nobody chose rather than a call that does not happen.
+ */
+const trunkAcceptsAnyFrom = (): boolean => process.env.LIVEKIT_SIP_OUTBOUND_TRUNK_ANY_FROM === '1';
+
 const config = () => {
   const url = process.env.LIVEKIT_UNIFIED_URL;
   const key = process.env.LIVEKIT_UNIFIED_API_KEY;
@@ -178,8 +187,11 @@ export async function dialCallback(attemptId: string): Promise<void> {
     return;
   }
 
-  const fromNumber = callerIdFor(attempt.garage);
-  if (!fromNumber) {
+  // Only send a From when the trunk takes one. Otherwise the trunk's own number is presented,
+  // which is a ReceptionMate number rather than the garage's — and for 61 of 63 garages that is
+  // what would be presented anyway, since only two have a verified caller ID.
+  const fromNumber = trunkAcceptsAnyFrom() ? callerIdFor(attempt.garage) : null;
+  if (trunkAcceptsAnyFrom() && !fromNumber) {
     await fail('no_caller_id');
     return;
   }
@@ -192,7 +204,7 @@ export async function dialCallback(attemptId: string): Promise<void> {
   // for the next sweep to pick up, and ring the customer a second time.
   await prisma.callbackAttempt.update({
     where: { id: attempt.id },
-    data: { status: 'dialled', callerIdUsed: fromNumber, resultRoom: room },
+    data: { status: 'dialled', callerIdUsed: fromNumber ?? 'trunk default', resultRoom: room },
   });
 
   try {
@@ -205,7 +217,9 @@ export async function dialCallback(attemptId: string): Promise<void> {
 
     const sip = new SipClient(cfg.url, cfg.key, cfg.secret);
     await sip.createSipParticipant(cfg.trunk, dialNumber, room, {
-      fromNumber,
+      // Omitted entirely when the trunk has a fixed number: passing a From it does not own is
+      // what Twilio answers with 403 Forbidden.
+      ...(fromNumber ? { fromNumber } : {}),
       participantIdentity: `sip_${dialNumber}`,
       participantName: 'Callback recipient',
       playDialtone: false,

@@ -9,7 +9,8 @@
 // thin, and its failure modes are network ones that a unit test would only mock.
 
 import { randomUUID } from 'crypto';
-import { GetObjectCommand, PutObjectCommand, DeleteObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { GetObjectCommand, PutObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
+import { getS3Client } from './s3Client.js';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 import { prisma } from '../db.js';
@@ -176,10 +177,7 @@ const s3 = () => {
   const accessKeyId = process.env.S3_ACCESS_KEY_ID || process.env.AWS_ACCESS_KEY_ID;
   const secretAccessKey = process.env.S3_SECRET_ACCESS_KEY || process.env.AWS_SECRET_ACCESS_KEY;
   const region = process.env.S3_REGION || process.env.AWS_REGION || 'eu-west-2';
-  return new S3Client({
-    region,
-    ...(accessKeyId && secretAccessKey ? { credentials: { accessKeyId, secretAccessKey } } : {}),
-  });
+  return getS3Client(region, accessKeyId && secretAccessKey ? { accessKeyId, secretAccessKey } : null);
 };
 
 /**

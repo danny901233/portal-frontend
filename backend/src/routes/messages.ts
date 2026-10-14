@@ -6,7 +6,8 @@ import { authenticate } from '../middleware/auth.js';
 import { withAiContext } from '../utils/aiUsage.js';
 import { isEnglish, translateForCustomer, translateThreadToEnglish } from '../services/translate.js';
 import { userCanAccessGarage } from '../utils/garageAccess.js';
-import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
+import { PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
+import { getS3Client } from '../services/s3Client.js';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { randomUUID } from 'crypto';
 import multer from 'multer';
@@ -851,10 +852,7 @@ router.post(
       const ext = file.mimetype === 'image/png' ? 'png' : file.mimetype === 'image/webp' ? 'webp' : 'jpg';
       const s3Key = `chat-media/${conversation.garageId}/${conversationId}/${randomUUID()}.${ext}`;
 
-      const s3 = new S3Client({
-        region: awsRegion,
-        credentials: { accessKeyId: awsAccessKey, secretAccessKey: awsSecretKey },
-      });
+      const s3 = getS3Client(awsRegion, { accessKeyId: awsAccessKey, secretAccessKey: awsSecretKey });
 
       await s3.send(new PutObjectCommand({
         Bucket: s3Bucket,
@@ -1232,7 +1230,7 @@ async function sendImageMessage(
         const parsed = new URL(imageUrl);
         const s3Key = parsed.pathname.replace(/^\//, '');
         const bucket = parsed.hostname.split('.s3.')[0];
-        const s3 = new S3Client({ region: awsRegion, credentials: { accessKeyId: awsAccessKey, secretAccessKey: awsSecretKey } });
+        const s3 = getS3Client(awsRegion, { accessKeyId: awsAccessKey, secretAccessKey: awsSecretKey });
         sendUrl = await getSignedUrl(s3, new GetObjectCommand({ Bucket: bucket, Key: s3Key }), { expiresIn: 3600 });
       }
     }
@@ -1283,10 +1281,7 @@ router.get(
         return res.status(404).json({ error: 'Media not found' });
       }
 
-      const s3 = new S3Client({
-        region: awsRegion,
-        credentials: { accessKeyId: awsAccessKey, secretAccessKey: awsSecretKey },
-      });
+      const s3 = getS3Client(awsRegion, { accessKeyId: awsAccessKey, secretAccessKey: awsSecretKey });
 
       const signedUrl = await getSignedUrl(
         s3,

@@ -3,7 +3,8 @@ import type { Request, Response } from 'express';
 import type { Readable } from 'node:stream';
 import { randomInt } from 'node:crypto';
 import { Router } from 'express';
-import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
+import { GetObjectCommand } from '@aws-sdk/client-s3';
+import { getS3Client } from '../services/s3Client.js';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { prisma } from '../db.js';
 import { reconcileCallerName } from '../services/garageHiveBc.js';
@@ -1945,10 +1946,7 @@ router.get('/calls/:id/recording/audio', async (req: Request, res: Response) => 
       const url = new URL(recordingValue);
       const s3Key = url.pathname.replace(/^\//, '');
 
-      const s3Client = new S3Client({
-        region: awsRegion,
-        credentials: { accessKeyId: awsAccessKey, secretAccessKey: awsSecretKey },
-      });
+      const s3Client = getS3Client(awsRegion, { accessKeyId: awsAccessKey, secretAccessKey: awsSecretKey });
 
       // Pass through Range header so partial-content requests still work
       // (iOS Safari + <audio> require this; WaveSurfer will fetch full audio)

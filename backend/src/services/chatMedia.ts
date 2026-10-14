@@ -1,4 +1,5 @@
-import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
+import { GetObjectCommand } from '@aws-sdk/client-s3';
+import { getS3Client } from './s3Client.js';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import type OpenAI from 'openai';
 
@@ -12,7 +13,7 @@ export async function presignChatImage(url: string): Promise<string | null> {
     const bucket = process.env.S3_MEDIA_BUCKET || process.env.S3_BUCKET || 'receptionmate-recordings';
     const region = process.env.AWS_REGION || 'eu-west-2';
     const key = new URL(url).pathname.replace(/^\//, '');
-    const s3 = new S3Client({ region, credentials: { accessKeyId, secretAccessKey } });
+    const s3 = getS3Client(region, { accessKeyId, secretAccessKey });
     return await getSignedUrl(s3, new GetObjectCommand({ Bucket: bucket, Key: key }), { expiresIn: 600 });
   } catch (e: any) {
     console.error('[CHAT_MEDIA] presignChatImage failed:', e?.message);

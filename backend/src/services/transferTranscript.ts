@@ -12,7 +12,8 @@
  * 46797848; the comment in unified-agent/agent.py that disables the IO explains why that is the
  * only thing which makes it impossible. Nothing here touches the live path.
  */
-import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
+import { GetObjectCommand } from '@aws-sdk/client-s3';
+import { getS3Client } from './s3Client.js';
 import { execFile } from 'node:child_process';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
@@ -34,7 +35,7 @@ const s3 = () => {
   const accessKeyId = process.env.S3_ACCESS_KEY_ID || process.env.AWS_ACCESS_KEY_ID;
   const secretAccessKey = process.env.S3_SECRET_ACCESS_KEY || process.env.AWS_SECRET_ACCESS_KEY;
   if (!accessKeyId || !secretAccessKey) return null;
-  return new S3Client({ region: REGION(), credentials: { accessKeyId, secretAccessKey } });
+  return getS3Client(REGION(), { accessKeyId, secretAccessKey });
 };
 
 const asObject = (v: unknown): Record<string, unknown> =>

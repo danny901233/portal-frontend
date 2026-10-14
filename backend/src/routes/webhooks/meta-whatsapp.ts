@@ -9,7 +9,8 @@ import { scheduleHumanReply } from '../../services/chatDelay.js';
 import { findOrCreateCustomer, linkConversationToCustomer } from '../../services/customerService.js';
 import { isWhatsappAdmin, handleAdminOpsMessage } from '../../services/whatsappOps.js';
 import { handleSupportWhatsappInbound } from '../../services/supportWhatsappInbound.js';
-import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
+import { PutObjectCommand } from '@aws-sdk/client-s3';
+import { getS3Client } from '../../services/s3Client.js';
 import { randomUUID } from 'crypto';
 import { buildTemplateFields } from '../../services/outboundSend.js';
 import { withAiContext } from '../../utils/aiUsage.js';
@@ -416,10 +417,7 @@ router.post('/meta-whatsapp', async (req: Request, res: Response) => {
                 const s3Bucket = process.env.S3_MEDIA_BUCKET || process.env.S3_BUCKET || 'receptionmate-recordings';
 
                 if (awsAccessKey && awsSecretKey) {
-                  const s3 = new S3Client({
-                    region: awsRegion,
-                    credentials: { accessKeyId: awsAccessKey, secretAccessKey: awsSecretKey },
-                  });
+                  const s3 = getS3Client(awsRegion, { accessKeyId: awsAccessKey, secretAccessKey: awsSecretKey });
                   await s3.send(new PutObjectCommand({
                     Bucket: s3Bucket,
                     Key: s3Key,

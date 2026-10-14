@@ -108,7 +108,7 @@ export async function loadCallbackPolicyInput(args: {
       openNow: isWithinOpeningHours(config?.weeklyOpeningHours ?? null, now),
       // The room name carries the marker, so a callback is recognisable here even if the
       // agent-side guard were ever bypassed.
-      originalWasCallback: (originalRoom ?? '').includes('_cb'),
+      originalWasCallback: (originalRoom ?? '').includes('_cbk_'),
       newerLoggedCallFromNumber: newerCall !== null,
       garageAttemptsToday,
       estateAttemptsToday,

@@ -5,7 +5,7 @@ import { callbackRoomName, callerIdFor } from './callbackDial.js';
 
 test('the room name carries the garage, the caller and the callback marker', () => {
   const room = callbackRoomName('11111111-2222-3333-4444-555555555555', '+447700900123');
-  assert.match(room, /^garage-11111111-2222-3333-4444-555555555555_\+447700900123_cb[a-z0-9]+$/);
+  assert.match(room, /^garage-11111111-2222-3333-4444-555555555555_\+447700900123_cbk_[a-z0-9]+$/);
 });
 
 // The agent parses the garage id and the caller's number straight out of the room name. If the
@@ -77,4 +77,16 @@ test('a national-format Twilio number is rejected rather than dialled as-is', ()
     callerIdFor({ outboundCallerId: null, outboundCallerIdVerified: false, twilioNumber: '03330411784' }),
     null,
   );
+});
+
+// The marker is a segment of its own so an inbound room can never look like a callback. An
+// inbound room is garage-<id>_<caller>_<rand>, and a random suffix beginning "cb" would have
+// read as a callback about one call in 1,300 — greeting somebody who had just rung in with
+// "we've just missed a call from you".
+test('an inbound room whose random suffix starts with cb is not mistaken for a callback', () => {
+  const inbound = 'garage-11111111-2222-3333-4444-555555555555_+447700900123_cb7x2a';
+  assert.ok(!inbound.includes('_cbk_'), 'an inbound room must not contain the marker');
+
+  const callback = callbackRoomName('11111111-2222-3333-4444-555555555555', '+447700900123');
+  assert.ok(callback.includes('_cbk_'), 'a callback room must contain the marker');
 });

@@ -50,12 +50,18 @@ function e164(raw: string | null | undefined): string | null {
  * `garage-<id>_<caller>_cb<rand>`.
  *
  * The shape is the agent's: it parses the garage id and the caller's number straight out of the
- * room name. The `cb` marker sits AFTER the number, where neither of its regexes reaches, which
- * this module's tests pin.
+ * room name. The marker sits AFTER the number, where neither of its regexes reaches, which this
+ * module's tests pin.
+ *
+ * `_cbk_` is a segment of its own rather than a prefix on the random suffix, and that is the
+ * whole point. An inbound room is `garage-<id>_<caller>_<rand>`, so a suffix beginning "cb"
+ * would have read as a callback roughly one call in 1,300 — and the cost of that false positive
+ * is greeting somebody who has just rung in with "we've just missed a call from you". A caller
+ * number is digits, so no inbound room can contain `_cbk_` at all.
  */
 export function callbackRoomName(garageId: string, toNumber: string): string {
   const rand = Math.random().toString(36).slice(2, 10);
-  return `garage-${garageId}_${toNumber}_cb${rand}`;
+  return `garage-${garageId}_${toNumber}_cbk_${rand}`;
 }
 
 /** Which number to present. Most garages are unverified, so the fallback is the common path. */

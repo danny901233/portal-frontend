@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { callbackRoomName, callerIdFor } from './callbackDial.js';
+import { callbackRoomName, callerIdFor, isStaleAttempt } from './callbackDial.js';
 
 test('the room name carries the garage, the caller and the callback marker', () => {
   const room = callbackRoomName('11111111-2222-3333-4444-555555555555', '+447700900123');
@@ -89,4 +89,32 @@ test('an inbound room whose random suffix starts with cb is not mistaken for a c
 
   const callback = callbackRoomName('11111111-2222-3333-4444-555555555555', '+447700900123');
   assert.ok(callback.includes('_cbk_'), 'a callback room must contain the marker');
+});
+
+// ── Staleness: a callback is only worth placing while it is still recent ────────────────────
+//
+// The sweep had no lower bound on dueAt. If the box is down from 17:05 to 09:00 — the memory
+// leak outage, a DB OOM, a long deploy — every queued row dials the next morning and tells each
+// customer "we've just missed a call from you" about a call from yesterday afternoon. The
+// dial-time policy re-check does not catch it: by 09:00 the garage is open again.
+
+test('a callback that has just come due is placed', () => {
+  const now = new Date('2026-10-14T12:00:00Z');
+  assert.equal(isStaleAttempt(new Date('2026-10-14T11:59:00Z'), now), false);
+});
+
+test('a callback is still worth placing a few minutes late', () => {
+  const now = new Date('2026-10-14T12:00:00Z');
+  assert.equal(isStaleAttempt(new Date('2026-10-14T11:52:00Z'), now), false);
+});
+
+test('a callback left overnight by an outage is abandoned, not placed', () => {
+  const now = new Date('2026-10-14T09:00:00Z');
+  assert.equal(isStaleAttempt(new Date('2026-10-13T17:05:00Z'), now), true);
+});
+
+test('the staleness boundary is 15 minutes', () => {
+  const now = new Date('2026-10-14T12:00:00Z');
+  assert.equal(isStaleAttempt(new Date('2026-10-14T11:45:30Z'), now), false);
+  assert.equal(isStaleAttempt(new Date('2026-10-14T11:44:30Z'), now), true);
 });

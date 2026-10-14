@@ -59,6 +59,20 @@ function e164(raw: string | null | undefined): string | null {
  * is greeting somebody who has just rung in with "we've just missed a call from you". A caller
  * number is digits, so no inbound room can contain `_cbk_` at all.
  */
+/**
+ * How late a callback may be placed before it is no longer worth placing. Fifteen minutes.
+ *
+ * The sweep had no lower bound, so an outage — the memory leak, a DB OOM, a long deploy — meant
+ * every row queued yesterday afternoon dialled the next morning, telling each customer "we've
+ * just missed a call from you" about a call from the previous day. The dial-time policy re-check
+ * does not catch that: by nine the next morning the garage is open again.
+ */
+export const MAX_ATTEMPT_AGE_MS = 15 * 60 * 1000;
+
+export function isStaleAttempt(dueAt: Date, now: Date): boolean {
+  return now.getTime() - dueAt.getTime() > MAX_ATTEMPT_AGE_MS;
+}
+
 export function callbackRoomName(garageId: string, toNumber: string): string {
   const rand = Math.random().toString(36).slice(2, 10);
   return `garage-${garageId}_${toNumber}_cbk_${rand}`;
@@ -97,10 +111,17 @@ export async function dialCallback(attemptId: string): Promise<void> {
   // its predecessor ringing the same person twice.
   if (!attempt || attempt.status !== 'pending') return;
 
+  // A failure that is OURS — no trunk configured, no caller ID — must not consume the caller's
+  // one callback for the day. The dedupeKey is what the unique index enforces, so it is moved
+  // aside; fix the env var at 11am and the morning's callers can still be rung.
   const fail = (reason: string) =>
     prisma.callbackAttempt.update({
       where: { id: attempt.id },
-      data: { status: 'failed', refusedReason: reason },
+      data: {
+        status: 'failed',
+        refusedReason: reason,
+        dedupeKey: `failed:${attempt.dedupeKey}:${Math.random().toString(36).slice(2, 10)}`,
+      },
     });
 
   if (!cfg) {
@@ -223,12 +244,38 @@ export function startCallbackSweep(intervalMs = 30_000): void {
     if (running) return;
     running = true;
     try {
+      const now = new Date();
+      // Abandon anything the staleness window has passed rather than dialling it late. Done as
+      // one update so a backlog is cleared in a single statement rather than row by row.
+      const expired = await prisma.callbackAttempt.updateMany({
+        where: { status: 'pending', dueAt: { lt: new Date(now.getTime() - MAX_ATTEMPT_AGE_MS) } },
+        data: { status: 'refused', refusedReason: 'too_late' },
+      });
+      if (expired.count) {
+        console.log(`[callback] abandoned ${expired.count} attempt(s) too old to place`);
+      }
+
       const due = await prisma.callbackAttempt.findMany({
-        where: { status: 'pending', dueAt: { lte: new Date() } },
+        where: { status: 'pending', dueAt: { lte: now } },
+        // Oldest first, so a backlog drains in the order people rang rather than arbitrarily.
+        orderBy: { dueAt: 'asc' },
         select: { id: true },
         take: SWEEP_BATCH,
       });
-      for (const { id } of due) await dialCallback(id);
+      for (const { id } of due) {
+        // Per row. dialCallback's own try/catch covers the dial, but not the reads and writes
+        // around it — and an exception there would abort the batch, leave the rest pending, and
+        // with the same rows coming back next tick a reliably-throwing row would wedge the queue
+        // for good, behind nothing but a repeating log line.
+        try {
+          await dialCallback(id);
+        } catch (e: unknown) {
+          console.error(`[callback] attempt ${id} threw:`, e instanceof Error ? e.message : e);
+          await prisma.callbackAttempt
+            .update({ where: { id }, data: { status: 'failed', refusedReason: 'threw' } })
+            .catch(() => {});
+        }
+      }
     } catch (e: unknown) {
       console.error('[callback] sweep error:', e instanceof Error ? e.message : e);
     } finally {
@@ -236,5 +283,16 @@ export function startCallbackSweep(intervalMs = 30_000): void {
     }
   };
   timer = setInterval(() => void run(), intervalMs);
+  // The config is static, so this is knowable now rather than on the first attempt. The trunk
+  // env var is new to the PORTAL — the name comes from the agent's environment — so the box can
+  // easily be missing it, and without this the only symptom is a day of attempts quietly
+  // failing behind one console.warn.
+  if (!config()) {
+    console.warn(
+      '[callback] NOT READY: set LIVEKIT_UNIFIED_URL/API_KEY/API_SECRET and ' +
+        'LIVEKIT_SIP_OUTBOUND_TRUNK (the trunk must be in the UNIFIED project). ' +
+        'Callbacks will be queued and then fail until this is set.',
+    );
+  }
   console.log(`[callback] sweep started (every ${Math.round(intervalMs / 1000)}s)`);
 }

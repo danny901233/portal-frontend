@@ -474,6 +474,18 @@ export default function DashboardPage() {
     };
   }, [calls]);
 
+  // SHOW THE BREAKDOWN WHENEVER THERE ARE BOOKINGS, not only once something in this range has
+  // been invoiced. Keying it on hasInvoiceData meant the three figures vanished exactly when
+  // they were most useful: invoicing lags the call by 2-20 days, so a month-to-date range
+  // early in the month holds bookings whose invoices have not been raised yet, the flag went
+  // false, and the row fell back to Captured revenue — no bookings count, no invoiced total,
+  // no "still to invoice". Speedy Spanners had £7,879 across 33 invoiced jobs and saw none of
+  // it on month to date, because not one of those CALLS fell in October.
+  //
+  // "0 invoiced, 14 still to invoice" is the honest and useful reading of a month in progress.
+  // The figure it replaces was not a £0 — it was nothing at all.
+  const showInvoiceBreakdown = bookingOutcome.bookedCount > 0;
+
   // "Recent activity" = recent calls + recent chat conversations, interleaved newest-first.
   const recentActivity = useMemo<ActivityItem[]>(() => {
     const callItems: ActivityItem[] = calls.map((cl) => ({
@@ -1103,7 +1115,7 @@ export default function DashboardPage() {
             // hint text of different lengths and centring leaves them at different heights. With
             // two across there is nothing to align against, and stretching stops the left column
             // centring — which left the headline figure stranded above a large empty gap.
-            bookingOutcome.hasInvoiceData
+            showInvoiceBreakdown
               ? 'sm:grid-cols-3 sm:items-stretch'
               : 'sm:grid-cols-2 sm:items-center',
           )}
@@ -1113,39 +1125,39 @@ export default function DashboardPage() {
               sat at two different heights. */}
           <div className="space-y-1 md:space-y-3 md:py-7">
             <span className="text-[10px] font-semibold uppercase tracking-[0.3em] text-brand-100 md:text-xs md:tracking-[0.35em]">
-              {bookingOutcome.hasInvoiceData ? c.bookedIn : c.capturedRevenue}
+              {showInvoiceBreakdown ? c.bookedIn : c.capturedRevenue}
             </span>
             <div className="text-3xl font-semibold text-white md:text-5xl">
               {loading
                 ? '—'
-                : bookingOutcome.hasInvoiceData
+                : showInvoiceBreakdown
                 ? bookingOutcome.bookedCount
                 : formatCurrency(bookingRevenueTotal)}
             </div>
             <p className="mt-2 hidden max-w-lg text-sm text-brand-100 md:block">
-              {bookingOutcome.hasInvoiceData
+              {showInvoiceBreakdown
                 ? c.bookedInHint(formatCurrency(bookingRevenueTotal))
                 : c.capturedRevenueHint}
             </p>
           </div>
           <div className="flex flex-row items-center justify-between gap-3 rounded-xl border border-white/15 bg-white/10 px-3.5 py-2.5 text-left backdrop-blur-sm md:flex-col md:items-start md:rounded-2xl md:px-7 md:py-7">
             <div className="text-xs font-semibold uppercase tracking-[0.25em] text-brand-100">
-              {bookingOutcome.hasInvoiceData ? c.invoiced : c.confirmedBookings}
+              {showInvoiceBreakdown ? c.invoiced : c.confirmedBookings}
             </div>
             <div className="text-3xl font-semibold text-white md:text-4xl">
               {loading
                 ? '—'
-                : bookingOutcome.hasInvoiceData
+                : showInvoiceBreakdown
                 ? formatCurrency(bookingOutcome.invoicedTotal)
                 : callTypeCounts['confirmed booking'] ?? 0}
             </div>
             <p className="hidden max-w-sm text-sm text-brand-100/90 md:block">
-              {bookingOutcome.hasInvoiceData
+              {showInvoiceBreakdown
                 ? c.invoicedJobCount(bookingOutcome.invoicedCount)
                 : c.confirmedBookingsHint}
             </p>
           </div>
-          {bookingOutcome.hasInvoiceData && (
+          {showInvoiceBreakdown && (
             <div className="flex flex-row items-center justify-between gap-3 rounded-xl border border-white/15 bg-white/10 px-3.5 py-2.5 text-left backdrop-blur-sm md:flex-col md:items-start md:rounded-2xl md:px-7 md:py-7">
               <div className="text-xs font-semibold uppercase tracking-[0.25em] text-brand-100">{c.stillToInvoice}</div>
               <div className="text-3xl font-semibold text-white md:text-4xl">

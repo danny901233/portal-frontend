@@ -166,6 +166,8 @@ export async function dialCallback(attemptId: string): Promise<void> {
     callerPhone: attempt.toNumber,
     originalRoom: attempt.originalRoom,
     now: new Date(),
+    // The window this gate is actually about: did they ring back while we waited?
+    rangBackSince: attempt.createdAt,
   });
   if (!state.found) {
     await fail('garage_gone');
@@ -248,11 +250,12 @@ let running = false;
 /**
  * Dial whatever has come due.
  *
- * A sweep rather than a setTimeout per attempt, so a restart inside the 60-second delay does not
- * silently lose the callback. `running` guards against a slow batch overlapping the next tick:
+ * A sweep rather than a setTimeout per attempt, so a restart inside the delay does not silently
+ * lose the callback. The interval has to be well under DIAL_DELAY_MS or the delay is a fiction:
+ * at a 30s interval a "20 second" wait was really 20-50s. `running` guards against a slow batch overlapping the next tick:
  * createSipParticipant waits for an answer, so one batch can easily outlast the interval.
  */
-export function startCallbackSweep(intervalMs = 30_000): void {
+export function startCallbackSweep(intervalMs = 10_000): void {
   if (timer) return;
   const run = async () => {
     if (running) return;

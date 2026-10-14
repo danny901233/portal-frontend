@@ -20,8 +20,14 @@ import { prisma } from '../db.js';
 import { decideCallback } from './callbackPolicy.js';
 import { loadCallbackPolicyInput, londonDayKey } from './callbackState.js';
 
-/** Let them redial us first — a caller who was cut off very often rings straight back. */
-const DIAL_DELAY_MS = 60_000;
+/**
+ * How long to wait before dialling. 20 seconds, set by Dan 2026-10-14 (was 60).
+ *
+ * It exists so a caller who was cut off and is already redialling us is not dialled into an
+ * engaged tone, spending the one attempt for nothing. 20s keeps that while making the callback
+ * feel like a response to the dropped call rather than an unexplained call a minute later.
+ */
+const DIAL_DELAY_MS = 20_000;
 
 export type ShortCallReport = {
   garageId: string;
@@ -46,6 +52,8 @@ export async function requestCallback(report: ShortCallReport): Promise<RequestO
     callerPhone: report.callerPhone,
     originalRoom: report.roomName,
     now,
+    // Nothing can have happened yet — the short call has only just ended.
+    rangBackSince: now,
   });
   if (!state.found) return { queued: false, reason: 'garage_not_found' };
 

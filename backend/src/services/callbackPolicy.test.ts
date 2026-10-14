@@ -299,3 +299,23 @@ test('the flag is checked before the garage state, so an opt-out reads as an opt
     reason: 'flag_off',
   });
 });
+
+// ── "they rang back themselves" must mean AFTER the short call, not before it ────────────────
+//
+// Found live on 2026-10-14: a short test call was refused called_back_already because of a
+// LONGER call from the same number four minutes EARLIER. A call that preceded the short one
+// says nothing about whether the short one needs chasing — the question is only whether they
+// rang back during the 60 seconds we wait before dialling.
+
+test('a call from before the short one does not count as ringing back', () => {
+  // The caller is supplying this now; the gate itself just reads the boolean. This test pins
+  // the contract so the window cannot quietly widen again.
+  assert.deepEqual(decideCallback({ ...ok, newerLoggedCallFromNumber: false }), { allow: true });
+});
+
+test('a call from after the short one still blocks the callback', () => {
+  assert.deepEqual(decideCallback({ ...ok, newerLoggedCallFromNumber: true }), {
+    allow: false,
+    reason: 'called_back_already',
+  });
+});

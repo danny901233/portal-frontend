@@ -19,8 +19,6 @@ import { canonicalDialNumber, type CallbackPolicyInput } from './callbackPolicy.
 
 const GARAGE_DAILY_CAP = Number(process.env.SHORT_CALL_CALLBACK_GARAGE_CAP || 25);
 const ESTATE_DAILY_CAP = Number(process.env.SHORT_CALL_CALLBACK_ESTATE_CAP || 150);
-/** How far back "they rang us back themselves" looks. */
-const RANG_BACK_WINDOW_MS = 60 * 60 * 1000;
 
 export const callbacksEnabled = (): boolean => process.env.SHORT_CALL_CALLBACK_ENABLED !== '0';
 
@@ -50,10 +48,20 @@ export async function loadCallbackPolicyInput(args: {
   callerPhone: string | null;
   originalRoom: string | null;
   now: Date;
-  /** Attempt statuses that count towards the caps. Refusals never do. */
-  countStatuses?: string[];
+  /**
+   * Only a logged call AFTER this instant counts as "they rang back themselves".
+   *
+   * It used to be a flat hour backwards from now, which counted calls that happened BEFORE the
+   * short one — and those say nothing about whether the short one needs chasing. It refused a
+   * live test on 2026-10-14 because of a longer call from the same number four minutes earlier.
+   *
+   * At queue time this is simply now, since nothing can have happened yet. At dial time it is
+   * when the attempt was queued, which is the window the question is actually about: did they
+   * ring back during the 60 seconds we waited?
+   */
+  rangBackSince: Date;
 }): Promise<LoadedState> {
-  const { garageId, callerPhone, originalRoom, now } = args;
+  const { garageId, callerPhone, originalRoom, now, rangBackSince } = args;
   const dayKey = londonDayKey(now);
 
   const garage = await prisma.garage.findUnique({
@@ -83,10 +91,9 @@ export async function loadCallbackPolicyInput(args: {
     prisma.callbackAttempt.count({ where: countWhere }),
     callerPhone
       ? prisma.call.findFirst({
-          where: {
-            fromNumber: callerPhone,
-            createdAt: { gte: new Date(now.getTime() - RANG_BACK_WINDOW_MS) },
-          },
+          // Scoped to this garage too: a call they made to a DIFFERENT garage is not them
+          // ringing this one back.
+          where: { fromNumber: callerPhone, garageId: garage.id, createdAt: { gt: rangBackSince } },
           select: { id: true },
         })
       : Promise.resolve(null),

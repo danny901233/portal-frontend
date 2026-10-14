@@ -28,7 +28,7 @@ Dan's decision is to call back on **any** sub-30s call rather than only that ban
 In scope:
 
 - The **unified agent only** (`receptionmate-agents/unified-agent`). The other six flavours are untouched.
-- Per-garage opt-in, default off, ReceptionMate Branch first.
+- Per-garage opt-in, default off, **🔵 Test — GH v3** (`+441708204853`) first — `isTestAccount`, already on the unified agent, and on Garage Hive so the booking path is exercised too. Not ReceptionMate Branch, which runs `receptionmate-agent` and whose transfer number is Dan's own mobile.
 - Approach 1: the agent dials out over LiveKit's SIP outbound trunk.
 
 Out of scope for this build: the other agents; any garage-facing missed-call list; text/WhatsApp follow-up; calls where the caller rings off before the agent session starts (see "Known gaps").
@@ -84,7 +84,7 @@ The trunk and env var already exist and are used in production for warm transfer
 
 **Caller ID.** The presented number is set per call, provided the outbound trunk's `numbers` is `"*"` — confirmed in LiveKit's outbound-trunk docs. The docs call the field `sip_number`, which is the protobuf name; the Node SDK we use calls it **`fromNumber`** (`livekit-server-sdk/dist/SipClient.d.ts:100`). Preference order: the garage's `outboundCallerId` when `outboundCallerIdVerified`, else the garage's `twilioNumber`. Only 2 of 63 garages are currently verified, so most callbacks would present the ReceptionMate number until the verification campaign catches up; the self-serve flow for that already exists at `POST /api/outbound-calls/caller-id/start`.
 
-**Open question, resolved by test not by reading.** Whether Twilio accepts a non-Twilio verified caller ID as the `From` over an elastic SIP trunk. LiveKit will send what it is told; Twilio may rewrite or reject it. One real call on ReceptionMate Branch settles it. If Twilio refuses, fall back to presenting the garage's `twilioNumber` and reconsider originating through the Twilio Voice API instead (the mechanism the existing click-to-call already proves), which costs an extra hop.
+**Open question, resolved by test not by reading.** Whether Twilio accepts a non-Twilio verified caller ID as the `From` over an elastic SIP trunk. LiveKit will send what it is told; Twilio may rewrite or reject it. No test garage can settle it: the only verified caller ID we hold is itself one of our own Twilio numbers, which Twilio will always accept. It becomes answerable once a real garage's own landline is verified. If Twilio refuses, fall back to presenting the garage's `twilioNumber` and reconsider originating through the Twilio Voice API instead (the mechanism the existing click-to-call already proves), which costs an extra hop.
 
 ### 4. Agent side
 
@@ -173,18 +173,18 @@ All five are tunable; the caps are runaway guards, not a policy statement. They 
 
 ## Compliance
 
-An automated outbound call presenting a garage's number is a different regulatory object from answering an inbound one, even when the call is arguably solicited by the customer's own missed call. Ofcom's rules on automated calling and silent/abandoned calls, and PECR consent, want checking before this is switched on beyond ReceptionMate Branch. Flagging it as a question for Dan to confirm, not asserting what the answer is.
+An automated outbound call presenting a garage's number is a different regulatory object from answering an inbound one, even when the call is arguably solicited by the customer's own missed call. Ofcom's rules on automated calling and silent/abandoned calls, and PECR consent, want checking before this is switched on beyond the test garage. Flagging it as a question for Dan to confirm, not asserting what the answer is.
 
 ## Testing
 
 1. **Unit tests on the policy gates.** Pure functions, no audio needed. The loop guard and the garage's-own-number guard are the two that must not regress.
 2. **`lk agent simulate`** against the deployed unified agent for the greeting and prompt behaviour — the voice agent's regression check. Note the suite needs a real `LIVEKIT_API_KEY` or tests error and read as failures.
-3. **One real call on ReceptionMate Branch** to settle the Twilio `From` question. ReceptionMate Branch is the only garage any test traffic goes to.
+3. **One real call on 🔵 Test — GH v3**, inside its 08:30–17:30 hours, from a phone that is not one of that garage's own numbers. Test traffic only ever goes to an `isTestAccount` garage.
 
 ## Rollout
 
 1. Schema + migration, additive.
 2. Backend endpoint, policy, dial service, behind the kill switch, flag off everywhere.
 3. Agent changes, deployed via git push to `danny901233/receptionmate-agents`.
-4. Enable on ReceptionMate Branch; make the test call; confirm caller ID.
+4. Enable on 🔵 Test — GH v3, in hours; make the test call; confirm the greeting waits for the pickup.
 5. Read the `CallbackAttempt` rows for a week before enabling a second garage.

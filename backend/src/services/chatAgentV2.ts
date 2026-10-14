@@ -94,6 +94,11 @@ interface ChatSession {
   // Set once we have nudged a customer who answered "not sure", so we never ask a third time.
   datePreferenceReasked?: boolean;
   customerNameLast: string;
+  /**
+   * Set once we have asked for a surname, so a customer who will not give one is asked only
+   * once and the booking then goes through under a placeholder instead of failing.
+   */
+  lastNameAsked?: boolean;
   
   // Vehicle
   vrn: string;
@@ -2711,7 +2716,7 @@ function getConversationalTools(): OpenAI.Chat.ChatCompletionTool[] {
       type: 'function',
       function: {
         name: 'set_contact_info',
-        description: 'Save contact info and confirm booking. Collects phone, email, postcode (auto-looks up location), then house number.',
+        description: 'Save contact info and confirm booking. Collects phone, email, postcode (auto-looks up location), house number, then surname.',
         parameters: {
           type: 'object',
           properties: {
@@ -2719,6 +2724,7 @@ function getConversationalTools(): OpenAI.Chat.ChatCompletionTool[] {
             email: { type: 'string', description: 'Customer email address' },
             postcode: { type: 'string', description: 'UK postcode for address lookup' },
             houseNumber: { type: 'string', description: 'House number or name' },
+            last_name: { type: 'string', description: 'Customer surname / last name. Garage Hive refuses a booking without one, and save_caller_name is blocked during contact collection, so a surname given at this stage MUST be passed here.' },
           },
           required: [],
         },
@@ -2842,6 +2848,10 @@ function getNextContactInstruction(session: ChatSession): string {
       return `Postcode found: ${session.contactCity}.\n\nSay: "Is that the ${session.contactCity} area?"\nOnce confirmed, ask: "And your house number or name?"\nWait for house number, then call set_contact_info.`;
     }
     return `Postcode accepted.\n\nSay: "And your house number or name?"\nWait for house number, then call set_contact_info.`;
+  }
+
+  if (!session.customerNameLast && !session.lastNameAsked) {
+    return `Need surname.\n\nSay: "And finally, what's your surname?"\nWait for their surname, then call set_contact_info with last_name.`;
   }
 
   return `All contact info is already collected.\nSay: "Thanks, I've got everything I need to confirm this now."\nCall set_contact_info with ZERO SPEECH to finalize.`;
@@ -4032,8 +4042,16 @@ async function handleSetContactInfo(args: any, session: ChatSession, conversatio
   const email: string = normaliseVoiceToText(rawEmail).trim();
   const postcode: string = args?.postcode ?? '';
   const houseNumber: string = args?.houseNumber ?? '';
+  // A surname is letters, hyphens and apostrophes. Anything else the model hands over here —
+  // a digit from a house number, a stray postcode — is not one, so it is dropped rather than
+  // written into the garage's customer record.
+  const lastName: string = normaliseVoiceToText(String(args?.last_name ?? ''))
+    .replace(/[^A-Za-z'\u2019\- ]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 30);
   
-  console.log(`[SET_CONTACT] Args - Phone: ${phone}, Email: ${email}, Postcode: ${postcode}, House: ${houseNumber}`);
+  console.log(`[SET_CONTACT] Args - Phone: ${phone}, Email: ${email}, Postcode: ${postcode}, House: ${houseNumber}, Surname: ${lastName}`);
   console.log(`[SET_CONTACT] Session step: ${session.step}, Phone: ${session.contactPhone}, Email: ${session.contactEmail}, Postcode: ${session.contactPostcode}, House: ${session.contactHouseNumber}`);
   
   // Guard: do not collect contact info before a service and slot are confirmed
@@ -4092,6 +4110,10 @@ async function handleSetContactInfo(args: any, session: ChatSession, conversatio
       }
     }
   }
+  if (lastName && !session.customerNameLast) {
+    session.customerNameLast = lastName;
+    console.log(`[SET_CONTACT] Saved surname: ${lastName}`);
+  }
   if (houseNumber && !session.contactHouseNumber) {
     session.contactHouseNumber = houseNumber;
     console.log(`[SET_CONTACT] Saved house number: ${houseNumber}`);
@@ -4130,6 +4152,27 @@ async function handleSetContactInfo(args: any, session: ChatSession, conversatio
     return `Postcode saved (${session.contactPostcode}, ${area || 'looked up'}).\n\nSay: "${areaConfirm}And what's your house number or name?"\nWait for house number.`;
   }
   
+  // Garage Hive declares contact_last_name required per garage (Speedy Spanners requires it, the
+  // dev sandbox does not) and refuses the whole booking without one — "Please provide Last Name".
+  // Nothing upstream asked for a surname, so a customer who gave a single-word name ("Uchenna")
+  // reached this line with the slot, price, email and address all settled and was told to ring
+  // the garage instead. It cost at least two bookings before anyone noticed, and a retry could
+  // never work because the surname was still never asked for.
+  //
+  // Ask once. If they still do not give one, book them under a placeholder the garage can correct
+  // on arrival — the same trade the voice agent makes for an unintelligible name. An appointment
+  // with a wrong surname beats no appointment.
+  if (!session.customerNameLast) {
+    if (!session.lastNameAsked) {
+      session.lastNameAsked = true;
+      session.step = Step.NEED_CONTACT;
+      await saveSession(conversationId, session);
+      console.log(`[SET_CONTACT] Need: surname`);
+      return `Need surname.\n\nSay: "And finally, what's your surname?"\nWait for their surname, then call set_contact_info with last_name.`;
+    }
+    console.log(`[SET_CONTACT] No surname after asking — booking under a placeholder`);
+  }
+
   // Guard: don't submit booking if no date/time was confirmed (agent skipped timeslot step)
   if (!session.bookingDate || !session.bookingTime) {
     console.log(`[SET_CONTACT] All contact info collected but NO booking date/time — redirecting to timeslot`);
@@ -4145,7 +4188,9 @@ async function handleSetContactInfo(args: any, session: ChatSession, conversatio
     const contactAddress = `${session.contactHouseNumber}, ${session.contactStreet}`.replace(/^,\s*/, '').replace(/,\s*$/, '');
     const result = await ghSetContactInfo(session.sessionId, {
       contact_name: session.customerNameFirst || 'Customer',
-      contact_last_name: session.customerNameLast || '',
+      // Empty is a hard refusal from Garage Hive; the gate above asks first, so reaching this
+      // with nothing means they declined to give one.
+      contact_last_name: session.customerNameLast || 'Customer',
       contact_email: session.contactEmail,
       contact_number: session.contactPhone,
       contact_address: contactAddress,

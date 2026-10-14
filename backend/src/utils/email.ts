@@ -374,6 +374,95 @@ const formatTranscript = (transcript: TranscriptEntry[]): string => {
     .join('\n\n');
 };
 
+// ── Shared body pieces for brandedEmailShell ────────────────────────────────────────────────
+// Every transactional email is the same four shapes: a title under the logo band, a card of
+// label/value facts, some prose, and one button. These exist because five emails used to carry
+// their own navy scaffold (#09203c page, #1a3a52 card, white-on-navy text) which had drifted
+// away from the portal and the marketing site. Each helper returns a complete <tr>, so a body
+// is a list of them concatenated and handed to brandedEmailShell.
+const RM_INK = '#0f172a';     // body copy
+const RM_MUTED = '#64748b';   // labels, secondary copy
+const RM_FAINT = '#8b90b0';   // section eyebrows, footnotes
+const RM_LINE = '#e9eaf5';    // hairlines and card borders
+const RM_WASH = '#f7f7fb';    // card fill
+const RM_GOOD = '#10b981';    // money captured, confirmations
+const RM_WARN = '#b45309';    // amber-700: readable on white, unlike #fbbf24
+const RM_BAD = '#dc2626';
+
+/** Escape anything a customer typed before it goes into an email body. */
+const esc = (v: unknown): string =>
+  String(v ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+
+/** Title block under the logo band. `accent` tints the eyebrow for alerts. */
+const emailTitle = (title: string, subtitle?: string | null, eyebrow?: string, accent?: string): string => `
+  <tr><td style="padding: 32px 32px 0;">
+    ${eyebrow ? `<p style="margin: 0 0 8px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: ${accent || RM_FAINT};">${esc(eyebrow)}</p>` : ''}
+    <h1 style="margin: 0; font-size: 21px; font-weight: 700; color: ${RM_INK}; line-height: 1.3;">${esc(title)}</h1>
+    ${subtitle ? `<p style="margin: 6px 0 0; font-size: 15px; color: ${RM_MUTED};">${esc(subtitle)}</p>` : ''}
+  </td></tr>`;
+
+/** A pill, e.g. the booking-confirmed badge. */
+const emailPills = (pills: Array<[string, string]>): string => !pills.length ? '' : `
+  <tr><td style="padding: 18px 32px 0;">
+    <table role="presentation" cellspacing="0" cellpadding="0" border="0"><tr>
+      ${pills.map(([label, bg], i) => `<td style="${i ? 'padding-left: 8px;' : ''}"><table role="presentation" cellspacing="0" cellpadding="0" border="0"><tr><td style="background-color: ${bg}; color: #ffffff; padding: 7px 14px; border-radius: 6px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;">${esc(label)}</td></tr></table></td>`).join('')}
+    </tr></table>
+  </td></tr>`;
+
+/**
+ * Label/value rows in a bordered card. A row whose value is null, undefined or '' is dropped
+ * rather than printed as "Not captured" — an absent line reads better than a filled-in absence.
+ * Pass a third element to colour the value (money, for instance).
+ */
+const emailFacts = (rows: Array<[string, string | null | undefined, string?]>): string => {
+  const live = rows.filter(([, v]) => v != null && String(v) !== '');
+  if (!live.length) return '';
+  return `
+  <tr><td style="padding: 20px 32px 0;">
+    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: ${RM_WASH}; border: 1px solid ${RM_LINE}; border-radius: 10px;">
+      <tr><td style="padding: 16px 20px;">
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+          ${live.map(([label, value, accent]) => `
+          <tr>
+            <td style="padding: 6px 0; font-size: 14px; color: ${RM_MUTED}; white-space: nowrap; vertical-align: top;">${esc(label)}</td>
+            <td style="padding: 6px 0 6px 16px; font-size: 14px; color: ${accent || RM_INK}; font-weight: ${accent ? '600' : '500'};">${value}</td>
+          </tr>`).join('')}
+        </table>
+      </td></tr>
+    </table>
+  </td></tr>`;
+};
+
+/** A titled block of prose. `html` is trusted — callers escape their own interpolations. */
+const emailSection = (heading: string | null, html: string): string => `
+  <tr><td style="padding: 26px 32px 0;">
+    ${heading ? `<h2 style="margin: 0 0 8px; font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: ${RM_FAINT};">${esc(heading)}</h2>` : ''}
+    <div style="font-size: 15px; line-height: 1.65; color: ${RM_INK};">${html}</div>
+  </td></tr>`;
+
+/** The one thing that matters, in a tinted rail. */
+const emailCallout = (html: string, accent: string): string => `
+  <tr><td style="padding: 24px 32px 0;">
+    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: ${RM_WASH}; border-left: 4px solid ${accent}; border-radius: 6px;">
+      <tr><td style="padding: 14px 18px; font-size: 15px; line-height: 1.6; color: ${RM_INK};">${html}</td></tr>
+    </table>
+  </td></tr>`;
+
+/** Single primary action. Flat brand fill — gradients render unevenly in Outlook. */
+const emailButton = (href: string, label: string, note?: string | null): string => `
+  <tr><td style="padding: 28px 32px 32px; text-align: center;">
+    <a href="${href}" style="display: inline-block; padding: 14px 30px; background-color: ${RM_BRAND}; color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 15px;">${esc(label)}</a>
+    ${note ? `<p style="margin: 14px 0 0; font-size: 13px; color: ${RM_MUTED};">${esc(note)}</p>` : ''}
+  </td></tr>`;
+
+/** Closing line of prose, e.g. where to ask for help. */
+const emailFootnote = (html: string): string => `
+  <tr><td style="padding: 0 32px 36px; font-size: 14px; line-height: 1.6; color: ${RM_MUTED}; text-align: center;">${html}</td></tr>`;
+
 const generateCallSummaryHtml = (data: CallSummaryEmailData): string => {
   const {
     branchName,
@@ -410,172 +499,29 @@ const generateCallSummaryHtml = (data: CallSummaryEmailData): string => {
     minute: '2-digit',
   }) : null;
 
-  return `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Call Summary - ${branchName}</title>
-</head>
-<body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #09203c;">
-  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #09203c;">
-    <tr>
-      <td style="padding: 40px 20px;">
-        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="600" style="margin: 0 auto; background-color: #1a3a52; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.5);">
-          <!-- Header with Logo -->
-          <tr>
-            <td style="padding: 0; background: linear-gradient(135deg, #3126cf 0%, #2419a8 100%);">
-              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
-                <tr>
-                  <td style="text-align: center; padding: 32px 32px 8px;">
-                    <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin: 0 auto;">
-                      <tr>
-                        <td>
-                          <img src="https://storage.googleapis.com/msgsndr/2UadumwHCXxeU9yxBIRC/media/65cf28be6e4392e608cca8a9.png" alt="ReceptionMate Logo" width="200" height="auto" style="display: block; border: 0; outline: none; text-decoration: none; max-width: 200px; height: auto;" />
-                        </td>
-                      </tr>
-                    </table>
-                  </td>
-                </tr>
-                <tr>
-                  <td style="text-align: center; padding: 16px 32px 32px;">
-                    <h2 style="margin: 0; font-size: 20px; font-weight: 600; color: #ffffff;">
-                      New Call Handled
-                    </h2>
-                    <p style="margin: 8px 0 0; font-size: 15px; color: rgba(255,255,255,0.95);">
-                      ${branchName}
-                    </p>
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-          
-          <!-- Call Details -->
-          <tr>
-            <td style="padding: 32px;">
-              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
-                <tr>
-                  <td style="padding-bottom: 20px;">
-                    <table role="presentation" cellspacing="0" cellpadding="0" border="0">
-                      <tr>
-                        <td style="background-color: #3126cf; color: #ffffff; padding: 8px 16px; border-radius: 6px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;">
-                          ${callType}
-                        </td>
-                        ${confirmedBooking ? '<td style="padding-left: 8px;"><table role="presentation" cellspacing="0" cellpadding="0" border="0"><tr><td style="background-color: #10b981; color: #ffffff; padding: 8px 16px; border-radius: 6px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;">✓ Booking Confirmed</td></tr></table></td>' : ''}
-                      </tr>
-                    </table>
-                  </td>
-                </tr>
-                <tr>
-                  <td style="padding: 20px; background-color: #0d2739; border: 1px solid #1e4a66; border-radius: 8px;">
-                    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
-                      <tr>
-                        <td style="padding-bottom: 12px; font-size: 14px; line-height: 1.5; color: #94a3b8;">
-                          <strong style="color: #e2e8f0;">📅 Call Date:</strong> ${formattedDate} at ${formattedTime}
-                        </td>
-                      </tr>
-                      <tr>
-                        <td style="padding-bottom: 12px; font-size: 14px; line-height: 1.5; color: #94a3b8;">
-                          <strong style="color: #e2e8f0;">⏱️ Duration:</strong> ${formatDuration(durationSeconds)}
-                        </td>
-                      </tr>
-                      <tr>
-                        <td style="padding-bottom: 12px; font-size: 14px; line-height: 1.5; color: #94a3b8;">
-                          <strong style="color: #e2e8f0;">👤 Customer Name:</strong> ${customerName || 'Not provided'}
-                        </td>
-                      </tr>
-                      <tr>
-                        <td style="padding-bottom: 12px; font-size: 14px; line-height: 1.5; color: #94a3b8;">
-                          <strong style="color: #e2e8f0;">📞 Caller Phone:</strong> ${customerPhone || 'Not captured'}
-                        </td>
-                      </tr>
-                      ${registrationNumber ? `
-                      <tr>
-                        <td style="padding-bottom: 12px; font-size: 14px; line-height: 1.5; color: #94a3b8;">
-                          <strong style="color: #e2e8f0;">🚗 Registration:</strong> ${registrationNumber}
-                        </td>
-                      </tr>
-                      ` : ''}
-                      <tr>
-                        <td style="padding-bottom: 12px; font-size: 14px; line-height: 1.5; color: #94a3b8;">
-                          <strong style="color: #e2e8f0;">📆 Booking Date:</strong> ${formattedBookingDate || 'No booking made'}
-                        </td>
-                      </tr>
-                      ${priceQuoted ? `
-                      <tr>
-                        <td style="padding-bottom: 12px; font-size: 14px; line-height: 1.5; color: #94a3b8;">
-                          <strong style="color: #e2e8f0;">💰 Price Quoted:</strong> £${priceQuoted.toFixed(2)}
-                        </td>
-                      </tr>
-                      ` : ''}
-                      ${capturedRevenue ? `
-                      <tr>
-                        <td style="padding-bottom: 0; font-size: 14px; line-height: 1.5; color: #94a3b8;">
-                          <strong style="color: #10b981;">💵 Revenue Captured:</strong> <span style="color: #10b981; font-weight: 600;">£${capturedRevenue.toFixed(2)}</span>
-                        </td>
-                      </tr>
-                      ` : ''}
-                    </table>
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-          
-          <!-- Summary -->
-          <tr>
-            <td style="padding: 0 32px 24px;">
-              <h2 style="margin: 0 0 16px; font-size: 18px; font-weight: 700; color: #e2e8f0;">
-                📋 Summary
-              </h2>
-              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
-                <tr>
-                  <td style="padding: 20px; background-color: #0d2739; border-left: 4px solid #3126cf; border-radius: 6px; font-size: 14px; line-height: 1.7; color: #cbd5e1;">
-                    ${summary}
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-          
-          <!-- View in Portal Button -->
-          <tr>
-            <td style="padding: 0 32px 32px; text-align: center;">
-              <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin: 0 auto;">
-                <tr>
-                  <td style="background: linear-gradient(135deg, #3126cf 0%, #2419a8 100%); border-radius: 8px; padding: 16px 40px;">
-                    <a href="https://portal.receptionmate.co.uk/calls" style="color: #ffffff; text-decoration: none; font-size: 16px; font-weight: 600; display: block;">
-                      🎧 View Call Recording & Transcript in Portal
-                    </a>
-                  </td>
-                </tr>
-              </table>
-              <p style="margin: 16px 0 0; font-size: 13px; color: #94a3b8;">
-                Listen to the full recording and read the complete transcript
-              </p>
-            </td>
-          </tr>
-          
-          <!-- Footer -->
-          <tr>
-            <td style="padding: 28px 32px; background-color: #0a1929; border-top: 1px solid #1e4a66; text-align: center;">
-              <p style="margin: 0; font-size: 13px; color: #cbd5e1; font-weight: 500;">
-                This is an automated notification from <strong style="color: #3126cf;">ReceptionMate</strong>
-              </p>
-              <p style="margin: 12px 0 0; font-size: 12px; color: #64748b;">
-                Intelligent call handling for your business
-              </p>
-            </td>
-          </tr>
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>
-  `;
+  return brandedEmailShell(`
+    ${emailTitle('New call handled', branchName)}
+    ${emailPills([
+      ...(callType ? ([[callType, RM_BRAND]] as Array<[string, string]>) : []),
+      ...(confirmedBooking ? ([['✓ Booking confirmed', RM_GOOD]] as Array<[string, string]>) : []),
+    ])}
+    ${emailFacts([
+      ['Call date', `${formattedDate} at ${formattedTime}`],
+      ['Duration', formatDuration(durationSeconds)],
+      ['Customer', esc(customerName)],
+      ['Phone', esc(customerPhone)],
+      ['Registration', esc(registrationNumber)],
+      ['Booking', formattedBookingDate],
+      ['Price quoted', priceQuoted ? `£${priceQuoted.toFixed(2)}` : null],
+      ['Value', capturedRevenue ? `£${capturedRevenue.toFixed(2)}` : null, RM_GOOD],
+    ])}
+    ${emailSection('Summary', esc(summary))}
+    ${emailButton(
+      'https://portal.receptionmate.co.uk/calls',
+      'Listen to the recording',
+      'The full recording and transcript are in your portal',
+    )}
+  `);
 };
 
 const generateCallSummaryText = (data: CallSummaryEmailData): string => {
@@ -684,6 +630,108 @@ export const sendCallSummaryEmail = async (
   });
 };
 
+/** What a chat conversation is reachable on, for the email's heading and Channel row. */
+const CHAT_CHANNEL_LABELS: Record<string, string> = {
+  widget: 'website chat',
+  whatsapp: 'WhatsApp',
+  instagram: 'Instagram DM',
+  facebook: 'Facebook Messenger',
+};
+
+export interface ChatSummaryEmailData {
+  branchName: string;
+  /** ChatConversation.platform */
+  platform: string;
+  summary: string;
+  customerName?: string | null;
+  customerPhone?: string | null;
+  customerEmail?: string | null;
+  registrationNumber?: string | null;
+  serviceName?: string | null;
+  confirmedBooking?: boolean;
+  capturedRevenue?: number | null;
+  /** Prose, e.g. "Mon 19 Oct, drop off 8:30-9:30am" — chat bookings are often a window. */
+  bookingDescription?: string | null;
+  createdAt: string;
+  conversationId: string;
+}
+
+/**
+ * The chat equivalent of sendCallSummaryEmail: the agent booked something over the website
+ * widget or WhatsApp and the garage should hear about it.
+ *
+ * Carries a SUMMARY and no transcript. A call email cannot show you the conversation, so it
+ * links to the recording; a chat email could paste the whole thing, and shouldn't — forty lines
+ * of back-and-forth is the fastest way to make a booking notification go unread. The full
+ * conversation is one click away on the button.
+ */
+export const sendChatSummaryEmail = async (
+  notificationEmails: string[],
+  data: ChatSummaryEmailData,
+): Promise<boolean> => {
+  if (notificationEmails.length === 0) {
+    console.log('[EMAIL] No notification emails configured, skipping chat summary');
+    return false;
+  }
+
+  const {
+    branchName, platform, summary, customerName, customerPhone, customerEmail,
+    registrationNumber, serviceName, confirmedBooking, capturedRevenue,
+    bookingDescription, createdAt, conversationId,
+  } = data;
+
+  const portalUrl = process.env.PORTAL_URL || 'https://portal.receptionmate.co.uk';
+  const channel = CHAT_CHANNEL_LABELS[platform] || 'chat';
+  const d = new Date(createdAt);
+  const when =
+    `${d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })} at ` +
+    `${d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`;
+  const link = `${portalUrl}/messages?conversation=${encodeURIComponent(conversationId)}`;
+  const who = customerName || customerPhone || branchName;
+
+  const html = brandedEmailShell(`
+    ${emailTitle(
+      confirmedBooking ? `New booking from your ${channel}` : `New ${channel} conversation`,
+      branchName,
+    )}
+    ${emailPills(confirmedBooking ? ([['✓ Booking confirmed', RM_GOOD]] as Array<[string, string]>) : [])}
+    ${emailFacts([
+      ['Channel', channel.charAt(0).toUpperCase() + channel.slice(1)],
+      ['Received', when],
+      ['Customer', esc(customerName)],
+      ['Phone', esc(customerPhone)],
+      ['Email', esc(customerEmail)],
+      ['Registration', esc(registrationNumber)],
+      ['Service', esc(serviceName)],
+      ['Booking', esc(bookingDescription)],
+      ['Value', capturedRevenue ? `£${capturedRevenue.toFixed(2)}` : null, RM_GOOD],
+    ])}
+    ${emailSection('Summary', esc(summary))}
+    ${emailButton(link, 'Open this conversation', 'The full conversation is in your ReceptionMate inbox')}
+  `);
+
+  let text = `${confirmedBooking ? 'NEW BOOKING' : 'NEW CONVERSATION'}\n${'='.repeat(56)}\n\n`;
+  text += `Branch: ${branchName}\nChannel: ${channel}\nReceived: ${when}\n`;
+  if (confirmedBooking) text += `Status: BOOKING CONFIRMED\n`;
+  if (customerName) text += `Customer: ${customerName}\n`;
+  if (customerPhone) text += `Phone: ${customerPhone}\n`;
+  if (customerEmail) text += `Email: ${customerEmail}\n`;
+  if (registrationNumber) text += `Registration: ${registrationNumber}\n`;
+  if (serviceName) text += `Service: ${serviceName}\n`;
+  if (bookingDescription) text += `Booking: ${bookingDescription}\n`;
+  if (capturedRevenue) text += `Value: £${capturedRevenue.toFixed(2)}\n`;
+  text += `\nSummary:\n${'-'.repeat(56)}\n${summary}\n\nOpen this conversation: ${link}\n`;
+
+  return sendEmail({
+    to: notificationEmails,
+    subject: confirmedBooking
+      ? `New ${channel} booking — ${who}`
+      : `New ${channel} conversation — ${who}`,
+    html,
+    text,
+  });
+};
+
 interface PaymentSetupReminderEmailData {
   branchName: string;
   summary: string;
@@ -710,105 +758,21 @@ export const sendPaymentSetupReminderEmail = async (
     minute: '2-digit',
   });
 
-  const html = `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Action Required: Set Up Direct Debit</title>
-</head>
-<body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #09203c;">
-  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #09203c;">
-    <tr>
-      <td style="padding: 40px 20px;">
-        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="600" style="margin: 0 auto; background-color: #1a3a52; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.5);">
-          <tr>
-            <td style="padding: 0; background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);">
-              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
-                <tr>
-                  <td style="text-align: center; padding: 32px;">
-                    <h2 style="margin: 0; font-size: 24px; font-weight: 600; color: #ffffff;">
-                      ⚠️ Action Required: Direct Debit Setup
-                    </h2>
-                    <p style="margin: 8px 0 0; font-size: 15px; color: rgba(255,255,255,0.95);">
-                      ${data.branchName}
-                    </p>
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-          
-          <tr>
-            <td style="padding: 32px;">
-              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
-                <tr>
-                  <td style="padding: 0 0 24px; font-size: 16px; line-height: 1.6; color: #e2e8f0;">
-                    <p style="margin: 0 0 16px;">
-                      <strong>Good news!</strong> ReceptionMate handled a call for you on ${formattedDate}.
-                    </p>
-                    <p style="margin: 0 0 16px;">
-                      However, we noticed that your Direct Debit mandate is not currently active. To ensure uninterrupted service and receive full call details, please complete your payment setup.
-                    </p>
-                  </td>
-                </tr>
-
-                <tr>
-                  <td style="padding: 20px; background-color: #0d2739; border: 1px solid #1e4a66; border-radius: 8px; margin-bottom: 24px;">
-                    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
-                      <tr>
-                        <td style="padding-bottom: 0; font-size: 14px; line-height: 1.5; color: #94a3b8;">
-                          <strong style="color: #e2e8f0;">📞 Call Received:</strong> ${formattedDate}
-                        </td>
-                      </tr>
-                    </table>
-                  </td>
-                </tr>
-
-                <tr>
-                  <td style="padding: 24px 0;">
-                    <div style="background-color: #0d2739; border-left: 4px solid #f59e0b; padding: 16px 20px; border-radius: 4px;">
-                      <p style="margin: 0; font-size: 15px; line-height: 1.6; color: #fbbf24;">
-                        <strong>⚠️ Important:</strong> To continue receiving full call details and maintain uninterrupted service, please set up your Direct Debit mandate as soon as possible.
-                      </p>
-                    </div>
-                  </td>
-                </tr>
-
-                <tr>
-                  <td style="text-align: center; padding: 32px 0 0;">
-                    <a href="${data.portalUrl}/login" style="display: inline-block; padding: 16px 32px; background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 16px; box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);">
-                      Complete Direct Debit Setup
-                    </a>
-                  </td>
-                </tr>
-
-                <tr>
-                  <td style="padding: 24px 0 0; font-size: 14px; line-height: 1.6; color: #94a3b8; text-align: center;">
-                    <p style="margin: 0;">
-                      Questions? Contact us at <a href="mailto:hello@receptionmate.co.uk" style="color: #3b82f6; text-decoration: none;">hello@receptionmate.co.uk</a>
-                    </p>
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-
-          <tr>
-            <td style="padding: 24px 32px; background-color: #0d2739; border-top: 1px solid #1e4a66;">
-              <p style="margin: 0; font-size: 12px; line-height: 1.5; color: #64748b; text-align: center;">
-                This is an automated email from ReceptionMate<br/>
-                © ${new Date().getFullYear()} ReceptionMate. All rights reserved.
-              </p>
-            </td>
-          </tr>
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>`;
+  const html = brandedEmailShell(`
+    ${emailTitle('Set up your Direct Debit', data.branchName, 'Action required', RM_WARN)}
+    ${emailSection(
+      null,
+      `<p style="margin: 0 0 14px;"><strong>Good news</strong> &mdash; ReceptionMate handled a call for you on ${formattedDate}.</p>` +
+      `<p style="margin: 0;">Your Direct Debit mandate is not active yet. Completing it keeps your service running and restores your full call details.</p>`,
+    )}
+    ${emailFacts([['Call received', formattedDate]])}
+    ${emailCallout(
+      'To keep receiving full call details and uninterrupted service, please set up your Direct Debit mandate as soon as you can.',
+      RM_WARN,
+    )}
+    ${emailButton(`${data.portalUrl}/login`, 'Complete Direct Debit setup')}
+    ${emailFootnote(`Questions? Email <a href="mailto:hello@receptionmate.co.uk" style="color: ${RM_BRAND}; text-decoration: none;">hello@receptionmate.co.uk</a>`)}
+  `);
 
   const text = `
 ⚠️ ACTION REQUIRED: DIRECT DEBIT SETUP
@@ -857,38 +821,7 @@ const RM_BRAND_DARK = '#281eb0';  // brand-700
  * band carrying the ReceptionMate logo, and a consistent footer. Callers pass the inner
  * body HTML. Keeps every arrears email on-brand with the portal.
  */
-const arrearsEmailShell = (bodyHtml: string): string => `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-</head>
-<body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f1f2f9;">
-  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #f1f2f9;">
-    <tr>
-      <td style="padding: 40px 20px;">
-        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="600" style="margin: 0 auto; background-color: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 24px rgba(52,38,207,0.12);">
-          <tr>
-            <td style="padding: 32px; background-color: ${RM_BRAND}; text-align: center;">
-              <img src="${RM_LOGO_URL}" alt="ReceptionMate" height="120" style="height: 120px; width: auto; display: inline-block;" />
-            </td>
-          </tr>
-          ${bodyHtml}
-          <tr>
-            <td style="padding: 24px 32px; background-color: #f7f7fb; border-top: 1px solid #e9eaf5;">
-              <p style="margin: 0; font-size: 12px; line-height: 1.5; color: #8b90b0; text-align: center;">
-                This is an automated email from ReceptionMate<br/>
-                © ${new Date().getFullYear()} ReceptionMate. All rights reserved.
-              </p>
-            </td>
-          </tr>
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>`;
+const arrearsEmailShell = (bodyHtml: string): string => brandedEmailShell(bodyHtml);
 
 /**
  * Arrears notice — sent instead of the full call summary when a garage is flagged
@@ -1616,90 +1549,22 @@ export const sendNegativeFeedbackEmail = async (
     minute: '2-digit',
   });
 
-  const html = `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Negative Feedback Alert</title>
-</head>
-<body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #09203c;">
-  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #09203c;">
-    <tr>
-      <td style="padding: 40px 20px;">
-        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="600" style="margin: 0 auto; background-color: #1a3a52; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.5);">
-          <tr>
-            <td style="padding: 0; background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);">
-              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
-                <tr>
-                  <td style="text-align: center; padding: 32px;">
-                    <h2 style="margin: 0; font-size: 24px; font-weight: 600; color: #ffffff;">
-                      ⚠️ Negative Feedback Received
-                    </h2>
-                    <p style="margin: 8px 0 0; font-size: 15px; color: rgba(255,255,255,0.95);">
-                      ${branchName}
-                    </p>
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-          
-          <tr>
-            <td style="padding: 32px;">
-              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
-                <tr>
-                  <td style="padding: 20px; background-color: #0d2739; border: 1px solid #1e4a66; border-radius: 8px;">
-                    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
-                      <tr>
-                        <td style="padding-bottom: 12px; font-size: 14px; line-height: 1.5; color: #94a3b8;">
-                          <strong style="color: #e2e8f0;">📅 Submitted:</strong> ${formattedDate}
-                        </td>
-                      </tr>
-                      <tr>
-                        <td style="padding-bottom: 12px; font-size: 14px; line-height: 1.5; color: #94a3b8;">
-                          <strong style="color: #e2e8f0;">👤 User:</strong> ${userEmail}
-                        </td>
-                      </tr>
-                      <tr>
-                        <td style="padding-bottom: 12px; font-size: 14px; line-height: 1.5; color: #94a3b8;">
-                          <strong style="color: #e2e8f0;">🆔 Call ID:</strong> ${callId}
-                        </td>
-                      </tr>
-                      <tr>
-                        <td style="padding-bottom: 12px; font-size: 14px; line-height: 1.5; color: #94a3b8;">
-                          <strong style="color: #e2e8f0;">📝 Reasons:</strong><br/>
-                          ${reasons.length > 0 ? reasons.map(r => `• ${r}`).join('<br/>') : 'No specific reasons provided'}
-                        </td>
-                      </tr>
-                      ${notes ? `<tr>
-                        <td style="padding-bottom: 12px; font-size: 14px; line-height: 1.5; color: #94a3b8;">
-                          <strong style="color: #e2e8f0;">💬 Additional Notes:</strong><br/>
-                          ${notes}
-                        </td>
-                      </tr>` : ''}
-                    </table>
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-          
-          <tr>
-            <td style="padding: 32px; text-align: center; color: #64748b; font-size: 12px; border-top: 1px solid #1e4a66;">
-              <p style="margin: 0;">
-                This is an automated alert from ReceptionMate
-              </p>
-            </td>
-          </tr>
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>
-`;
+  const html = brandedEmailShell(`
+    ${emailTitle('Negative feedback received', branchName, 'Feedback', RM_BAD)}
+    ${emailFacts([
+      ['Submitted', formattedDate],
+      ['User', esc(userEmail)],
+      ['Call ID', esc(callId)],
+    ])}
+    ${emailSection(
+      'Reasons given',
+      reasons.length
+        ? `<ul style="margin: 0; padding-left: 20px;">${reasons.map((r) => `<li style="margin: 0 0 4px;">${esc(r)}</li>`).join('')}</ul>`
+        : '<p style="margin: 0; color: #64748b;">No specific reasons provided.</p>',
+    )}
+    ${notes ? emailSection('Additional notes', esc(notes)) : ''}
+    ${emailButton(`https://portal.receptionmate.co.uk/calls/${encodeURIComponent(callId)}`, 'Review this call')}
+  `);
 
   const text = `
 NEGATIVE FEEDBACK RECEIVED
@@ -1744,10 +1609,17 @@ export const sendNeedsAttentionEmail = async (
   const displayName = customerName || customerPhone || 'Unknown customer';
   const portalUrl = process.env.PORTAL_URL || 'https://portal.receptionmate.co.uk';
 
+  // Deep link into the inbox. The old /conversations/:id was never a route in this app, so
+  // every "View Conversation in Portal" click until now landed on a 404.
+  const conversationLink = `${portalUrl}/messages?conversation=${encodeURIComponent(conversationId)}`;
+
   const messagesHtml = recentMessages
     .map(m => {
-      const label = m.role === 'user' ? '👤 Customer' : m.role === 'staff' ? '🧑 Staff' : '🤖 Agent';
-      return `<tr><td style="padding: 8px 0; font-size: 14px; color: #94a3b8;"><strong style="color: #e2e8f0;">${label}:</strong> ${m.content}</td></tr>`;
+      const label = m.role === 'user' ? 'Customer' : m.role === 'staff' ? 'Staff' : 'Agent';
+      return `<tr><td style="padding: 0 0 10px;">` +
+        `<div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px; color: ${RM_FAINT}; padding-bottom: 3px;">${label}</div>` +
+        `<div style="font-size: 14px; line-height: 1.5; color: ${RM_INK}; background-color: ${RM_WASH}; border: 1px solid ${RM_LINE}; border-radius: 8px; padding: 10px 12px;">${esc(m.content)}</div>` +
+        `</td></tr>`;
     })
     .join('');
 
@@ -1758,48 +1630,20 @@ export const sendNeedsAttentionEmail = async (
     })
     .join('\n\n');
 
-  const html = `<!DOCTYPE html>
-<html>
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
-<body style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;background-color:#09203c;">
-  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color:#09203c;">
-    <tr><td style="padding:40px 20px;">
-      <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="600" style="margin:0 auto;background-color:#1a3a52;border-radius:12px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,0.5);">
-        <tr><td style="background:linear-gradient(135deg,#dc2626 0%,#b91c1c 100%);text-align:center;padding:32px;">
-          <h2 style="margin:0;font-size:22px;font-weight:600;color:#ffffff;">⚠️ Customer Needs Attention</h2>
-          <p style="margin:8px 0 0;font-size:15px;color:rgba(255,255,255,0.95);">${branchName}</p>
-        </td></tr>
-        <tr><td style="padding:32px;">
-          <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
-            <tr><td style="padding:20px;background-color:#0d2739;border:1px solid #1e4a66;border-radius:8px;">
-              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
-                <tr><td style="padding-bottom:12px;font-size:14px;color:#94a3b8;"><strong style="color:#e2e8f0;">👤 Customer:</strong> ${displayName}</td></tr>
-                ${customerPhone ? `<tr><td style="padding-bottom:12px;font-size:14px;color:#94a3b8;"><strong style="color:#e2e8f0;">📞 Phone:</strong> ${customerPhone}</td></tr>` : ''}
-              </table>
-            </td></tr>
-          </table>
-          <h3 style="margin:24px 0 12px;font-size:16px;font-weight:600;color:#e2e8f0;">Recent Conversation</h3>
-          <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color:#0d2739;border-left:4px solid #dc2626;border-radius:6px;">
-            <tr><td style="padding:16px;">
-              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
-                ${messagesHtml}
-              </table>
-            </td></tr>
-          </table>
-        </td></tr>
-        <tr><td style="padding:0 32px 32px;text-align:center;">
-          <a href="${portalUrl}/conversations/${conversationId}" style="display:inline-block;padding:14px 32px;background:linear-gradient(135deg,#3126cf 0%,#2419a8 100%);color:#ffffff;text-decoration:none;border-radius:8px;font-weight:600;font-size:15px;">View Conversation in Portal</a>
-        </td></tr>
-        <tr><td style="padding:24px;background-color:#0d2739;border-top:1px solid #1e4a66;text-align:center;">
-          <p style="margin:0;font-size:12px;color:#64748b;">Automated notification from <strong style="color:#3126cf;">ReceptionMate</strong></p>
-        </td></tr>
-      </table>
-    </td></tr>
-  </table>
-</body>
-</html>`;
+  const html = brandedEmailShell(`
+    ${emailTitle('A customer needs attention', branchName, 'Handover', RM_BAD)}
+    ${emailFacts([
+      ['Customer', esc(displayName)],
+      ['Phone', esc(customerPhone)],
+    ])}
+    ${emailSection(
+      'Recent conversation',
+      `<table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">${messagesHtml}</table>`,
+    )}
+    ${emailButton(conversationLink, 'Open this conversation')}
+  `);
 
-  const text = `CUSTOMER NEEDS ATTENTION\n\nBranch: ${branchName}\nCustomer: ${displayName}${customerPhone ? `\nPhone: ${customerPhone}` : ''}\n\nRecent Conversation:\n${'─'.repeat(40)}\n${messagesText}\n\nView in portal: ${portalUrl}/conversations/${conversationId}\n\n---\nReceptionMate automated notification`;
+  const text = `CUSTOMER NEEDS ATTENTION\n\nBranch: ${branchName}\nCustomer: ${displayName}${customerPhone ? `\nPhone: ${customerPhone}` : ''}\n\nRecent Conversation:\n${'─'.repeat(40)}\n${messagesText}\n\nView in portal: ${conversationLink}\n\n---\nReceptionMate automated notification`;
 
   return sendEmail({
     to: notificationEmails,
@@ -1821,119 +1665,22 @@ interface WelcomeEmailData {
 export const sendWelcomeEmail = async (data: WelcomeEmailData): Promise<boolean> => {
   const { to, businessName, branchName, email, password, portalUrl } = data;
 
-  const html = `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Welcome to ReceptionMate</title>
-</head>
-<body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #09203c;">
-  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #09203c;">
-    <tr>
-      <td style="padding: 40px 20px;">
-        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="600" style="margin: 0 auto; background-color: #1a3a52; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.5);">
-          <tr>
-            <td style="padding: 0; background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);">
-              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
-                <tr>
-                  <td style="text-align: center; padding: 24px 32px 8px;">
-                    <img src="https://receptionmate.co.uk/wp-content/uploads/2024/12/receptionmate-light-1-1024x292.png" alt="ReceptionMate" style="height: 40px; width: auto; display: inline-block;" />
-                  </td>
-                </tr>
-                <tr>
-                  <td style="text-align: center; padding: 8px 32px 32px;">
-                    <h2 style="margin: 0; font-size: 24px; font-weight: 600; color: #ffffff;">
-                      Welcome to ReceptionMate!
-                    </h2>
-                    <p style="margin: 8px 0 0; font-size: 15px; color: rgba(255,255,255,0.95);">
-                      Your account has been created
-                    </p>
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-
-          <tr>
-            <td style="padding: 32px;">
-              <p style="margin: 0 0 20px; font-size: 16px; color: #cbd5e1; line-height: 1.6;">
-                Hi there,
-              </p>
-
-              <p style="margin: 0 0 20px; font-size: 16px; color: #cbd5e1; line-height: 1.6;">
-                Your ReceptionMate account has been set up for <strong style="color: #ffffff;">${businessName}</strong> - <strong style="color: #ffffff;">${branchName}</strong>.
-              </p>
-
-              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
-                <tr>
-                  <td style="padding: 20px; background-color: #0d2739; border: 1px solid #1e4a66; border-radius: 8px;">
-                    <h3 style="margin: 0 0 16px; font-size: 16px; font-weight: 600; color: #ffffff;">
-                      Your Login Credentials
-                    </h3>
-                    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
-                      <tr>
-                        <td style="padding: 8px 0; font-size: 14px; color: #94a3b8; width: 120px;">Email:</td>
-                        <td style="padding: 8px 0; font-size: 14px; color: #ffffff; font-weight: 500;">${email}</td>
-                      </tr>
-                      <tr>
-                        <td style="padding: 8px 0; font-size: 14px; color: #94a3b8;">Password:</td>
-                        <td style="padding: 8px 0; font-size: 14px; color: #ffffff; font-weight: 500; font-family: 'Courier New', monospace;">${password}</td>
-                      </tr>
-                    </table>
-                  </td>
-                </tr>
-              </table>
-
-              <p style="margin: 20px 0; font-size: 14px; color: #94a3b8; line-height: 1.6;">
-                <strong style="color: #fbbf24;">⚠️ Important:</strong> You will be required to change your password when you first log in.
-              </p>
-
-              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
-                <tr>
-                  <td style="padding: 20px; background-color: #0d2739; border: 1px solid #1e4a66; border-radius: 8px;">
-                    <h3 style="margin: 0 0 12px; font-size: 16px; font-weight: 600; color: #ffffff;">
-                      💳 Set Up Direct Debit
-                    </h3>
-                    <p style="margin: 0; font-size: 14px; color: #cbd5e1; line-height: 1.6;">
-                      After logging in, you'll need to complete your Direct Debit mandate to activate your service. This ensures uninterrupted access to ReceptionMate.
-                    </p>
-                  </td>
-                </tr>
-              </table>
-
-              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
-                <tr>
-                  <td style="text-align: center; padding: 20px 0;">
-                    <a href="${portalUrl}/login" style="display: inline-block; padding: 14px 32px; background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%); color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 16px;">
-                      Log In to Portal
-                    </a>
-                  </td>
-                </tr>
-              </table>
-
-              <p style="margin: 20px 0 0; font-size: 14px; color: #94a3b8; line-height: 1.6;">
-                If you have any questions or need assistance, please don't hesitate to contact our support team at <a href="mailto:hello@receptionmate.co.uk" style="color: #8b5cf6; text-decoration: none;">hello@receptionmate.co.uk</a>
-              </p>
-            </td>
-          </tr>
-
-          <tr>
-            <td style="padding: 24px; background-color: #0d2739; border-top: 1px solid #1e4a66;">
-              <p style="margin: 0; font-size: 12px; color: #64748b; text-align: center;">
-                This is an automated email from ReceptionMate<br/>
-                © ${new Date().getFullYear()} ReceptionMate. All rights reserved.
-              </p>
-            </td>
-          </tr>
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>
-`;
+  const html = brandedEmailShell(`
+    ${emailTitle('Welcome to ReceptionMate', `${businessName} — ${branchName}`)}
+    ${emailSection(null, '<p style="margin: 0;">Your account is set up and ready. Here are your login details.</p>')}
+    ${emailFacts([
+      ['Email', esc(email)],
+      ['Password', `<span style="font-family: 'Courier New', monospace;">${esc(password)}</span>`],
+    ])}
+    ${emailCallout('You will be asked to change this password the first time you log in.', RM_WARN)}
+    ${emailSection(
+      'Next step',
+      '<p style="margin: 0;">Once you are in, complete your Direct Debit mandate to activate the service. ' +
+      'Until that is done your access stays limited.</p>',
+    )}
+    ${emailButton(`${portalUrl}/login`, 'Log in to the portal')}
+    ${emailFootnote(`Need a hand? Email <a href="mailto:hello@receptionmate.co.uk" style="color: ${RM_BRAND}; text-decoration: none;">hello@receptionmate.co.uk</a>`)}
+  `);
 
   const text = `
 Welcome to ReceptionMate!

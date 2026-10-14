@@ -10,6 +10,7 @@ import { bookingAtFrom } from './garageHiveJobMatch.js';
 import { notifyFlaggedConversation } from '../utils/push.js';
 import { deriveEnquiryTypeFromSession, maybeUpdateEnquiryType } from './conversationEnquiryType.js';
 import { splitPersonName } from '../utils/personName.js';
+import { sendChatSummaryEmail } from '../utils/email.js';
 
 // Lazy-load OpenAI client
 let openaiClient: OpenAI | null = null;
@@ -4252,6 +4253,14 @@ async function handleSetContactInfo(args: any, session: ChatSession, conversatio
         },
       });
       console.log(`[SET_CONTACT] Recorded on conversation: ${bookingSummary} (£${revenue})`);
+
+      // Fire-and-forget — a mail failure must not change what the customer is told.
+      void notifyChatBooking(conversationId, session, {
+        names: bookedNames,
+        revenue,
+        dateNatural: formatDateNaturally(session.bookingDate),
+        timeNatural: formatTimeNaturally(session.bookingTime),
+      });
     } catch (e: any) {
       // Non-fatal: the booking is already live in Garage Hive. Log and carry on.
       console.error('[SET_CONTACT] Failed to persist booking to ChatConversation:', e?.message);
@@ -4285,6 +4294,71 @@ async function handleSetContactInfo(args: any, session: ChatSession, conversatio
   } catch (error: any) {
     console.error('[SET_CONTACT] API error:', error.response?.data || error.message);
     return `API error confirming booking.\nSay: "Sorry ${session.customerNameFirst}, something went wrong on our end and the booking didn't go through. Please call the garage directly to get that slot locked in — really sorry about that!"\nDone.`;
+  }
+}
+
+/**
+ * Tell the garage a chat just booked something.
+ *
+ * The call side has had this from the start (sendCallSummaryEmail). The chat side had nothing:
+ * notifyMessaging only fires on an inbound ping or an escalation, so a widget or WhatsApp booking
+ * reached the diary and notified no one.
+ *
+ * Gated on messagingNotifyEmail — the garage's existing switch for messaging email. Garages who
+ * never turned it on do not start getting mail because this shipped.
+ */
+async function notifyChatBooking(
+  conversationId: string,
+  session: ChatSession,
+  booked: { names: string; revenue: number; dateNatural: string; timeNatural: string },
+): Promise<void> {
+  try {
+    const conv = await prisma.chatConversation.findUnique({
+      where: { id: conversationId },
+      select: { garageId: true, platform: true, createdAt: true },
+    });
+    if (!conv?.garageId) return;
+
+    const cfg = await prisma.agentConfiguration.findUnique({
+      where: { garageId: conv.garageId },
+      select: { branchName: true, notificationEmails: true, messagingNotifyEmail: true },
+    });
+    if (!cfg || cfg.messagingNotifyEmail !== true) return;
+
+    const to = (Array.isArray(cfg.notificationEmails) ? cfg.notificationEmails : [])
+      .filter(Boolean) as string[];
+    if (!to.length) return;
+
+    const vehicle = [session.vehicleMake, session.vehicleModel]
+      .filter(Boolean)
+      .join(' ')
+      .replace(/\b\w/g, (c) => c.toUpperCase());
+    const name = `${session.customerNameFirst ?? ''} ${session.customerNameLast ?? ''}`.trim();
+    const summary =
+      `${name || 'A customer'} booked ${booked.names} for ${vehicle || 'their vehicle'}` +
+      `${session.vrn ? ` (${session.vrn})` : ''} on ${booked.dateNatural} at ${booked.timeNatural}.` +
+      `${session.contactPhone ? ` Contact ${session.contactPhone}` : ''}` +
+      `${session.contactEmail ? ` or ${session.contactEmail}` : ''}.`;
+
+    await sendChatSummaryEmail(to, {
+      branchName: cfg.branchName || 'Your branch',
+      platform: conv.platform,
+      summary,
+      customerName: name || null,
+      customerPhone: session.contactPhone || null,
+      customerEmail: session.contactEmail || null,
+      registrationNumber: session.vrn || null,
+      serviceName: booked.names,
+      confirmedBooking: true,
+      capturedRevenue: booked.revenue > 0 ? booked.revenue : null,
+      bookingDescription: `${booked.dateNatural} at ${booked.timeNatural}`,
+      createdAt: (conv.createdAt ?? new Date()).toISOString(),
+      conversationId,
+    });
+    console.log(`[SET_CONTACT] Booking notification emailed to ${to.length} address(es)`);
+  } catch (e: any) {
+    // Never fatal: the booking is live and recorded, and the customer has already been told.
+    console.error('[SET_CONTACT] Booking notification failed:', e?.message);
   }
 }
 

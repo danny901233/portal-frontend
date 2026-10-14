@@ -115,6 +115,7 @@ model Garage {
   outboundCallerIdSid      String?
   outboundCalls            OutboundCall[]
   agentConfiguration     AgentConfiguration?
+  callbackAttempts       CallbackAttempt[]
   agentConfigChanges     AgentConfigChange[]
   knowledgeDocuments     AgentKnowledgeDocument[]
   business               Business?                @relation(fields: [businessId], references: [id])
@@ -320,6 +321,9 @@ model Call {
   // The sweep asks "which bookings still need a job number?" — a full scan of Call without this,
   // and this database OOMs on those.
   @@index([garageId, bookingAt])
+  // The callback policy asks "has this number rung back since?" — a seq scan of Call for that
+  // is what OOMs this database. Call otherwise carries only a primary key.
+  @@index([fromNumber, createdAt])
 }
 
 model TwilioRecording {
@@ -615,6 +619,9 @@ model AgentConfiguration {
   // true  = the chat agent offers to take a message / flag the team when a human is asked for.
   // false = the chat agent politely declines and points them at phone/email (messagingHandoffMessage).
   messagingHumanHandoff     Boolean  @default(true)
+  // Ring a caller back when their call ended under 30 seconds. OFF by default: an outbound call
+  // placed in a garage's name is theirs to opt into, not ours to assume.
+  shortCallCallback         Boolean  @default(false)
   messagingHandoffMessage   String?
   // Messaging notifications: when to alert the garage and how.
   // How long the chat agent waits before replying on WhatsApp. Replying instantly reads as a
@@ -1700,4 +1707,36 @@ model MailgunInboundEvent {
 
   @@index([receivedAt])
   @@index([ticketId])
+}
+
+// An attempt to ring back a caller whose call ended under 30 seconds.
+//
+// Refusals are recorded as rows too, not dropped: "why did nobody get rung back?" is the first
+// question anyone asks, and refusedReason is the answer. Nothing here is garage-facing — a
+// callback that fails must leave no trace the garage can see.
+model CallbackAttempt {
+  id                      String   @id @default(cuid())
+  garageId                String
+  garage                  Garage   @relation(fields: [garageId], references: [id], onDelete: Cascade)
+  toNumber                String                      // E.164, as dialled
+  // Day bucket in Europe/London ("2026-10-14"). Exists so the unique constraint below can
+  // enforce one callback per number per garage per day in the database. A rolling 24h window
+  // can only be done as check-then-write, which races two short calls arriving together.
+  dedupeKey               String
+  callerIdUsed            String?                     // what we presented as the From
+  originalCallSid         String?
+  originalRoom            String?
+  originalDurationSeconds Int?
+  // pending | dialled | answered | logged | no_answer | failed | refused
+  status                  String   @default("pending")
+  refusedReason           String?                     // which gate said no
+  resultRoom              String?                     // the callback's own room, to join to Call
+  durationSeconds         Int?
+  dueAt                   DateTime                    // when the sweep may dial it
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  @@unique([garageId, toNumber, dedupeKey])
+  @@index([garageId, createdAt])
+  @@index([status, dueAt])
 }

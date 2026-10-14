@@ -15,6 +15,7 @@ export type CallbackRefusal =
   | 'no_number'
   | 'withheld'
   | 'garage_own_number'
+  | 'not_dialable_range'
   | 'blocklisted'
   | 'closed'
   | 'called_back_already'
@@ -59,6 +60,32 @@ function comparableDigits(raw: string): string {
   return digits;
 }
 
+/**
+ * Numbers this feature is willing to ring: UK landlines, 03 numbers, and real mobiles.
+ *
+ * ── Why an allow-list and not a block-list ──────────────────────────────────────────────────
+ * This is the first thing in the estate that dials a number a stranger chose. Caller ID is
+ * trivially spoofed, so the number is attacker-controlled input: ring the garage, present a
+ * premium-rate or satellite number, hang up after five seconds, and we call it back and keep an
+ * agent on the line for up to MAX_CALL_SECONDS. The per-number daily cap is no defence — vary
+ * the number and the estate cap still permits 150 calls a day.
+ *
+ *   44 1 / 44 2    geographic landlines
+ *   44 3           03xx, charged as geographic
+ *   44 7[1-5,7-9]  mobiles
+ *
+ * Everything else is refused, and the exclusions are the point:
+ *   09  premium rate          08  freephone and revenue share
+ *   070 personal numbering — the classic toll-fraud range, because at a glance it reads as a
+ *       mobile and it is billed nothing like one
+ *   076 pagers
+ *   any non-UK number, satellite ranges among them
+ *
+ * A UK customer ringing from abroad therefore gets no callback. That is the right side to err
+ * on: they can ring again, and the alternative is an open line to any destination on earth.
+ */
+const UK_DIALABLE = /^44(?:[123]\d{9}|7[1-57-9]\d{8})$/;
+
 export function decideCallback(input: CallbackPolicyInput): CallbackDecision {
   // Order matters. The reason recorded on the row is the FIRST gate that said no, and the kill
   // switch being reported ahead of everything else is what makes "why has nothing dialled all
@@ -79,6 +106,9 @@ export function decideCallback(input: CallbackPolicyInput): CallbackDecision {
 
   const caller = comparableDigits(raw);
   if (caller.length < 10) return { allow: false, reason: 'no_number' };
+
+  // Ahead of the caps, so a spoofed premium number cannot spend one of the day's attempts.
+  if (!UK_DIALABLE.test(caller)) return { allow: false, reason: 'not_dialable_range' };
 
   // The garage's own line. Their carrier presents the FORWARDING number on a diverted call, so a
   // whole day's callers can arrive as the garage's own landline — and ringing that back reaches

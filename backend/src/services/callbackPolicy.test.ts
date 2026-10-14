@@ -150,3 +150,78 @@ test('the loop guard is checked before the number is looked at all', () => {
     { allow: false, reason: 'was_callback' },
   );
 });
+
+// ── Toll fraud: what we are willing to dial at all ──────────────────────────────────────────
+//
+// This feature auto-dials a number a stranger chose, which nothing in this system did before.
+// Caller ID is trivially spoofed, so "the number that called us" is attacker-controlled input.
+// The per-number daily cap is no defence: vary the number and the estate cap still allows 150
+// calls a day, each held up to ten minutes by MAX_CALL_SECONDS.
+
+test('a UK mobile is dialable', () => {
+  assert.deepEqual(decideCallback({ ...ok, callerPhone: '+447700900123' }), { allow: true });
+});
+
+test('UK geographic and 03 numbers are dialable', () => {
+  for (const n of ['+441752496000', '+442079460123', '+443301234567']) {
+    assert.deepEqual(decideCallback({ ...ok, callerPhone: n }), { allow: true }, `expected ${n} to dial`);
+  }
+});
+
+test('premium rate is refused', () => {
+  assert.deepEqual(decideCallback({ ...ok, callerPhone: '+449098790123' }), {
+    allow: false,
+    reason: 'not_dialable_range',
+  });
+});
+
+test('revenue-share and freephone ranges are refused', () => {
+  for (const n of ['+448450001234', '+448700001234', '+448001234567']) {
+    assert.deepEqual(
+      decideCallback({ ...ok, callerPhone: n }),
+      { allow: false, reason: 'not_dialable_range' },
+      `expected ${n} to be refused`,
+    );
+  }
+});
+
+// 070x is personal numbering, not a mobile, and it is the classic toll-fraud vector precisely
+// because it reads as one at a glance.
+test('070 personal numbering is refused even though it looks like a mobile', () => {
+  assert.deepEqual(decideCallback({ ...ok, callerPhone: '+447010001234' }), {
+    allow: false,
+    reason: 'not_dialable_range',
+  });
+});
+
+test('076 pager numbers are refused', () => {
+  assert.deepEqual(decideCallback({ ...ok, callerPhone: '+447600001234' }), {
+    allow: false,
+    reason: 'not_dialable_range',
+  });
+});
+
+test('international numbers are refused, including high-cost satellite ranges', () => {
+  for (const n of ['+12125550123', '+8821234567890', '+353871234567', '+2391234567']) {
+    assert.deepEqual(
+      decideCallback({ ...ok, callerPhone: n }),
+      { allow: false, reason: 'not_dialable_range' },
+      `expected ${n} to be refused`,
+    );
+  }
+});
+
+test('a UK number of the wrong length is refused', () => {
+  // 44 + 10 digits is the whole of the UK plan; anything else is malformed or spoofed.
+  assert.deepEqual(decideCallback({ ...ok, callerPhone: '+4417524960001' }), {
+    allow: false,
+    reason: 'not_dialable_range',
+  });
+});
+
+test('the range check runs before the caps, so a spoofed number never spends one', () => {
+  assert.deepEqual(
+    decideCallback({ ...ok, callerPhone: '+449098790123', garageAttemptsToday: 99 }),
+    { allow: false, reason: 'not_dialable_range' },
+  );
+});

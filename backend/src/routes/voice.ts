@@ -474,6 +474,13 @@ router.post('/recording-status', async (req: Request, res: Response) => {
       // call however briefly it lasted — including the one- and two-second hangups the agent
       // never lives long enough to report. Fire-and-forget: a callback must never be able to
       // fail the recording callback, which also feeds call logs and transcription.
+      // Unconditional, because two rounds of reasoning from absent log lines got the wrong
+      // answer twice. State what was seen every time.
+      console.log(
+        `[CALLBACK_TRIGGER] sid=${CallSid} rawDuration=${JSON.stringify(RecordingDuration)} ` +
+          `parsed=${durationSeconds} short=${durationSeconds !== null && durationSeconds < 30} ` +
+          `knownInboundCalls=${inboundCalls.size} hasThisSid=${inboundCalls.has(String(CallSid))}`,
+      );
       if (durationSeconds !== null && !Number.isNaN(durationSeconds) && durationSeconds < 30) {
         const inbound = takeInboundCall(String(CallSid));
         if (!inbound) {

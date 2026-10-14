@@ -1010,12 +1010,20 @@ async function main() {
   await prisma.$disconnect();
 }
 
-// Only run when executed directly, so a test can require this file for its helpers without
-// kicking off a real run against the production database and the real alert channels. pm2
-// launches it as the main module, so the scheduled behaviour is unchanged.
+// Exported so a test can exercise the helpers without a real run against the production
+// database and the real alert channels.
 module.exports = { runCadence, pingDeadMan, MIN_RUN_GAP_MS, FAST_RUNS_BEFORE_ALERT, RATE_KEY };
 
-if (require.main === module) {
+// The default is to RUN. A test opts out explicitly by setting WATCHDOG_NO_AUTORUN before
+// requiring this file.
+//
+// This was `require.main === module` for one deploy, and that silently disabled the watchdog:
+// pm2's fork mode does not execute the script directly, it require()s it from its own wrapper
+// (ProcessContainerFork), so `require.main` is pm2's loader and the condition was never true.
+// The process started, defined everything, called nothing and exited 0 in 3s — no log line, no
+// error, pm2 still reporting a healthy cron. A monitor must fail LOUD, so the guard is inverted:
+// anything unexpected about the environment leaves it running rather than silently dormant.
+if (!process.env.WATCHDOG_NO_AUTORUN) {
   main().catch(async (e) => {
     console.error('[watchdog] error', e);
     // Signal the failure outward before exiting. Without this the external monitor only notices

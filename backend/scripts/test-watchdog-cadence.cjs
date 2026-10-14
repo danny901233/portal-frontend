@@ -16,6 +16,10 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'wd-cadence-'));
 process.env.WATCHDOG_LASTRUN_FILE = path.join(tmp, 'lastrun.json');
 // Must be unset, or requiring the module below would arm a real ping at an unknown URL.
 delete process.env.HC_PING_URL;
+// Opt out of the auto-run. Without this, requiring the watchdog starts a REAL run against the
+// production database and the real email/SMS channels. The guard defaults to running on purpose
+// (a monitor must fail loud, not dormant), so the test is what has to be explicit.
+process.env.WATCHDOG_NO_AUTORUN = '1';
 
 const wd = require('../agent-watchdog.cjs');
 const { runCadence, pingDeadMan, MIN_RUN_GAP_MS, FAST_RUNS_BEFORE_ALERT } = wd;

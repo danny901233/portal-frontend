@@ -111,6 +111,11 @@ export async function requestCallback(report: ShortCallReport): Promise<RequestO
     // which is the dedupe working rather than an error, and is exactly what happens when both
     // triggers see the same call.
     if ((e as { code?: string })?.code === 'P2002') {
+      // Logged, because this path being silent is what made a whole evening of test calls look
+      // like the trigger was dead when it was in fact firing every time and being deduped.
+      console.log(
+        `[callback] not queued (${report.source}) ${state.dialNumber}: already has a callback today`,
+      );
       return { queued: false, reason: 'already_queued_today' };
     }
     throw e;

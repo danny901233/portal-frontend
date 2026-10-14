@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { callbackRoomName, callerIdFor, isStaleAttempt } from './callbackDial.js';
+import { callbackRoomName, callerIdFor, isOurFailure, isStaleAttempt } from './callbackDial.js';
 
 test('the room name carries the garage, the caller and the callback marker', () => {
   const room = callbackRoomName('11111111-2222-3333-4444-555555555555', '+447700900123');
@@ -117,4 +117,36 @@ test('the staleness boundary is 15 minutes', () => {
   const now = new Date('2026-10-14T12:00:00Z');
   assert.equal(isStaleAttempt(new Date('2026-10-14T11:45:30Z'), now), false);
   assert.equal(isStaleAttempt(new Date('2026-10-14T11:44:30Z'), now), true);
+});
+
+// ── a failure that is OURS must not spend the caller's one slot for the day ──────────────────
+//
+// Live, 2026-10-14: the first callback was rejected by Twilio with SIP 403 Forbidden because I
+// had built the trunk with a masked password. That came back through the dial's exception path
+// and was recorded as "no_answer", keeping its dedupeKey — so that number's single slot for the
+// whole day was spent on a call that never rang anybody, and every later short call from it was
+// silently refused by the unique index.
+
+test('a ring-out is the callee not answering', () => {
+  assert.equal(isOurFailure('context deadline exceeded'), false);
+  assert.equal(isOurFailure('sip status: 480: Temporarily Unavailable'), false);
+  assert.equal(isOurFailure('sip status: 486: Busy Here'), false);
+  assert.equal(isOurFailure('sip status: 603: Decline'), false);
+});
+
+test('an authorisation rejection is our configuration, not their phone', () => {
+  assert.equal(isOurFailure('unexpected status from INVITE response: sip status: 403: Forbidden'), true);
+  assert.equal(isOurFailure('sip status: 401: Unauthorized'), true);
+  assert.equal(isOurFailure('sip status: 407: Proxy Authentication Required'), true);
+});
+
+test('a server-side or trunk fault is ours', () => {
+  assert.equal(isOurFailure('sip status: 503: Service Unavailable'), true);
+  assert.equal(isOurFailure('no trunk configured'), true);
+});
+
+test('an unrecognised failure is treated as theirs, so one attempt still means one', () => {
+  // Erring the other way would retry on anything we could not classify, which is how a caller
+  // gets rung repeatedly.
+  assert.equal(isOurFailure('something nobody has seen before'), false);
 });

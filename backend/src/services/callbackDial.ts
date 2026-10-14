@@ -82,6 +82,26 @@ export function isStaleAttempt(dueAt: Date, now: Date): boolean {
   return now.getTime() - dueAt.getTime() > MAX_ATTEMPT_AGE_MS;
 }
 
+/**
+ * Was this failure OURS rather than "nobody answered"?
+ *
+ * It decides whether the caller keeps their one callback for the day. A ring-out is a real,
+ * spent attempt and nobody should be rung twice over one dropped call. A 403 from the carrier is
+ * not: it means our trunk, credentials or caller ID are wrong, nobody's phone ever rang, and
+ * holding the slot punishes the customer for our misconfiguration. That is exactly what happened
+ * on the first live callback — a trunk built with a masked password, recorded as "no_answer",
+ * and the number locked out for the rest of the day.
+ *
+ * Anything unrecognised counts as theirs, so "one attempt" still means one. Erring the other way
+ * would retry on any failure we could not classify, which is how somebody gets rung repeatedly.
+ */
+export function isOurFailure(message: string): boolean {
+  const m = (message || '').toLowerCase();
+  if (m.includes('no trunk') || m.includes('not configured')) return true;
+  // Authorisation and server faults: the call was refused before it could ring.
+  return /\b(401|403|407|500|502|503|504)\b/.test(m);
+}
+
 export function callbackRoomName(garageId: string, toNumber: string): string {
   const rand = Math.random().toString(36).slice(2, 10);
   return `garage-${garageId}_${toNumber}_cbk_${rand}`;
@@ -236,10 +256,22 @@ export async function dialCallback(attemptId: string): Promise<void> {
     // A ring-out raises here too, and is the ordinary outcome rather than a bug. One attempt
     // only: nobody is rung twice over one dropped call.
     const msg = err instanceof Error ? err.message : 'dial failed';
-    console.log(`[callback] ${attempt.garage.name}: ${dialNumber} did not connect — ${msg}`);
+    const ours = isOurFailure(msg);
+    console.log(
+      `[callback] ${attempt.garage.name}: ${dialNumber} did not connect — ${msg} ` +
+        `(${ours ? 'our fault, slot released' : 'no answer, attempt spent'})`,
+    );
     await prisma.callbackAttempt.update({
       where: { id: attempt.id },
-      data: { status: 'no_answer', refusedReason: msg.slice(0, 200) },
+      data: {
+        status: ours ? 'failed' : 'no_answer',
+        refusedReason: msg.slice(0, 200),
+        // Only a failure that is ours releases the number's slot for the day. A genuine
+        // ring-out keeps it, because that attempt was really spent.
+        ...(ours
+          ? { dedupeKey: `failed:${attempt.dedupeKey}:${Math.random().toString(36).slice(2, 10)}` }
+          : {}),
+      },
     });
   }
 }

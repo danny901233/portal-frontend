@@ -1,0 +1,184 @@
+// Placing the callback: a room, an agent dispatched into it, then the caller dialled in.
+//
+// The dial path is the one the unified agent already uses for warm transfers, so the trunk and
+// its credentials are known to work in production. What is new is that WE create the room rather
+// than an inbound trunk, so the agent must be dispatched EXPLICITLY — it is a named agent, and
+// without an explicit dispatch the room is created and no worker ever joins.
+//
+// Explicit dispatch is also why this does not build a RoomConfiguration the way unifiedSip.ts
+// does: the tree carries two copies of @livekit/protocol, so passing protocol objects across the
+// SDK boundary does not typecheck. createDispatch takes a metadata string instead.
+import { AgentDispatchClient, SipClient } from 'livekit-server-sdk';
+
+import { prisma } from '../db.js';
+
+const UNIFIED_AGENT_NAME = 'unified-agent';
+/** Matches the transfer ring limit Dan set: past this, nobody is coming. */
+const RING_SECONDS = 25;
+/** The agents' own 10-minute cap, so a callback cannot run away either. */
+const MAX_CALL_SECONDS = 600;
+const SWEEP_BATCH = 10;
+
+const config = () => {
+  const url = process.env.LIVEKIT_UNIFIED_URL;
+  const key = process.env.LIVEKIT_UNIFIED_API_KEY;
+  const secret = process.env.LIVEKIT_UNIFIED_API_SECRET;
+  const trunk = (
+    process.env.LIVEKIT_SIP_OUTBOUND_TRUNK ||
+    process.env.LIVEKIT_OUTBOUND_TRUNK_ID ||
+    ''
+  ).trim();
+  return url && key && secret && trunk ? { url, key, secret, trunk } : null;
+};
+
+/**
+ * E.164 digits only, or null.
+ *
+ * Garage.twilioNumber is stored for display — "+44 333 041 1784" — and no carrier presents it
+ * that way. Passing it through verbatim is what put four malformed numbers on the demo line's
+ * trunk, of which three had spaces in and none was the E.164 the INVITE actually carries.
+ */
+function e164(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const cleaned = raw.replace(/[^\d+]/g, '');
+  return /^\+\d{10,15}$/.test(cleaned) ? cleaned : null;
+}
+
+/**
+ * `garage-<id>_<caller>_cb<rand>`.
+ *
+ * The shape is the agent's: it parses the garage id and the caller's number straight out of the
+ * room name. The `cb` marker sits AFTER the number, where neither of its regexes reaches, which
+ * this module's tests pin.
+ */
+export function callbackRoomName(garageId: string, toNumber: string): string {
+  const rand = Math.random().toString(36).slice(2, 10);
+  return `garage-${garageId}_${toNumber}_cb${rand}`;
+}
+
+/** Which number to present. Most garages are unverified, so the fallback is the common path. */
+export function callerIdFor(garage: {
+  outboundCallerId: string | null;
+  outboundCallerIdVerified: boolean;
+  twilioNumber: string | null;
+}): string | null {
+  if (garage.outboundCallerIdVerified) {
+    const verified = e164(garage.outboundCallerId);
+    if (verified) return verified;
+  }
+  return e164(garage.twilioNumber);
+}
+
+export async function dialCallback(attemptId: string): Promise<void> {
+  const cfg = config();
+  const attempt = await prisma.callbackAttempt.findUnique({
+    where: { id: attemptId },
+    include: {
+      garage: {
+        select: {
+          id: true,
+          name: true,
+          twilioNumber: true,
+          outboundCallerId: true,
+          outboundCallerIdVerified: true,
+        },
+      },
+    },
+  });
+  // Only ever dial a row still waiting to be dialled. This is what stops a sweep that overlaps
+  // its predecessor ringing the same person twice.
+  if (!attempt || attempt.status !== 'pending') return;
+
+  const fail = (reason: string) =>
+    prisma.callbackAttempt.update({
+      where: { id: attempt.id },
+      data: { status: 'failed', refusedReason: reason },
+    });
+
+  if (!cfg) {
+    console.warn('[callback] LIVEKIT_UNIFIED_* or the outbound trunk is not configured — not dialling');
+    await fail('not_configured');
+    return;
+  }
+
+  const fromNumber = callerIdFor(attempt.garage);
+  if (!fromNumber) {
+    await fail('no_caller_id');
+    return;
+  }
+
+  const room = callbackRoomName(attempt.garageId, attempt.toNumber);
+
+  // Marked dialled BEFORE the dial, not after. The attempt is spent the moment the phone starts
+  // ringing, so that is where it is recorded — on every path out of here, including exceptions
+  // nobody anticipated. Recording it afterwards would let a crash mid-dial leave the row pending
+  // for the next sweep to pick up, and ring the customer a second time.
+  await prisma.callbackAttempt.update({
+    where: { id: attempt.id },
+    data: { status: 'dialled', callerIdUsed: fromNumber, resultRoom: room },
+  });
+
+  try {
+    // Dispatch first, so a worker is already on its way before the phone rings and the caller
+    // does not answer to silence.
+    const dispatch = new AgentDispatchClient(cfg.url, cfg.key, cfg.secret);
+    await dispatch.createDispatch(room, UNIFIED_AGENT_NAME, {
+      metadata: JSON.stringify({ callback: true, to: attempt.toNumber, garageId: attempt.garageId }),
+    });
+
+    const sip = new SipClient(cfg.url, cfg.key, cfg.secret);
+    await sip.createSipParticipant(cfg.trunk, attempt.toNumber, room, {
+      fromNumber,
+      participantIdentity: `sip_${attempt.toNumber}`,
+      participantName: 'Callback recipient',
+      playDialtone: false,
+      ringingTimeout: RING_SECONDS,
+      maxCallDuration: MAX_CALL_SECONDS,
+      waitUntilAnswered: true,
+    });
+
+    await prisma.callbackAttempt.update({ where: { id: attempt.id }, data: { status: 'answered' } });
+    console.log(`[callback] ${attempt.garage.name}: ${attempt.toNumber} answered (room ${room})`);
+  } catch (err: unknown) {
+    // A ring-out raises here too, and is the ordinary outcome rather than a bug. One attempt
+    // only: nobody is rung twice over one dropped call.
+    const msg = err instanceof Error ? err.message : 'dial failed';
+    console.log(`[callback] ${attempt.garage.name}: ${attempt.toNumber} did not connect — ${msg}`);
+    await prisma.callbackAttempt.update({
+      where: { id: attempt.id },
+      data: { status: 'no_answer', refusedReason: msg.slice(0, 200) },
+    });
+  }
+}
+
+let timer: NodeJS.Timeout | null = null;
+let running = false;
+
+/**
+ * Dial whatever has come due.
+ *
+ * A sweep rather than a setTimeout per attempt, so a restart inside the 60-second delay does not
+ * silently lose the callback. `running` guards against a slow batch overlapping the next tick:
+ * createSipParticipant waits for an answer, so one batch can easily outlast the interval.
+ */
+export function startCallbackSweep(intervalMs = 30_000): void {
+  if (timer) return;
+  const run = async () => {
+    if (running) return;
+    running = true;
+    try {
+      const due = await prisma.callbackAttempt.findMany({
+        where: { status: 'pending', dueAt: { lte: new Date() } },
+        select: { id: true },
+        take: SWEEP_BATCH,
+      });
+      for (const { id } of due) await dialCallback(id);
+    } catch (e: unknown) {
+      console.error('[callback] sweep error:', e instanceof Error ? e.message : e);
+    } finally {
+      running = false;
+    }
+  };
+  timer = setInterval(() => void run(), intervalMs);
+  console.log(`[callback] sweep started (every ${Math.round(intervalMs / 1000)}s)`);
+}

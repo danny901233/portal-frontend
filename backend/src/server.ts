@@ -57,6 +57,7 @@ import { initializeScheduledReports } from './utils/scheduler.js';
 import { initReminderCron, initAbandonedCheckoutCron } from './services/reminderScheduler.js';
 import { startArrearsSweep } from './utils/arrears.js';
 import { startTicketStaleSweep } from './services/ticketStaleSweep.js';
+import { startCallbackSweep } from './services/callbackDial.js';
 import billingStatusRouter from './routes/billing-status.js';
 import outboundCallsRouter from './routes/outbound-calls.js';
 import callbacksRouter from './routes/callbacks.js';
@@ -239,4 +240,7 @@ app.listen(port, '0.0.0.0', () => {
   startArrearsSweep();
   // Pending tickets the customer never replied to: remind at 2 days, close at 5.
   startTicketStaleSweep();
+  // Short-call callbacks that have come due. A sweep rather than a timer per attempt, so a
+  // restart inside the 60-second delay does not silently lose the callback.
+  startCallbackSweep();
 });

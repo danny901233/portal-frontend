@@ -75,3 +75,10 @@ backend/scripts/cold-resume-test.mjs
 
 # git-format-patch output — working files, not source
 *.patch
+
+# Browser-automation scrape output — contains live customer records, never commit
+.playwright-mcp/
+wb-*
+
+# Watchdog run-cadence stamp — per-box runtime state, never source
+backend/.watchdog-lastrun.json

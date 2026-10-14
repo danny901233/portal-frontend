@@ -29,6 +29,34 @@ const SMS_FROM = 'RMonitor'; // alphanumeric sender id (one-way, UK)
 const STATE_FILE = `${__dirname}/.watchdog-state.json`;
 const TEST_MODE = process.argv.includes('--test');
 
+// ---- dead-man's switch (off-box) ----
+// The watchdog has never monitored itself: it lives on the box it watches, so when the box went
+// down on 2026-09-14 it went silent alongside everything else and the outage was found by hand.
+// A completed run pings an external cron monitor (healthchecks.io); if the pings stop, THAT
+// service alerts, from outside. Unset = no-op, so this is safe to deploy before the URL exists.
+const HC_PING_URL = (process.env.HC_PING_URL || '').trim();
+
+// ---- self-cadence guard (on-box) ----
+// A dead-man's switch catches this process DYING. It cannot catch the opposite failure, which is
+// the one that actually keeps happening: pm2's `--no-autorestart` flag gets dropped (13 Oct and
+// again 14 Oct 2026), the script exits, pm2 relaunches it instantly, and the `*/5` cron becomes
+// irrelevant — 19 runs a MINUTE, every one opening a Prisma connection against a small Postgres.
+// Too-frequent pings just keep a healthchecks check "up", so there is nothing to detect it from
+// outside. This does it from inside: a run that starts too soon after the last one is evidence
+// the flag is gone.
+//
+// Counting CONSECUTIVE fast runs rather than alerting on the first one keeps a manual
+// `node agent-watchdog.cjs` straight after a cron fire from crying wolf — one fast run is a
+// human, three in a row is pm2 in a loop. At 3s per run that is still detection within ~10s.
+//
+// The stamp file is env-overridable so a test never touches the live one. The sibling state file
+// has already caused one real false SMS: a manual run wrote state, the 5-min cron fired 2s later,
+// read it and sent a genuine "recovered" message quoting the test data.
+const LASTRUN_FILE = process.env.WATCHDOG_LASTRUN_FILE || `${__dirname}/.watchdog-lastrun.json`;
+const MIN_RUN_GAP_MS = 60000;
+const FAST_RUNS_BEFORE_ALERT = 3;
+const RATE_KEY = 'watchdog-rate:self';
+
 // Fleet-wide silence (minutes) during business hours that counts as "down".
 const SILENCE_MIN = { automate: 45, assist: 90 };
 
@@ -773,6 +801,52 @@ async function sendSms(text) {
   }
 }
 
+/**
+ * Tell the external monitor this run completed.
+ *
+ * Deliberately swallows every failure and never rejects: a monitoring ping must not be able to
+ * take down the thing it monitors. A failed ping is logged and ignored — the external service
+ * will alert on the missing beat anyway, which is the whole point of it.
+ *
+ * `/fail` is appended for a run that ended badly, so the monitor shows a failure immediately
+ * rather than waiting out the grace period.
+ */
+function pingDeadMan(suffix = '') {
+  if (!HC_PING_URL) return Promise.resolve();
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (note) => { if (!done) { done = true; if (note) console.error(`[watchdog] dead-man ping ${note}`); resolve(); } };
+    try {
+      const req = https.get(`${HC_PING_URL}${suffix}`, { timeout: 5000 }, (res) => {
+        res.resume();
+        res.on('end', () => { console.log(`[watchdog] dead-man ping ${res.statusCode}`); finish(); });
+      });
+      req.on('error', (e) => finish(`failed: ${e.message}`));
+      req.on('timeout', () => { req.destroy(); finish('timed out'); });
+    } catch (e) {
+      finish(`threw: ${e.message}`);
+    }
+  });
+}
+
+/**
+ * How long since the previous run started, and how many consecutive fast runs we are into.
+ *
+ * Stamps the file on every call, so the gap measured is run-start to run-start — which is the
+ * figure that exposes an instant pm2 relaunch, regardless of how long a run itself takes.
+ */
+function runCadence() {
+  let last = { at: 0, fast: 0 };
+  try { last = JSON.parse(fs.readFileSync(LASTRUN_FILE, 'utf8')) || last; } catch {}
+  const now = Date.now();
+  const gap = last.at ? now - last.at : null;
+  const fast = gap !== null && gap < MIN_RUN_GAP_MS ? (last.fast || 0) + 1 : 0;
+  try { fs.writeFileSync(LASTRUN_FILE, JSON.stringify({ at: now, fast })); } catch (e) {
+    console.error('[watchdog] lastrun write failed', e.message);
+  }
+  return { gap, fast };
+}
+
 async function main() {
   // Print the WhatsApp credential findings and send nothing. For checking the check itself —
   // running the whole watchdog to see one function would page people.
@@ -795,6 +869,17 @@ async function main() {
 
   const prev = loadState(); // { key: msg }
 
+  // Before anything else, and never gated on business hours or the database: is this process
+  // being relaunched in a loop? Measured first so it is recorded even if a check below throws.
+  const { gap, fast } = runCadence();
+  const rateIssue = fast >= FAST_RUNS_BEFORE_ALERT
+    ? {
+      key: RATE_KEY,
+      msg: `Watchdog is restarting every ~${Math.round(gap / 1000)}s instead of every 5 minutes (${fast} fast runs in a row) — pm2 autorestart is back ON, so it is hammering the database. Fix: pm2 restart agent-watchdog --no-autorestart && pm2 save.`,
+    }
+    : null;
+  if (rateIssue) console.error(`[watchdog] ${RATE_KEY} — ${rateIssue.msg}`);
+
   // DATABASE FIRST — and nothing else if it is down. Every check below opens with a Prisma query,
   // so against a dead database they each throw and the process dies long before reaching the
   // alert dispatch at the bottom of this function. Probing here and returning early is the whole
@@ -816,7 +901,11 @@ async function main() {
     // Hold every other open issue exactly as it was. The checks never ran, so we have learned
     // nothing new about any of them, and letting them drop out of state here would read as
     // "recovered" and fire an all-clear in the middle of an outage.
-    saveState({ ...prev, [DB_DOWN_KEY]: msg });
+    saveState({ ...prev, [DB_DOWN_KEY]: msg, ...(rateIssue ? { [RATE_KEY]: rateIssue.msg } : {}) });
+    // The watchdog itself did its job here — it detected the outage and alerted — so this counts
+    // as a completed run. Pinging keeps the external monitor quiet about a fault that has already
+    // been reported through email and SMS, instead of raising a second, duplicate alarm.
+    await pingDeadMan();
     try { await prisma.$disconnect(); } catch {}
     return;
   }
@@ -868,7 +957,8 @@ async function main() {
   }
 
   const current = {};
-  [...heartbeat, ...responseHealth, ...unanswered, ...routing, ...unifiedRouting, ...configSync, ...waTokens, ...metaPages]
+  [...heartbeat, ...responseHealth, ...unanswered, ...routing, ...unifiedRouting, ...configSync, ...waTokens, ...metaPages,
+    ...(rateIssue ? [rateIssue] : [])]
     .forEach((i) => { current[i.key] = i.msg; });
 
   // STICKY OUTAGES. An outage alert must not clear itself just because the evidence scrolled
@@ -916,7 +1006,23 @@ async function main() {
   }
 
   saveState(current);
+  await pingDeadMan();
   await prisma.$disconnect();
 }
 
-main().catch(async (e) => { console.error('[watchdog] error', e); try { await prisma.$disconnect(); } catch {} process.exit(1); });
+// Only run when executed directly, so a test can require this file for its helpers without
+// kicking off a real run against the production database and the real alert channels. pm2
+// launches it as the main module, so the scheduled behaviour is unchanged.
+module.exports = { runCadence, pingDeadMan, MIN_RUN_GAP_MS, FAST_RUNS_BEFORE_ALERT, RATE_KEY };
+
+if (require.main === module) {
+  main().catch(async (e) => {
+    console.error('[watchdog] error', e);
+    // Signal the failure outward before exiting. Without this the external monitor only notices
+    // once the grace period expires; with it, a crash shows up on the next ping cycle. On
+    // 2026-10-13 this path ran ~165k times in silence against a dead database.
+    try { await pingDeadMan('/fail'); } catch {}
+    try { await prisma.$disconnect(); } catch {}
+    process.exit(1);
+  });
+}

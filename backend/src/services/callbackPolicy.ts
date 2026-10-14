@@ -12,6 +12,7 @@ import { isWithheldCaller, normaliseCaller } from '../utils/callerBlocklist.js';
 export type CallbackRefusal =
   | 'kill_switch'
   | 'flag_off'
+  | 'garage_inactive'
   | 'no_number'
   | 'withheld'
   | 'garage_own_number'
@@ -34,6 +35,15 @@ export type CallbackPolicyInput = {
   callerPhone: string | null;
   /** The garage's own lines: twilioNumber, transferNumber, phoneNumber. */
   garageOwnNumbers: (string | null | undefined)[];
+  /**
+   * Is the garage still live — not archived, not locked for arrears, voice still enabled?
+   *
+   * Separate from garageEnabled because it is re-read at the moment of dialling: an attempt is
+   * authorised when the short call ends and dialled at least 60 seconds later, and a garage can
+   * be archived or locked in between. An outbound call placed in the name of a garage we have
+   * just cut off is the one call we would least like to make.
+   */
+  garageActive: boolean;
   /** isBlockedCaller() for this number on this line. */
   blocked: boolean;
   /** isWithinOpeningHours() for this garage, now. */
@@ -86,12 +96,43 @@ function comparableDigits(raw: string): string {
  */
 const UK_DIALABLE = /^44(?:[123]\d{9}|7[1-57-9]\d{8})$/;
 
+/** Characters a phone number may legitimately arrive with. Anything else is not a number. */
+const PHONE_CHARS = /^[+0-9 ()\-.]+$/;
+
+/**
+ * The one canonical form of a number we are prepared to dial, or null.
+ *
+ * ── Why this exists, and why nothing may dial anything else ─────────────────────────────────
+ * The policy used to validate the normalised DIGITS while the dialler dialled the RAW string.
+ * Two parsers over attacker-controlled input is a bypass, and this one was handed straight to
+ * SIP as the destination: "441752496000@evil.example" normalises to a perfectly ordinary UK
+ * landline, passes the allow-list, and then routes the call to whatever host the caller named.
+ *
+ * So the character check comes FIRST, before any stripping. An @, a semicolon, a newline or a
+ * letter means this is a SIP URI, a parameter list or a header injection rather than a phone
+ * number, and stripping those characters out would be inventing a number the caller never gave.
+ *
+ * Everything that dials — the endpoint that stores the number, and the dialler that sends it —
+ * uses this function and dials exactly what it returns.
+ */
+export function canonicalDialNumber(raw: string | null | undefined): string | null {
+  const s = String(raw ?? '').trim();
+  if (!s || !PHONE_CHARS.test(s)) return null;
+
+  const digits = normaliseCaller(s);
+  const withCc = digits.startsWith('0') && digits.length >= 10 ? `44${digits.slice(1)}` : digits;
+  if (!UK_DIALABLE.test(withCc)) return null;
+  return `+${withCc}`;
+}
+
 export function decideCallback(input: CallbackPolicyInput): CallbackDecision {
   // Order matters. The reason recorded on the row is the FIRST gate that said no, and the kill
   // switch being reported ahead of everything else is what makes "why has nothing dialled all
   // morning?" answerable in one look.
   if (!input.enabledGlobally) return { allow: false, reason: 'kill_switch' };
   if (!input.garageEnabled) return { allow: false, reason: 'flag_off' };
+  // After the flag, so a garage that opted out reads as opted out rather than as inactive.
+  if (!input.garageActive) return { allow: false, reason: 'garage_inactive' };
 
   // Before the number is trusted at all: a callback we placed must never beget another. Most
   // callbacks end under 30 seconds — no answer, voicemail, "no thanks" — so without this the
@@ -108,7 +149,9 @@ export function decideCallback(input: CallbackPolicyInput): CallbackDecision {
   if (caller.length < 10) return { allow: false, reason: 'no_number' };
 
   // Ahead of the caps, so a spoofed premium number cannot spend one of the day's attempts.
-  if (!UK_DIALABLE.test(caller)) return { allow: false, reason: 'not_dialable_range' };
+  // canonicalDialNumber is the SAME function everything that dials uses, so what is validated
+  // here and what reaches SIP cannot diverge.
+  if (!canonicalDialNumber(raw)) return { allow: false, reason: 'not_dialable_range' };
 
   // The garage's own line. Their carrier presents the FORWARDING number on a diverted call, so a
   // whole day's callers can arrive as the garage's own landline — and ringing that back reaches

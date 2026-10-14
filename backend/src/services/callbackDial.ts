@@ -11,6 +11,8 @@
 import { AgentDispatchClient, SipClient } from 'livekit-server-sdk';
 
 import { prisma } from '../db.js';
+import { canonicalDialNumber, decideCallback } from './callbackPolicy.js';
+import { loadCallbackPolicyInput } from './callbackState.js';
 
 const UNIFIED_AGENT_NAME = 'unified-agent';
 /** Matches the transfer ring limit Dan set: past this, nobody is coming. */
@@ -101,13 +103,61 @@ export async function dialCallback(attemptId: string): Promise<void> {
     return;
   }
 
+  // ── Check the policy AGAIN, here, at the moment of spend ──────────────────────────────────
+  //
+  // The attempt was authorised when the short call ended and is being dialled at least 60
+  // seconds later. In between, the garage may have been archived, locked for arrears, had the
+  // flag switched off, or the kill switch thrown — and the queued row knows none of it. Without
+  // this the row's own existence is the authorisation, which fails open.
+  //
+  // It is also the authoritative cap check. The endpoint counts, decides and inserts across
+  // two awaits, so concurrent reports all read the same count and all pass, and the unique
+  // index only stops the same number twice. This sweep is serialised, so the count taken here
+  // is the real one, and this is the last gate before money is spent.
+  //
+  // Re-canonicalised rather than trusted: the stored number should already be canonical, but
+  // the thing being handed to SIP must be the thing that was just validated, not a value read
+  // back from a row that some other code path might have written.
+  const dialNumber = canonicalDialNumber(attempt.toNumber);
+  if (!dialNumber) {
+    console.warn(`[callback] ${attempt.toNumber} is not a number we will dial — refusing`);
+    await fail('not_dialable_range');
+    return;
+  }
+
+  const state = await loadCallbackPolicyInput({
+    garageId: attempt.garageId,
+    callerPhone: attempt.toNumber,
+    originalRoom: attempt.originalRoom,
+    now: new Date(),
+  });
+  if (!state.found) {
+    await fail('garage_gone');
+    return;
+  }
+  // The caps counted this pending row itself, so allow for it rather than refusing every
+  // attempt the moment one is queued.
+  const recheck = decideCallback({
+    ...state.input,
+    garageAttemptsToday: Math.max(0, state.input.garageAttemptsToday - 1),
+    estateAttemptsToday: Math.max(0, state.input.estateAttemptsToday - 1),
+  });
+  if (!recheck.allow) {
+    console.log(`[callback] ${attempt.toNumber} no longer eligible at dial time — ${recheck.reason}`);
+    await prisma.callbackAttempt.update({
+      where: { id: attempt.id },
+      data: { status: 'refused', refusedReason: `at_dial:${recheck.reason}` },
+    });
+    return;
+  }
+
   const fromNumber = callerIdFor(attempt.garage);
   if (!fromNumber) {
     await fail('no_caller_id');
     return;
   }
 
-  const room = callbackRoomName(attempt.garageId, attempt.toNumber);
+  const room = callbackRoomName(attempt.garageId, dialNumber);
 
   // Marked dialled BEFORE the dial, not after. The attempt is spent the moment the phone starts
   // ringing, so that is where it is recorded — on every path out of here, including exceptions
@@ -123,13 +173,13 @@ export async function dialCallback(attemptId: string): Promise<void> {
     // does not answer to silence.
     const dispatch = new AgentDispatchClient(cfg.url, cfg.key, cfg.secret);
     await dispatch.createDispatch(room, UNIFIED_AGENT_NAME, {
-      metadata: JSON.stringify({ callback: true, to: attempt.toNumber, garageId: attempt.garageId }),
+      metadata: JSON.stringify({ callback: true, to: dialNumber, garageId: attempt.garageId }),
     });
 
     const sip = new SipClient(cfg.url, cfg.key, cfg.secret);
-    await sip.createSipParticipant(cfg.trunk, attempt.toNumber, room, {
+    await sip.createSipParticipant(cfg.trunk, dialNumber, room, {
       fromNumber,
-      participantIdentity: `sip_${attempt.toNumber}`,
+      participantIdentity: `sip_${dialNumber}`,
       participantName: 'Callback recipient',
       playDialtone: false,
       ringingTimeout: RING_SECONDS,
@@ -138,12 +188,12 @@ export async function dialCallback(attemptId: string): Promise<void> {
     });
 
     await prisma.callbackAttempt.update({ where: { id: attempt.id }, data: { status: 'answered' } });
-    console.log(`[callback] ${attempt.garage.name}: ${attempt.toNumber} answered (room ${room})`);
+    console.log(`[callback] ${attempt.garage.name}: ${dialNumber} answered (room ${room})`);
   } catch (err: unknown) {
     // A ring-out raises here too, and is the ordinary outcome rather than a bug. One attempt
     // only: nobody is rung twice over one dropped call.
     const msg = err instanceof Error ? err.message : 'dial failed';
-    console.log(`[callback] ${attempt.garage.name}: ${attempt.toNumber} did not connect — ${msg}`);
+    console.log(`[callback] ${attempt.garage.name}: ${dialNumber} did not connect — ${msg}`);
     await prisma.callbackAttempt.update({
       where: { id: attempt.id },
       data: { status: 'no_answer', refusedReason: msg.slice(0, 200) },

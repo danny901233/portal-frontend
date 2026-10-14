@@ -9,6 +9,7 @@ const ok: CallbackPolicyInput = {
   garageEnabled: true,
   callerPhone: '+447700900123',
   garageOwnNumbers: ['+441375803104', '+443330411784'],
+  garageActive: true,
   blocked: false,
   openNow: true,
   originalWasCallback: false,
@@ -224,4 +225,77 @@ test('the range check runs before the caps, so a spoofed number never spends one
     decideCallback({ ...ok, callerPhone: '+449098790123', garageAttemptsToday: 99 }),
     { allow: false, reason: 'not_dialable_range' },
   );
+});
+
+// ── One parser, one number ──────────────────────────────────────────────────────────────────
+//
+// Flagged by the commit security review: the policy validated the NORMALISED digits while the
+// dialler dialled the RAW string. Two parsers over attacker-controlled input is a bypass, and
+// this one handed the destination straight to SIP.
+
+import { canonicalDialNumber } from './callbackPolicy.js';
+
+test('a canonical number comes back in E.164', () => {
+  for (const raw of ['+441752496000', '01752496000', '441752496000', '+44 1752 496000',
+                     '(01752) 496000', '00441752496000']) {
+    assert.equal(canonicalDialNumber(raw), '+441752496000', `failed for ${raw}`);
+  }
+});
+
+test('a mobile canonicalises too', () => {
+  assert.equal(canonicalDialNumber('07700900123'), '+447700900123');
+});
+
+// THE finding. Those digits normalise to a valid UK landline, so the allow-list passed it, and
+// the raw string was then handed to createSipParticipant as the destination — routing the call
+// to whatever host the caller named.
+test('a SIP URI smuggled through the caller ID is refused', () => {
+  assert.equal(canonicalDialNumber('441752496000@evil.example'), null);
+  assert.equal(canonicalDialNumber('sip:441752496000@evil.example'), null);
+  assert.equal(canonicalDialNumber('441752496000;npdi=yes'), null);
+  assert.equal(canonicalDialNumber('441752496000\r\nINVITE'), null);
+});
+
+test('out-of-range numbers never canonicalise', () => {
+  for (const raw of ['+449098790123', '+12125550123', '+447010001234', '+8821234567890']) {
+    assert.equal(canonicalDialNumber(raw), null, `failed for ${raw}`);
+  }
+});
+
+test('an allowed decision always has a canonical number behind it', () => {
+  // The invariant the endpoint relies on: anything the policy permits can be dialled safely.
+  for (const raw of ['+447700900123', '01752496000', '+442079460123']) {
+    const decision = decideCallback({ ...ok, callerPhone: raw });
+    assert.deepEqual(decision, { allow: true }, `expected ${raw} to be allowed`);
+    assert.ok(canonicalDialNumber(raw), `expected ${raw} to canonicalise`);
+  }
+});
+
+test('a refused range and a non-canonical number agree with each other', () => {
+  const raw = '441752496000@evil.example';
+  assert.deepEqual(decideCallback({ ...ok, callerPhone: raw }), {
+    allow: false,
+    reason: 'not_dialable_range',
+  });
+  assert.equal(canonicalDialNumber(raw), null);
+});
+
+// ── The garage must still be a going concern at the moment we dial ──────────────────────────
+//
+// Flagged by the commit security review as authorization-TOCTOU: the attempt is authorised when
+// the short call ends and dialled at least 60 seconds later, so the state it was authorised
+// against can have changed underneath it.
+
+test('an archived or access-restricted garage places no calls', () => {
+  assert.deepEqual(decideCallback({ ...ok, garageActive: false }), {
+    allow: false,
+    reason: 'garage_inactive',
+  });
+});
+
+test('the flag is checked before the garage state, so an opt-out reads as an opt-out', () => {
+  assert.deepEqual(decideCallback({ ...ok, garageEnabled: false, garageActive: false }), {
+    allow: false,
+    reason: 'flag_off',
+  });
 });

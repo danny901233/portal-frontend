@@ -39,6 +39,9 @@ export default function TransfersTab({ config, save, isSaving }: Props) {
       screenSecondsLabel: 'Ring for',
       screenSecondsHint:
         'Seconds before the call passes to the agent. Keep it under the voicemail — if voicemail answers, the caller gets the answerphone instead of the agent.',
+      callbackLabel: 'Ring back callers we missed',
+      callbackHint:
+        'When a call ends in under 30 seconds the agent rings the caller back and tries to help. A callback that works appears in the call log like any other call; one that fails or ends short is not shown. Off by default.',
     },
     fr: {
       title: 'Transferts d’appel',
@@ -60,6 +63,9 @@ export default function TransfersTab({ config, save, isSaving }: Props) {
       screenSecondsLabel: 'Sonnerie pendant',
       screenSecondsHint:
         "Secondes avant que l'appel passe à l'agent. Restez en dessous de la messagerie vocale, sinon l'appelant tombe sur le répondeur.",
+      callbackLabel: 'Rappeler les appelants manqués',
+      callbackHint:
+        "Quand un appel dure moins de 30 secondes, l'agent rappelle l'appelant et tente de l'aider. Un rappel abouti apparaît dans le journal des appels comme tout autre appel ; un rappel échoué ou trop court n'est pas affiché. Désactivé par défaut.",
     },
   }[lang];
   const [transferNumber, setTransferNumber] = useState(() => config.transferNumber ?? '');
@@ -71,6 +77,9 @@ export default function TransfersTab({ config, save, isSaving }: Props) {
   // so showing this to customers invites them to break a setup that already works.
   const [showScreening] = useState(() => isReceptionMateStaff());
   const [screenRingSeconds, setScreenRingSeconds] = useState(() => config.screenRingSeconds ?? 15);
+  // Staff-only while this is live on one garage. A half-rolled-out feature in 63 garages'
+  // settings invites somebody to switch on outbound calling before we have watched it work.
+  const [shortCallCallback, setShortCallCallback] = useState(() => config.shortCallCallback ?? false);
 
   const handleSave = () => {
     void save({
@@ -80,6 +89,7 @@ export default function TransfersTab({ config, save, isSaving }: Props) {
       screenNumber: screenNumber.trim(),
       screenAnnouncement: screenAnnouncement.trim(),
       screenRingSeconds,
+      shortCallCallback,
     });
   };
 
@@ -178,6 +188,21 @@ export default function TransfersTab({ config, save, isSaving }: Props) {
           </p>
         </div>
       </label>
+
+      {showScreening && (
+        <label className="flex items-start gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+          <input
+            type="checkbox"
+            checked={shortCallCallback}
+            onChange={(e) => setShortCallCallback(e.target.checked)}
+            className="mt-0.5 h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-600"
+          />
+          <div>
+            <p className="text-sm font-medium text-slate-900">{c.callbackLabel}</p>
+            <p className="mt-0.5 text-xs text-slate-500">{c.callbackHint}</p>
+          </div>
+        </label>
+      )}
     </TabShell>
   );
 }

@@ -2,6 +2,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { parseIntegrationSettings } from './config.js';
+import { upsertAgentConfigurationSchema } from '../utils/validators.js';
+
+/** The least a save can carry and still be valid. */
+const minimalConfig = { branchName: 'Test Branch', tonePreference: 'standard', allowFastFitOnly: false };
 
 // Garage Hive credentials live in integrationProviderConfig in two shapes. Most rows are flat
 // ({ apiKey, customerId, ... }); some — VWGS Performance among them — are nested under a
@@ -70,4 +74,20 @@ test('a nested Garage Hive row leaves the other diaries empty', () => {
   assert.equal(tyresoftSettings.tsApiKey, '');
   assert.equal(bookarSettings?.bookarClientId, '');
   assert.equal(pooleSettings?.branchKey, '');
+});
+
+// ── The agent-config flag that must survive a save ──────────────────────────────────────────
+//
+// A field missing from upsertAgentConfigurationSchema is dropped on every save with no error:
+// the path that quietly reverted ten settings and wiped a garage's FAQs to []. This is the
+// tripwire for shortCallCallback, which decides whether we place outbound calls at all.
+
+test('shortCallCallback survives the validator', () => {
+  const parsed = upsertAgentConfigurationSchema.parse({ ...minimalConfig, shortCallCallback: true });
+  assert.equal(parsed.shortCallCallback, true);
+});
+
+test('shortCallCallback set to false survives, rather than vanishing', () => {
+  const parsed = upsertAgentConfigurationSchema.parse({ ...minimalConfig, shortCallCallback: false });
+  assert.equal(parsed.shortCallCallback, false);
 });

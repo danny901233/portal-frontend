@@ -309,6 +309,7 @@ export const upsertAgentConfigurationSchema = z.object({
   advisoryUpsellsEnabled: z.boolean().optional(),
   advisoryUpsellPrices: z.boolean().optional(),
   messagingHumanHandoff: z.boolean().optional(),
+  shortCallCallback: z.boolean().optional(),
   messagingHandoffMessage: z.union([z.string().max(2000), z.literal(''), z.null()]).optional(),
   serviceIntervalMonths: z.number().int().min(1).max(60).optional(),
   serviceIntervalMiles: z.number().int().min(500).max(60000).optional(),

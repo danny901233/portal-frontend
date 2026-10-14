@@ -257,6 +257,8 @@ export type AgentConfigurationPayload = {
   enableSmsBookingLinks?: boolean;
   humanEscalation?: boolean;
   messagingHumanHandoff?: boolean;
+  /** Ring a caller back when their call ended under 30 seconds. Off by default. */
+  shortCallCallback?: boolean;
   messagingHandoffMessage?: string | null;
   advisoryUpsellPrices?: boolean;
   serviceIntervalMonths?: number;

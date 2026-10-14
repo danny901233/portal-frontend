@@ -303,6 +303,8 @@ export interface AgentConfiguration {
   // the voice-side humanEscalation so a garage can allow phone transfers while
   // keeping chat fully AI-handled (or vice versa).
   messagingHumanHandoff?: boolean;
+  /** Ring a caller back when their call ended under 30 seconds. Off by default. */
+  shortCallCallback?: boolean;
   messagingHandoffMessage?: string | null;
   serviceIntervalMonths?: number;
   serviceIntervalMiles?: number;

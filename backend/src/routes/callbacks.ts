@@ -8,6 +8,7 @@ import type { Request, Response } from 'express';
 import { Router } from 'express';
 
 import { prisma } from '../db.js';
+import { authenticate } from '../middleware/auth.js';
 import { decideCallback } from '../services/callbackPolicy.js';
 import { loadCallbackPolicyInput, londonDayKey } from '../services/callbackState.js';
 
@@ -148,6 +149,48 @@ router.post('/callbacks/request', async (req: Request, res: Response) => {
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'failed';
     console.error('[callback] request error:', msg);
+    return res.status(500).json({ error: msg });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/callbacks?garageId=&limit= — what the feature has actually done.
+//
+// Staff only, and deliberately NOT garage-facing: a callback that failed must leave no trace a
+// garage can see, which is the rule Dan set. This exists for the other half of that — without
+// it there is no way to tell the feature is alive, or that it has started redialling the same
+// number. The watchdog's single-garage blind spot and the support-hub ingest gap were both this
+// shape: a thing that silently stopped, or silently ran, with nobody able to see which.
+// ---------------------------------------------------------------------------
+router.get('/callbacks', authenticate, async (req: Request, res: Response) => {
+  if (req.user?.role !== 'RECEPTIONMATE_STAFF') return res.status(403).json({ error: 'Forbidden' });
+
+  const garageId = String(req.query.garageId || '').trim();
+  const limit = Math.min(200, Math.max(1, Number(req.query.limit) || 50));
+
+  try {
+    const attempts = await prisma.callbackAttempt.findMany({
+      where: garageId ? { garageId } : undefined,
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+      select: {
+        id: true,
+        garageId: true,
+        toNumber: true,
+        status: true,
+        refusedReason: true,
+        callerIdUsed: true,
+        originalDurationSeconds: true,
+        durationSeconds: true,
+        resultRoom: true,
+        createdAt: true,
+        garage: { select: { name: true } },
+      },
+    });
+    return res.json({ attempts });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'failed';
+    console.error('[callback] list error:', msg);
     return res.status(500).json({ error: msg });
   }
 });

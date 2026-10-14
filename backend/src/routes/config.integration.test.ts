@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { parseIntegrationSettings } from './config.js';
+import { parseIntegrationSettings, resolveShortCallCallback } from './config.js';
 import { upsertAgentConfigurationSchema } from '../utils/validators.js';
 
 /** The least a save can carry and still be valid. */
@@ -90,4 +90,32 @@ test('shortCallCallback survives the validator', () => {
 test('shortCallCallback set to false survives, rather than vanishing', () => {
   const parsed = upsertAgentConfigurationSchema.parse({ ...minimalConfig, shortCallCallback: false });
   assert.equal(parsed.shortCallCallback, false);
+});
+
+// ── shortCallCallback is staff-only, and that has to hold server-side ───────────────────────
+//
+// Flagged by the commit security review as broken access control. The UI hides the toggle
+// behind isReceptionMateStaff, but that is a client-side gate: a garage user could POST the
+// field straight to this endpoint and start placing outbound calls in their own name, on our
+// LiveKit and Twilio minutes, before anyone had watched the feature work. Same shape as the
+// agentScript rule a few lines above it in config.ts.
+
+test('staff can turn the callback flag on and off', () => {
+  assert.equal(resolveShortCallCallback(true, false, true), true);
+  assert.equal(resolveShortCallCallback(false, true, true), false);
+});
+
+test('a garage user cannot switch it on by posting the field', () => {
+  assert.equal(resolveShortCallCallback(true, false, false), false);
+});
+
+test('a garage user saving other settings does not switch it off either', () => {
+  // The ordinary case: the toggle is not in their form, so the field arrives undefined and the
+  // saved value has to survive the save.
+  assert.equal(resolveShortCallCallback(undefined, true, false), true);
+  assert.equal(resolveShortCallCallback(false, true, false), true);
+});
+
+test('an absent field from staff means off, since the form always sends it', () => {
+  assert.equal(resolveShortCallCallback(undefined, true, true), false);
 });

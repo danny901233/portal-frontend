@@ -107,6 +107,22 @@ const parseWeeklyOpeningHours = (value: unknown): WeeklyOpeningHours => {
   return createDefaultWeeklyOpeningHours();
 };
 
+/**
+ * Who may change `shortCallCallback`, as a pure rule.
+ *
+ * Staff get what they asked for. Everyone else keeps whatever is saved, including when the field
+ * is absent from their payload — their form does not render the toggle, so an undefined value
+ * from a customer means "not mine to touch" rather than "off".
+ */
+export function resolveShortCallCallback(
+  requested: boolean | undefined,
+  existing: boolean | undefined,
+  isStaff: boolean,
+): boolean {
+  if (isStaff) return requested === true;
+  return existing === true;
+}
+
 export const parseIntegrationSettings = (
   providerValue: string | null | undefined,
   rawSettings: Prisma.JsonValue | null | undefined,
@@ -1023,6 +1039,7 @@ router.put(
 
     const data = parseResult.data;
     const canEditAgentType = req.user?.role === 'RECEPTIONMATE_STAFF';
+    const isStaff = canEditAgentType;
     let resolvedAgentScript: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent' | 'GarageHive-agent' | 'MMH-agent' | 'bookar-agent' | 'poole-agent' | 'unified-agent' = data.agentScript === 'unified-agent' ? 'unified-agent' : data.agentScript === 'tyresoft-agent' ? 'tyresoft-agent' : data.agentScript === 'receptionmate-agent-v3' ? 'receptionmate-agent-v3' : data.agentScript === 'Assist-agent' ? 'Assist-agent' : data.agentScript === 'GarageHive-agent' ? 'GarageHive-agent' : data.agentScript === 'MMH-agent' ? 'MMH-agent' : data.agentScript === 'bookar-agent' ? 'bookar-agent' : data.agentScript === 'poole-agent' ? 'poole-agent' : 'receptionmate-agent';
 
     // Only staff can change which agent serves the garage; everyone else keeps the saved script.
@@ -1033,6 +1050,25 @@ router.put(
       });
       resolvedAgentScript = existingConfig?.agentScript === 'unified-agent' ? 'unified-agent' : existingConfig?.agentScript === 'tyresoft-agent' ? 'tyresoft-agent' : existingConfig?.agentScript === 'receptionmate-agent-v3' ? 'receptionmate-agent-v3' : existingConfig?.agentScript === 'Assist-agent' ? 'Assist-agent' : existingConfig?.agentScript === 'GarageHive-agent' ? 'GarageHive-agent' : existingConfig?.agentScript === 'MMH-agent' ? 'MMH-agent' : existingConfig?.agentScript === 'bookar-agent' ? 'bookar-agent' : existingConfig?.agentScript === 'poole-agent' ? 'poole-agent' : 'receptionmate-agent';
     }
+
+    // Ringing missed callers back spends LiveKit and Twilio minutes on our account and places
+    // calls in the garage's name, so it is ours to switch on, not theirs. The UI hides the
+    // toggle from customers, but that is a client-side gate and this endpoint takes the field
+    // from the request body — so a garage user could have posted it directly. Same rule, and
+    // the same shape, as agentScript above.
+    const existingCallbackFlag = isStaff
+      ? undefined
+      : (
+          await prisma.agentConfiguration.findUnique({
+            where: { garageId },
+            select: { shortCallCallback: true },
+          })
+        )?.shortCallCallback;
+    const resolvedShortCallCallback = resolveShortCallCallback(
+      data.shortCallCallback,
+      existingCallbackFlag ?? undefined,
+      isStaff,
+    );
 
     // agentType is DERIVED from the agent script — the script is the single source of truth.
     // Only the Assist agent is message-only; every other script books. Deriving it makes type and
@@ -1348,7 +1384,7 @@ router.put(
       enableSmsBookingLinks: data.enableSmsBookingLinks !== false,
       humanEscalation: data.humanEscalation !== false,
       messagingHumanHandoff: data.messagingHumanHandoff !== false,
-      shortCallCallback: data.shortCallCallback === true,
+      shortCallCallback: resolvedShortCallCallback,
       messagingHandoffMessage: (data.messagingHandoffMessage as string) || null,
       serviceIntervalMonths: Math.min(60, Math.max(1, Number(data.serviceIntervalMonths ?? 12) || 12)),
       serviceIntervalMiles: Math.min(60000, Math.max(500, Number(data.serviceIntervalMiles ?? 10000) || 10000)),

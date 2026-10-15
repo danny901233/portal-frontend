@@ -5,6 +5,7 @@ import { randomInt } from 'node:crypto';
 import { Router } from 'express';
 import { GetObjectCommand } from '@aws-sdk/client-s3';
 import { getS3Client } from '../services/s3Client.js';
+import { streamS3BodyToResponse } from '../services/s3Stream.js';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { prisma } from '../db.js';
 import { reconcileCallerName } from '../services/garageHiveBc.js';
@@ -1989,8 +1990,10 @@ router.get('/calls/:id/recording/audio', async (req: Request, res: Response) => 
       if (!s3Response.Body) {
         return res.status(500).send('Empty S3 response body');
       }
-      // In Node runtime, Body is a Readable stream; pipe straight to the response
-      (s3Response.Body as Readable).pipe(res);
+      // In Node runtime, Body is a Readable stream. Stream it through the helper rather than
+      // `.pipe(res)` so an aborted download hands its socket back to the shared S3 client's
+      // pool — fifty abandoned bodies used to wedge the pool and hang every later recording.
+      await streamS3BodyToResponse(s3Response.Body as Readable, res);
       return;
     }
 

@@ -41,3 +41,16 @@ test('the default credential chain is cached apart from an explicit key', () => 
 test('the cached client is configured with the region it was asked for', async () => {
   assert.equal(await getS3Client('us-east-1', KEY).config.region(), 'us-east-1');
 });
+
+test('response checksum validation is off, so a destroyed body releases its socket', async () => {
+  // With the SDK default ("WHEN_SUPPORTED") every GetObject body comes back wrapped in a
+  // ChecksumStream, which has no `.socket` and does not pass destroy() down to the real
+  // response. An aborted download then holds its socket out of this shared pool for the life
+  // of the process, and the pool only holds 50: recording 51 onwards queued forever and every
+  // recording in the portal went dead on 2026-10-14. "WHEN_REQUIRED" hands back the raw
+  // IncomingMessage, whose destroy() actually closes the socket. Verified against live S3.
+  const client = getS3Client('eu-west-2', KEY);
+  const configured = client.config.responseChecksumValidation;
+  const value = typeof configured === 'function' ? await configured() : configured;
+  assert.equal(value, 'WHEN_REQUIRED');
+});

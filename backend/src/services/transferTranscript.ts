@@ -12,6 +12,7 @@
  * 46797848; the comment in unified-agent/agent.py that disables the IO explains why that is the
  * only thing which makes it impossible. Nothing here touches the live path.
  */
+import type { Readable } from 'node:stream';
 import { GetObjectCommand } from '@aws-sdk/client-s3';
 import { getS3Client } from './s3Client.js';
 import { execFile } from 'node:child_process';
@@ -67,6 +68,9 @@ const fetchRecording = async (recordingUrl: string): Promise<Buffer | null> => {
     const size = Number(res.ContentLength ?? 0);
     if (size > MAX_AUDIO_BYTES) {
       console.warn(`[XFER_TRANSCRIPT] ${key} is ${size} bytes — over Whisper's limit, skipping`);
+      // Returning without reading the body would leave its socket checked out of the shared
+      // S3 client's pool for good, and fifty of those wedge the pool for every other caller.
+      (res.Body as Readable | undefined)?.destroy();
       return null;
     }
     const chunks: Buffer[] = [];

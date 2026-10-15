@@ -43,6 +43,22 @@ export function getS3Client(region: string, credentials?: S3Credentials | null):
 
   const client = new S3Client({
     region,
+    // Hand back the raw HTTP response instead of a checksum-validating wrapper.
+    //
+    // The SDK default, "WHEN_SUPPORTED", wraps every GetObject body in a ChecksumStream. That
+    // wrapper has no `.socket` and does not pass `destroy()` down to the response underneath it,
+    // so a download that ends early cannot release its socket by any means except reading the
+    // whole body to the end. The socket stays checked out of this pool — and since this pool is
+    // now shared process-wide, and the SDK gives it 50 sockets, the 51st abandoned download
+    // wedges S3 for everything: no error, no timeout, just requests that never return. That is
+    // what killed every call recording in the portal on 2026-10-14.
+    //
+    // "WHEN_REQUIRED" returns the IncomingMessage itself, whose destroy() closes the socket for
+    // real, so an aborted stream gives its slot straight back. Integrity still rests on TLS in
+    // transit and S3's own checksums at rest, and anything that genuinely requires a checksum
+    // still gets one. Verified against live S3: 55 aborted downloads in a row, pool steady at
+    // one socket, where the default wrapper hung on the 51st.
+    responseChecksumValidation: 'WHEN_REQUIRED',
     ...(credentials ? { credentials } : {}),
   });
   clients.set(key, client);

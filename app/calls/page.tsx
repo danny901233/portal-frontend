@@ -1404,16 +1404,31 @@ export default function CallsPage() {
                       <td className="px-5 py-3 align-top text-slate-900">{callTag}</td>
                       <td className="px-5 py-3 align-top text-slate-700">
                         {call.recordingUrl ? (
-                          <audio
-                            src={
-                              call.recordingUrl.startsWith('/internal-api/')
-                                ? call.recordingUrl
-                                : `/internal-api/calls/${call.id}/recording/audio`
-                            }
-                            controls
-                            className="h-8"
-                            style={{ width: '200px' }}
-                          />
+                          // `preload="none"` is load-bearing. Without it the browser fetches every
+                          // recording on this page just to label the scrubber — and because egress
+                          // writes the moov atom at the END of the file, "read the metadata" means
+                          // reading to the end of it. Twenty rows came to ~32MB before anyone
+                          // clicked anything, and cancelling those fetches on scroll is what used
+                          // to exhaust the shared S3 socket pool. The duration beside the player is
+                          // the one the server already knows, so nothing is lost by not asking.
+                          <div className="flex items-center gap-2">
+                            <audio
+                              src={
+                                call.recordingUrl.startsWith('/internal-api/')
+                                  ? call.recordingUrl
+                                  : `/internal-api/calls/${call.id}/recording/audio`
+                              }
+                              controls
+                              preload="none"
+                              className="h-8"
+                              style={{ width: '200px' }}
+                            />
+                            {formatCallDuration(call.durationSeconds) && (
+                              <span className="text-xs tabular-nums text-slate-500">
+                                {formatCallDuration(call.durationSeconds)}
+                              </span>
+                            )}
+                          </div>
                         ) : call.twilioCallSid || call.customerPhone ? (
                           <div className="space-y-1">
                             <button

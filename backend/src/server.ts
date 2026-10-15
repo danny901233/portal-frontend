@@ -219,7 +219,7 @@ installProcessErrorHandlers();
 
 app.use(errorHandler);
 
-app.listen(port, '0.0.0.0', () => {
+const server = app.listen(port, '0.0.0.0', () => {
   // eslint-disable-next-line no-console
   console.log(`Server listening on port ${port}`);
   console.log('Effective WEBHOOK_SECRET:', JSON.stringify(process.env.WEBHOOK_SECRET ?? null));
@@ -244,3 +244,34 @@ app.listen(port, '0.0.0.0', () => {
   // restart inside the 60-second delay does not silently lose the callback.
   startCallbackSweep();
 });
+
+// Twilio asks this process what to do with every inbound call, and 50 of the 59 numbers ask it
+// directly on :4000 with nginx nowhere in the path. So the seconds between pm2 killing this
+// process and the next one binding the port are seconds in which a caller gets a dead line —
+// 254 restarts in the 30 days to 15 Oct, a median of 9s each. Two things reduce that.
+
+// 1. Outlive the keep-alive. Node closes an idle connection after 5s by default; nginx can pick
+//    that same connection to forward the next request down and lose the race, which surfaces as
+//    a 502 while this process is perfectly healthy. Staying open longer than anything upstream
+//    waits removes the race. headersTimeout must exceed keepAliveTimeout or it fires first.
+server.keepAliveTimeout = 65_000;
+server.headersTimeout = 66_000;
+
+// 2. Finish what we already accepted. Without this the process dies the instant pm2 signals it,
+//    cutting mid-flight requests — including a /webhooks/voice that Twilio is waiting on, which
+//    costs a real call. Stop accepting new connections, let the open ones drain, then exit.
+//    The timer is the backstop for a request that never completes; unref() so it cannot itself
+//    hold the process open.
+const shutdown = (signal: string) => {
+  console.log(`[SHUTDOWN] ${signal} — closing listener, draining in-flight requests`);
+  server.close(() => {
+    console.log('[SHUTDOWN] drained cleanly');
+    process.exit(0);
+  });
+  setTimeout(() => {
+    console.warn('[SHUTDOWN] still busy after 10s — exiting anyway');
+    process.exit(0);
+  }, 10_000).unref();
+};
+process.once('SIGTERM', () => shutdown('SIGTERM'));
+process.once('SIGINT', () => shutdown('SIGINT'));

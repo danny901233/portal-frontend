@@ -3237,6 +3237,39 @@ async function handleConfirmVehicle(args: any, session: ChatSession, conversatio
   }
 }
 
+// Catalogue refreshes in flight, by conversation id. Module-level and transient on purpose: the
+// session is persisted, so a guard flag living on it could be written out mid-reload and leave a
+// conversation with reloads disabled for good.
+const servicesReloading = new Set<string>();
+
+/**
+ * Re-establish the GarageHive session and reload the service catalogue for the vehicle already on
+ * file. Returns true once session.servicesAvailable is populated.
+ *
+ * A warm resume deliberately clears servicesAvailable and sessionId — the GH session expires —
+ * while keeping vrn and vrnConfirmed (see getSession). The model therefore sees a confirmed
+ * vehicle and quite reasonably goes straight to select_service with an empty catalogue.
+ */
+async function reloadServiceCatalogue(session: ChatSession, conversationId: string): Promise<boolean> {
+  if (!session.vrn || servicesReloading.has(conversationId)) return false;
+  servicesReloading.add(conversationId);
+  const heldHint = session.serviceHint;
+  try {
+    // Suppress the hint for the duration so confirm_vehicle treats this as a plain catalogue load
+    // and cannot chain back into select_service. The caller has an explicit service name, which is
+    // better information than the hint anyway.
+    session.serviceHint = '';
+    console.warn(`[SELECT_SERVICE] Catalogue empty for ${session.vrn} — reloading in code`);
+    await handleLookupVehicle({ registration: session.vrn }, session, conversationId);
+  } catch (e: any) {
+    console.error('[SELECT_SERVICE] Catalogue reload failed:', e?.message);
+  } finally {
+    session.serviceHint = heldHint;
+    servicesReloading.delete(conversationId);
+  }
+  return !!(session.servicesAvailable && session.servicesAvailable.length > 0);
+}
+
 async function handleSelectService(args: any, session: ChatSession, conversationId: string): Promise<string> {
   const { service_name } = args;
 
@@ -3308,7 +3341,20 @@ async function handleSelectService(args: any, session: ChatSession, conversation
   console.log(`[SELECT_SERVICE] Looking for: ${service_name}`);
 
   if (!session.servicesAvailable || session.servicesAvailable.length === 0) {
-    return `No services loaded yet. Call confirm_vehicle first.`;
+    // Reload here rather than telling the model to call confirm_vehicle. Leaving that to model
+    // compliance is what broke Speedy Spanners conversation cmv4ydmft03qn on 2026-10-14: the
+    // customer asked to be booked in, this returned "call confirm_vehicle first", and the model
+    // replied "Leave it with me — I'll get your front brake pads booked for Monday 19th October.
+    // Just a moment…" and ENDED THE TURN. No booking was made and the customer was never written
+    // to again. The same failure handleLookupVehicle's chained confirm_vehicle was added to stop.
+    const reloaded = await reloadServiceCatalogue(session, conversationId);
+    if (!reloaded) {
+      if (!session.vrn) {
+        return `TOOL_FAILED: no vehicle on file, so no services could be loaded.\nSay: "Could I grab your registration?"\nWait for their answer, then call lookup_vehicle.`;
+      }
+      return `TOOL_FAILED: could not load the service list for ${session.vrn}.\nSay: "Let me take your details and the team will call you back with a price."\nThen call take_message.`;
+    }
+    console.log(`[SELECT_SERVICE] Reloaded ${session.servicesAvailable.length} services, continuing with "${service_name}"`);
   }
 
   // ── Service advisor: if customer says generic "service", recommend level based on last service date ──

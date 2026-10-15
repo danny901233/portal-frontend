@@ -226,10 +226,32 @@ const PLATFORM_ICONS: { [key: string]: () => React.JSX.Element } = {
 };
 
 const PLATFORM_COLORS = {
+  widget: 'bg-brand-600',
   whatsapp: 'bg-green-600',
   facebook: 'bg-blue-600',
   instagram: 'bg-purple-600',
 };
+
+// Where the conversation came from, as a chip — light tint plus ring, the same language as the
+// status and enquiry chips. "widget" is the word the database uses; nobody running a garage calls
+// it that, so it reads as "Website". The widget carries the brand ramp because it is our own
+// surface, which keeps it distinct from Facebook's blue.
+const PLATFORM_CHIPS: Record<string, { label: string; className: string }> = {
+  widget: { label: 'Website', className: 'bg-brand-50 text-brand-700 ring-brand-200' },
+  whatsapp: { label: 'WhatsApp', className: 'bg-emerald-50 text-emerald-700 ring-emerald-200' },
+  facebook: { label: 'Facebook', className: 'bg-blue-50 text-blue-700 ring-blue-200' },
+  instagram: { label: 'Instagram', className: 'bg-pink-50 text-pink-700 ring-pink-200' },
+};
+
+function platformChip(platform?: string): { label: string; className: string } {
+  const key = (platform || '').toLowerCase();
+  if (PLATFORM_CHIPS[key]) return PLATFORM_CHIPS[key];
+  // An unknown platform still says where it came from rather than showing a blank chip.
+  return {
+    label: platform ? platform.charAt(0).toUpperCase() + platform.slice(1) : 'Unknown',
+    className: 'bg-slate-100 text-slate-600 ring-slate-200',
+  };
+}
 
 export default function MessagesPage() {
   const lang = useLang();
@@ -1504,7 +1526,7 @@ export default function MessagesPage() {
                 </button>
                 <div className={cn(
                   'w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-medium',
-                  PLATFORM_COLORS[selectedConversation.platform as keyof typeof PLATFORM_COLORS]
+                  PLATFORM_COLORS[selectedConversation.platform as keyof typeof PLATFORM_COLORS] ?? 'bg-slate-400'
                 )}>
                   {getInitials(selectedConversation.customerName || selectedConversation.customerPhone || selectedConversation.customerId || 'UK')}
                 </div>
@@ -1519,14 +1541,20 @@ export default function MessagesPage() {
                     <p className="text-xs text-slate-400">+{selectedConversation.customerPhone}</p>
                   )}
                   <div className="flex items-center gap-2">
-                    <div className="flex items-center gap-1 text-xs text-slate-500">
-                      {(() => {
-                        const IconComponent = PLATFORM_ICONS[selectedConversation.platform as keyof typeof PLATFORM_ICONS];
-                        return IconComponent ? <IconComponent /> : null;
-                      })()}
-                      <span>{selectedConversation.platform}</span>
-                    </div>
-                    <span className="text-slate-600">•</span>
+                    {(() => {
+                      const chip = platformChip(selectedConversation.platform);
+                      const IconComponent = PLATFORM_ICONS[selectedConversation.platform as keyof typeof PLATFORM_ICONS];
+                      return (
+                        <span className={cn(
+                          'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ring-1',
+                          chip.className
+                        )}>
+                          {IconComponent ? <IconComponent /> : null}
+                          {chip.label}
+                        </span>
+                      );
+                    })()}
+                    <span className="text-slate-300">•</span>
                     <div className={cn(
                       'flex items-center gap-1 text-xs',
                       selectedConversation.agentPaused ? 'text-orange-400' : 'text-green-400'

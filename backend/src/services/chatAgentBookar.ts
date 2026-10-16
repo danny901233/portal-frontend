@@ -255,8 +255,11 @@ export function looksLikeVrm(v: string): boolean {
   return /[0-9]/.test(s) && /[A-Z]/.test(s);
 }
 
-function addDaysIso(days: number): string {
-  const d = new Date();
+function addDaysIso(days: number, fromIso?: string): string {
+  // `fromIso` lets a window be measured from a date other than today — the lead-time floor
+  // Bookar hands back, in practice. Parsed as UTC midday so a BST/GMT boundary cannot roll the
+  // date back a day.
+  const d = fromIso ? new Date(`${fromIso}T12:00:00Z`) : new Date();
   d.setDate(d.getDate() + days);
   return d.toISOString().slice(0, 10);
 }
@@ -1057,9 +1060,31 @@ async function executeTool(
           };
         }
 
-        const dateFrom = String(args.date_from || londonNow().date);
+        // Start from today and let BOOKAR decide what is too soon. Its availability applies
+        // the garage's own lead time and daily capacity, so whatever comes back is bookable —
+        // and a lead time guessed at this end is a lead time that disagrees with the diary.
+        // LP Autos, 2026-10-16: the garage believed theirs was a day, Bookar's branch record
+        // said `lead_time_days: 0`, and the honest answer was the same-day slots Bookar
+        // returned. The portal's own bookingLeadTimeDays governs the Assist agent only and is
+        // deliberately not read here.
+        let dateFrom = String(args.date_from || londonNow().date);
         const dateTo   = String(args.date_to   || addDaysIso(14));
-        const availability = await client.listAvailability(serviceIds, dateFrom, dateTo);
+        let { days: availability, earliestBookableDate } =
+          await client.listAvailability(serviceIds, dateFrom, dateTo);
+
+        // Nothing in the window, but Bookar has told us where its lead time starts and it is
+        // past the window we asked about: look there instead of telling the customer there is
+        // no availability. A garage whose lead time is longer than our 14-day window would
+        // otherwise read as a full diary every single time.
+        if (availability.length === 0 && earliestBookableDate && earliestBookableDate > dateTo) {
+          const retryTo = addDaysIso(14, earliestBookableDate);
+          console.log(
+            `[BOOKAR_AGENT] empty ${dateFrom}→${dateTo}; Bookar's floor is ` +
+            `${earliestBookableDate} — re-querying ${earliestBookableDate}→${retryTo}`,
+          );
+          dateFrom = earliestBookableDate;
+          ({ days: availability } = await client.listAvailability(serviceIds, dateFrom, retryTo));
+        }
         session.selectedServiceIds = serviceIds;
         session.availabilityOptions = availability;
         // Clear any previously-picked slot — it belongs to a different service.

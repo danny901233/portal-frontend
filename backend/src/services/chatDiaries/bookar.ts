@@ -19,8 +19,16 @@ import {
   type DiaryCustomer, type DiaryService, type DiarySlot, type DiaryVehicle, DiaryError,
 } from './types.js';
 
-/** Bookar will not take a booking for today — the earliest it fits anyone in is tomorrow. */
-const LEAD_DAYS = 1;
+// There used to be a `LEAD_DAYS = 1` here, with the comment "Bookar will not take a booking for
+// today — the earliest it fits anyone in is tomorrow". That is not true, and it was never ours
+// to assert: LP Autos' Bookar branch record says `lead_time_days: 0` and their diary returns
+// same-day slots, so this adapter would have hidden genuinely bookable appointments. Bookar's
+// availability applies the garage's own lead time and capacity, so we ask from today and offer
+// what comes back. The floor it reports is used only to decide where to look next.
+//
+// The portal's `bookingLeadTimeDays` is NOT read here either, deliberately — it governs the
+// Assist agent, and the one time it reached a Bookar path the fallback of 1 won and every
+// Bookar garage silently lost same-day booking.
 /** How far ahead to ask for availability in one go. */
 const WINDOW_DAYS = 28;
 
@@ -28,6 +36,44 @@ function isoDay(offsetDays: number): string {
   const d = new Date();
   d.setDate(d.getDate() + offsetDays);
   return d.toISOString().slice(0, 10);
+}
+
+/** A window measured from a given day rather than from today. UTC midday so a BST/GMT
+ *  boundary cannot roll the date back one. */
+function addDaysFrom(fromIso: string, days: number): string {
+  const d = new Date(`${fromIso}T12:00:00Z`);
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * Has this slot already gone?
+ *
+ * Only became necessary when this adapter started offering today at all. Before that it began
+ * at tomorrow, so every slot it saw was in the future by construction — now the diary's dead
+ * morning comes back with everything else, and offering 08:30 at four in the afternoon is worse
+ * than offering nothing.
+ *
+ * Compared in Europe/London, because that is the clock the garage's diary is kept in and the
+ * box runs UTC for half the year.
+ */
+export function isSlotStillAhead(date: string, time: string, now = new Date()): boolean {
+  const londonNow = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/London',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  }).formatToParts(now).reduce<Record<string, string>>((acc, p) => {
+    if (p.type !== 'literal') acc[p.type] = p.value;
+    return acc;
+  }, {});
+  const todayLondon = `${londonNow.year}-${londonNow.month}-${londonNow.day}`;
+  if (date > todayLondon) return true;
+  if (date < todayLondon) return false;
+  // A drop-off window is a token, not a clock time ("AM_DR"). It cannot be compared, so it is
+  // kept — the garage decides when the car arrives, not us.
+  const hhmm = /^\d{2}:\d{2}$/.test(time.slice(0, 5)) ? time.slice(0, 5) : null;
+  if (!hhmm) return true;
+  return hhmm > `${londonNow.hour}:${londonNow.minute}`;
 }
 
 function slotLabel(date: string, time: string): string {
@@ -133,16 +179,32 @@ export class BookarChatDiary implements ChatDiaryAdapter {
     if (ids.length === 0) throw new DiaryError('at least one service must be chosen');
     this.chosen = this.services.filter((s) => serviceKeys.includes(s.key));
 
-    // Never offer today: this garage needs a day's notice, and offering a slot it will
-    // refuse wastes the customer's time twice.
-    const from = opts?.fromDate && opts.fromDate > isoDay(LEAD_DAYS) ? opts.fromDate : isoDay(LEAD_DAYS);
-    const to = isoDay(LEAD_DAYS + WINDOW_DAYS);
+    // From today unless the caller asked for later. Bookar's availability already applies this
+    // garage's lead time, so anything it returns is bookable — including today, where the
+    // garage allows it.
+    const today = isoDay(0);
+    let from = opts?.fromDate && opts.fromDate > today ? opts.fromDate : today;
+    let to = isoDay(WINDOW_DAYS);
 
     let days: any[];
+    let floor: string | undefined;
     try {
-      days = await this.need().listAvailability(ids, from, to);
+      ({ days, earliestBookableDate: floor } = await this.need().listAvailability(ids, from, to));
     } catch (e: any) {
       throw new DiaryError(`could not get availability: ${e?.message || e}`);
+    }
+
+    // Empty window, but Bookar has said where its lead time starts and it is beyond what we
+    // asked about. Look there rather than reporting a full diary — a garage whose lead time
+    // exceeds the window would otherwise never show a single slot.
+    if ((days || []).length === 0 && floor && floor > to) {
+      from = floor;
+      to = addDaysFrom(floor, WINDOW_DAYS);
+      try {
+        ({ days } = await this.need().listAvailability(ids, from, to));
+      } catch (e: any) {
+        throw new DiaryError(`could not get availability: ${e?.message || e}`);
+      }
     }
 
     const out: DiarySlot[] = [];
@@ -152,6 +214,8 @@ export class BookarChatDiary implements ChatDiaryAdapter {
       for (const time of times) {
         const t = String(time).slice(0, 5);
         if (date < from) continue;
+        // Today's dead morning. Only reachable now that today is offered at all.
+        if (!isSlotStillAhead(date, t)) continue;
         out.push({ key: `${date}|${t}`, startIso: `${date}T${t}`, label: slotLabel(date, t) });
       }
     }

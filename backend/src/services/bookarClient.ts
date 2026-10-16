@@ -293,15 +293,36 @@ export class BookarClient {
    * List available slot windows for the given service_ids between dates (YYYY-MM-DD).
    * API returns either {slots: [...]}, {availability: [...]}, or a bare array — we accept all three.
    */
+  /**
+   * Availability, plus the lead-time floor Bookar applies to it.
+   *
+   * `earliestBookableDate` is Bookar's `earliest_bookable_date`, and it is THE source of truth
+   * for a garage's lead time — ours is not. The portal's `bookingLeadTimeDays` governs the
+   * Assist agent only, and this adapter deliberately does not read it.
+   *
+   * ⚠️ It is the lead-time FLOOR, not a day with free slots. Measured at Meadowfield on
+   * 2026-09-28: floor 2026-10-01 while the first day with actual slots was 2026-10-05. Never
+   * offer it to a customer as if it were an appointment — use it to decide WHERE TO LOOK.
+   *
+   * It is returned even when the range asked for falls entirely inside the lead window, which
+   * is what makes it useful: an empty `days` is otherwise indistinguishable from a genuinely
+   * full diary, and the agent then tells the customer there is no availability at all.
+   *
+   * Returned alongside the days rather than as a second call, because the one GET already
+   * carries it and a separate method would drift from this one.
+   */
   async listAvailability(
     serviceIds: number[],
     dateFrom: string,
     dateTo: string,
-  ): Promise<Array<{ date: string; slots?: string[]; time?: string }>> {
-    if (!serviceIds || serviceIds.length === 0) return [];
+  ): Promise<{
+    days: Array<{ date: string; slots?: string[]; time?: string }>;
+    earliestBookableDate?: string;
+  }> {
+    if (!serviceIds || serviceIds.length === 0) return { days: [] };
     const data = await this.request<
       | Array<{ date: string; slots?: string[]; time?: string }>
-      | { slots?: unknown[]; availability?: unknown[] }
+      | { slots?: unknown[]; availability?: unknown[]; earliest_bookable_date?: string }
     >('GET', '/v1/availability', {
       params: {
         service_ids: serviceIds.join(','),
@@ -309,13 +330,17 @@ export class BookarClient {
         to: dateTo,
       },
     });
-    if (Array.isArray(data)) return data;
-    const payload = (data.slots || data.availability || []) as Array<{
+    // Some deployments answer with a bare array and no floor at all.
+    if (Array.isArray(data)) return { days: data };
+    const days = (data.slots || data.availability || []) as Array<{
       date: string;
       slots?: string[];
       time?: string;
     }>;
-    return payload;
+    const floor = typeof data.earliest_bookable_date === 'string'
+      ? data.earliest_bookable_date.slice(0, 10)
+      : undefined;
+    return { days, earliestBookableDate: floor || undefined };
   }
 
   // BOOKING — CREATE / MANAGE ────────────────────────────────────────────

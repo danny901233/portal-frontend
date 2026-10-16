@@ -746,7 +746,9 @@ export async function runTool(
  *  asking "what time do you open on Saturday?" got a deflection from a garage whose hours
  *  were on file. Anything not set is simply left out — an absent line is the agent saying it
  *  does not know, which is correct; an invented one is not. */
-function garageFacts(g: GarageConfig): string {
+/** `diaryEnabled` decides whether the portal's lead time is allowed a say — see the
+ *  EARLIEST BOOKING note below. */
+function garageFacts(g: GarageConfig, diaryEnabled: boolean): string {
   const lines: string[] = [];
   const named = g.branchName || g.name;
   if (named) lines.push(`This garage is ${named}.`);
@@ -797,8 +799,18 @@ function garageFacts(g: GarageConfig): string {
   if (g.businessType) lines.push(`This business is a ${g.businessType}.`);
 
   // Booking behaviour the garage set and the agent was ignoring.
+  //
+  // ONLY when no real diary is driving availability. Every adapter this agent can carry —
+  // Garage Hive, Bookar, Poole, Tyresoft, Bosch — applies the garage's own lead time to the
+  // slots it returns, and it is the diary that will accept or refuse the booking. Telling the
+  // model "earliest booking: 1 day from today" on top of that is a second, contradictory lead
+  // time with no authority: at LP Autos the portal says 1 while their Bookar branch record says
+  // 0 and the diary offers today, so this line would have talked the model out of real slots.
+  //
+  // With no credentials there is no availability to honour and the portal's figure is the only
+  // thing we have, so it still applies there.
   const lead = Number(g.bookingLeadTimeDays);
-  if (Number.isFinite(lead) && lead > 0) {
+  if (!diaryEnabled && Number.isFinite(lead) && lead > 0) {
     lines.push(`EARLIEST BOOKING: ${lead} day${lead === 1 ? '' : 's'} from today. Do not offer `
       + 'anything sooner, however much they want it — say the earliest you can do and offer it.');
   }
@@ -865,7 +877,7 @@ function sharedCore(garage: GarageConfig, adapter: ChatDiaryAdapter): string {
     '',
     ...(garage.greeting ? [`Open the FIRST message of a conversation with the garage's own `
       + `greeting: "${String(garage.greeting).trim()}". Do not repeat it after that.`, ''] : []),
-    garageFacts(garage),
+    garageFacts(garage, adapter.enabled),
     '',
     'HOW TO WRITE: short, warm and plain, the way a good receptionist types. One question at '
     + 'a time. No lists of questions, no bullet points at the customer, no repeating their own '

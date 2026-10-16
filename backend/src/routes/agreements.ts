@@ -205,6 +205,37 @@ export async function issueSignLinkToken(
 // PUBLIC: customer-facing endpoints
 // ---------------------------------------------------------------------------
 
+/** Record that the customer has actually looked at their contract.
+ *
+ * Agreement.firstViewedAt / lastViewedAt / viewCount have existed since the table was created and
+ * /admin/onboarding-pipeline renders a "sent 15 Oct, not opened" chip off them — but nothing ever
+ * wrote them, so the chip read "not opened" for every agreement ever sent, including the ones the
+ * customer had read twice. Mailgun's `opened` event is no substitute: it needs remote images
+ * loaded, and of the first 4,328 logged emails not one recorded an open.
+ *
+ * Called from the two endpoints that hand back the rendered contract. The admin preview and PDF
+ * routes deliberately do not call it — a view has to mean the customer, or the chip is noise.
+ */
+async function recordAgreementView(agreementId: string): Promise<void> {
+  const now = new Date();
+  try {
+    // firstViewedAt has to survive every later view, and Prisma has no COALESCE: scoping the
+    // write to rows where it is still null means the first open keeps its timestamp however
+    // many times the page is reloaded afterwards.
+    await prisma.agreement.updateMany({
+      where: { id: agreementId, firstViewedAt: null },
+      data: { firstViewedAt: now },
+    });
+    await prisma.agreement.update({
+      where: { id: agreementId },
+      data: { lastViewedAt: now, viewCount: { increment: 1 } },
+    });
+  } catch (err) {
+    // A chase metric must never stop somebody reading the contract they came here to sign.
+    console.error(`[AGREEMENT] could not record view of ${agreementId}:`, err);
+  }
+}
+
 /**
  * GET /api/agreements/me/pending
  * Returns the authenticated user's unsigned agreement (draft or sent), if any.
@@ -223,6 +254,8 @@ router.get('/agreements/me/pending', authenticate, async (req: Request, res: Res
   if (!agreement) {
     return res.json({ agreement: null });
   }
+
+  await recordAgreementView(agreement.id);
 
   const html = buildSnapshot(agreement);
   return res.json({
@@ -272,6 +305,9 @@ router.get('/agreements/sign/:token', async (req: Request, res: Response) => {
   if (agreement.status === 'signed' || agreement.status === 'externally_signed') {
     return res.status(409).json({ error: 'Agreement is already signed' });
   }
+
+  // After the guards: a view counts only when the contract is actually handed back.
+  await recordAgreementView(agreement.id);
 
   const html = buildSnapshot(agreement);
   return res.json({

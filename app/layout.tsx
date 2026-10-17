@@ -27,7 +27,7 @@ export default async function RootLayout({
 }) {
   const headersList = await headers();
   const pathname = headersList.get('x-pathname') || '';
-  const isWidget = pathname.startsWith('/widget/');
+  const isWidget = pathname.startsWith('/widget/') || pathname.startsWith('/widget-picker/');
   const isChat = pathname.startsWith('/chat/');
 
   if (isWidget || isChat) {

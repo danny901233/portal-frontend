@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
-import { useParams } from 'next/navigation';
+import { Suspense, useState, useEffect, useRef } from 'react';
+import { useParams, useSearchParams } from 'next/navigation';
 
 // Load Poppins font
 if (typeof window !== 'undefined') {
@@ -103,10 +103,35 @@ function renderMessageContent(content: string, primaryColor: string, isUser: boo
   );
 }
 
-export default function ChatWidget() {
+// Reads ?open=menu|pre-chat, which the branch-picker page (/widget-picker/[slug]) appends
+// when it hands off to a branch's widget, so the visitor lands straight in the right open
+// state instead of having to click the bubble a second time. Absent for every other embed,
+// so the default 'closed' start is unchanged everywhere else.
+function ChatWidgetInner() {
   const params = useParams();
+  const searchParams = useSearchParams();
   const garageId = params?.garageId as string;
-  const [viewState, setViewState] = useState<ViewState>('closed');
+  const openParam = searchParams.get('open');
+  const [viewState, setViewState] = useState<ViewState>(
+    openParam === 'menu' || openParam === 'pre-chat' ? openParam : 'closed',
+  );
+  // Set when a branch-picker handed off to this widget. Pattern-checked because it is
+  // interpolated into a redirect URL — anything else is ignored rather than followed.
+  const fromPickerRaw = searchParams.get('from') || '';
+  const fromPicker = /^[a-z0-9-]{1,64}$/i.test(fromPickerRaw) ? fromPickerRaw : '';
+  const pickerChannelRaw = searchParams.get('channel') || '';
+  const pickerChannel = ['whatsapp', 'chat', 'phone'].includes(pickerChannelRaw) ? pickerChannelRaw : 'chat';
+
+  // Back out of the pre-chat form. Normally that means this garage's own contact menu, but
+  // when a picker sent us here the visitor already chose a platform there, so going back
+  // belongs on its branch list — keeping the order platform → branch → form.
+  const handlePreChatBack = () => {
+    if (fromPicker) {
+      window.location.href = `/widget-picker/${fromPicker}?channel=${pickerChannel}`;
+      return;
+    }
+    setViewState('menu');
+  };
   const [isSpinning, setIsSpinning] = useState(false);
   const [config, setConfig] = useState<GarageConfig | null>(null);
   const [loading, setLoading] = useState(true);
@@ -815,7 +840,7 @@ export default function ChatWidget() {
             {/* Header with back button */}
             <div className="flex items-center mb-6">
               <button
-                onClick={() => setViewState('menu')}
+                onClick={handlePreChatBack}
                 className="p-2 rounded-full transition-all mr-3 flex-shrink-0"
                 style={{ color: '#666' }}
                 onMouseEnter={(e) => {
@@ -1067,5 +1092,13 @@ export default function ChatWidget() {
       </button>
       )}
     </>
+  );
+}
+
+export default function ChatWidget() {
+  return (
+    <Suspense fallback={null}>
+      <ChatWidgetInner />
+    </Suspense>
   );
 }

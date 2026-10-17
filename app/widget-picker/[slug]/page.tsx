@@ -227,8 +227,11 @@ function BranchPickerInner() {
                   transform: 'rotate(12deg)',
                 }}
               >
+                {/* Storefront, not the photo glyph: a logo-less garage was showing the same
+                    mountain-and-sun icon browsers use for a failed image, so the placeholder
+                    read as "this logo is broken" rather than "no logo set". */}
                 <svg style={{ width: `${logoWidth * 0.6}px`, height: `${logoHeight * 0.6}px`, color: 'rgba(255, 255, 255, 0.6)' }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13.5 21v-5.25a.75.75 0 0 1 .75-.75h2.25a.75.75 0 0 1 .75.75V21m-9 0V9.349m0 0a3 3 0 0 0 3.75-.615A3 3 0 0 0 12 9.75a3 3 0 0 0 2.25-1.016 3 3 0 0 0 3.75.615m-12 0a3 3 0 0 1-.621-4.72l.879-.879A1.5 1.5 0 0 1 7.318 3.5h9.364a1.5 1.5 0 0 1 1.06.44l.879.879a3 3 0 0 1-.621 4.72M18 9.349V21M4.5 21h15M7.5 18h3v-3.75h-3V18Z" />
                 </svg>
               </div>
             )}

@@ -59,6 +59,11 @@ function BranchPickerInner() {
     () => group?.branches.map((branch) => ({ garageId: branch.garageId, address: branch.address, name: branch.fallbackName })) ?? [],
   );
 
+  // A configured logoUrl can still 404 (bucket cleared, file renamed). Without this the row
+  // would show a broken-image icon, which is the exact thing the placeholder fix was for, so
+  // a failed load falls back to the building icon instead.
+  const [logoFailed, setLogoFailed] = useState<Record<string, boolean>>({});
+
   // Pull each branch's live name/branding/contact numbers from the same /api/widget config
   // the real widget reads, so this stays in sync with whatever's set on the Customize page.
   useEffect(() => {
@@ -291,18 +296,33 @@ function BranchPickerInner() {
                   )}
                 </>
               ) : (
-                visibleBranches.map((branch) =>
-                  optionButton(
+                visibleBranches.map((branch) => {
+                  // Branches of one company often share a logo, so the name and address stay the
+                  // things that tell them apart -- the logo is branding, not the distinguisher.
+                  const showLogo = !!branch.logoUrl && !logoFailed[branch.garageId];
+                  return optionButton(
                     branch.garageId,
-                    <svg className="w-7 h-7 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-                    </svg>,
-                    primaryColor,
+                    showLogo ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={branch.logoUrl as string}
+                        alt=""
+                        onError={() => setLogoFailed((prev) => ({ ...prev, [branch.garageId]: true }))}
+                        style={{ width: '100%', height: '100%', objectFit: 'contain', padding: '7px' }}
+                      />
+                    ) : (
+                      <svg className="w-7 h-7 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                      </svg>
+                    ),
+                    // A logo carries its own colours, so it gets a neutral tile rather than the
+                    // brand circle, which would tint or clash with it.
+                    showLogo ? '#f1f5f9' : primaryColor,
                     branch.name,
                     branch.address,
                     () => selectBranch(branch),
-                  ),
-                )
+                  );
+                })
               )}
             </div>
           </div>

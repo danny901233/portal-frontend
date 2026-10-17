@@ -425,7 +425,7 @@ export async function getBookarChatResponse(
     // messagingHumanHandoff opts a garage OUT of human-handoff tools if false.
     // Same convention as chatAgentTyresoft: DEFAULT ON (only disable if explicitly false).
     const messagingHandoff = (config as any).messagingHumanHandoff !== false;
-    let tools = buildTools(hasCreds, messagingHandoff);
+    let tools = buildTools(hasCreds, messagingHandoff, config.advisoryUpsellsEnabled ?? false);
     if (!messagingHandoff) {
       tools = tools.filter(
         (t) => !['bk_take_message', 'bk_request_callback'].includes((t as any).function?.name),
@@ -546,7 +546,7 @@ export async function getBookarChatResponse(
 // Tool definitions
 // ---------------------------------------------------------------------------
 
-function buildTools(hasCreds: boolean, messagingHandoff: boolean = true): OpenAI.Chat.ChatCompletionTool[] {
+function buildTools(hasCreds: boolean, messagingHandoff: boolean = true, advisoryUpsells: boolean = false): OpenAI.Chat.ChatCompletionTool[] {
   // Named in the descriptions below only when the tool is actually in the list.
   const unbookable = messagingHandoff
     ? 'fall back to bk_take_message'
@@ -595,7 +595,12 @@ function buildTools(hasCreds: boolean, messagingHandoff: boolean = true): OpenAI
       function: {
         name: 'bk_lookup_vehicle',
         description:
-          'Look up a vehicle by registration plate. MUST be called before quoting any price. Returns make/model/mot_expiry/on_file + any advisories the garage has recorded. Also reveals whether the vehicle is on file at this branch — if it is, greet the caller by acknowledging the vehicle rather than re-collecting it. If response includes `advisories_upsell` and `advisories_pitch`, use `advisories_pitch` as example wording (adapt for natural flow) to offer the advisories as an add-on IN THE SAME REPLY as the price quote for the service they picked; if they accept, include those items in the booking.',
+          'Look up a vehicle by registration plate. MUST be called before quoting any price. Returns make/model/mot_expiry/on_file + any advisories the garage has recorded. Also reveals whether the vehicle is on file at this branch — if it is, greet the caller by acknowledging the vehicle rather than re-collecting it.'
+          // The upsell half only exists when the garage opted in. Leaving it in the
+          // description unconditionally taught the model to offer an add-on alongside the
+          // price quote even with the toggle off and no advisories on the vehicle, and it
+          // filled the gap from the service catalogue (LP Autos, 2026-10-16).
+          + (advisoryUpsells ? ' If response includes `advisories_upsell` and `advisories_pitch`, use `advisories_pitch` as example wording (adapt for natural flow) to offer the advisories as an add-on IN THE SAME REPLY as the price quote for the service they picked; if they accept, include those items in the booking.' : ''),
         parameters: {
           type: 'object',
           properties: {
@@ -1642,7 +1647,14 @@ function buildSystemPrompt(
     prompt += `3. REG: Ask for their vehicle registration. Once you have it, call bk_lookup_vehicle. Read back the make/model naturally, e.g. "I can see that's a 2019 Ford Focus — is that right?" If mot_expiry is present, weave it in naturally if relevant.\n`;
     prompt += `3b. WHAT THEY NEED: Unless they have already said, ask what they would like booking in for — one short sentence, e.g. "What are you after — a service, an MOT, or something else?". Do NOT open the catalogue at them. bk_list_services returns EVERYTHING the garage offers (31 items at EAC Telford), and picking three to recite answers a question they did not ask — the first widget conversation was quoted a Major Service, a Full Service and an MOT off the back of "book car in".\n`;
     prompt += `4. SERVICES: Call bk_list_services with the same VRM and match what they ASKED for. Name at most two options, and only when their answer genuinely leaves a choice (e.g. they said "a service" and there is a Full and an Interim) — then ask which. If they were specific, go straight to that service and its price. Only if they say they are unsure should you suggest the likeliest couple. Quote prices ONLY from the returned list — never invent, estimate or carry over a price from memory. If the customer asks for a service NOT in the returned list (e.g. wheel alignment but the list only has MOT/Service), do NOT invent it — apologise briefly and ${unbookableFallback}.\n`;
-    prompt += `4b. ADVISORY UPSELL: If bk_lookup_vehicle returned \`advisories_upsell\` + \`advisories_pitch\`, offer them as an add-on ONCE — WEAVE the pitch into the SAME reply as the price quote for the service they picked, so it feels like one natural thought (not two separate messages). Use \`advisories_pitch\` as a wording guide but adapt it for natural flow. Preferred style: past-tense, uses "the [item]", ends with "would you like that sorted too whilst the vehicle is in with us?". If they say yes, include those items in the booking alongside their main service. If they say no or ignore it, drop the upsell and move on — do NOT re-pitch.\n`;
+    // Only teach the upsell when the garage opted in. The payload for it is already gated
+    // on advisoryUpsellsEnabled in executeTool, but this instruction was not, so the model
+    // was told to offer an add-on alongside the price quote on every Bookar garage. With the
+    // toggle off and no advisories to pitch it improvised from the service catalogue instead
+    // (LP Autos offered unpriced brake items, 2026-10-16).
+    if (config.advisoryUpsellsEnabled) {
+      prompt += `4b. ADVISORY UPSELL: If bk_lookup_vehicle returned \`advisories_upsell\` + \`advisories_pitch\`, offer them as an add-on ONCE — WEAVE the pitch into the SAME reply as the price quote for the service they picked, so it feels like one natural thought (not two separate messages). Use \`advisories_pitch\` as a wording guide but adapt it for natural flow. Preferred style: past-tense, uses "the [item]", ends with "would you like that sorted too whilst the vehicle is in with us?". If they say yes, include those items in the booking alongside their main service. If they say no or ignore it, drop the upsell and move on — do NOT re-pitch.\n`;
+    }
     prompt += `5. AVAILABILITY: Once the customer picks a service, call bk_list_availability with the chosen service_ids. Offer 1 or 2 slots naturally — don't dump the whole list.\n`;
     prompt += `6. SLOT: When the customer picks a slot, IMMEDIATELY call bk_confirm_slot with the exact date + time from the availability result.\n`;
     prompt += `7. EMAIL + PHONE: Ask for an email (required for Bookar's confirmation) and confirm the phone. Call bk_save_customer_details as soon as you have any missing pieces — you can call it multiple times.\n`;

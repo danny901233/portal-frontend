@@ -26,7 +26,8 @@
  * OpenAI GPT-4o (same as all other chat agents — do not swap to Claude).
  */
 import { prisma } from '../db.js';
-import { notifyMessaging } from './messagingNotifications.js';
+import { notifyMessaging, flagPromisedFollowUp } from './messagingNotifications.js';
+import { promisesFollowUp } from './followUpPromise.js';
 import OpenAI from 'openai';
 import { getInstrumentedOpenAI } from '../utils/aiUsage.js';
 import { logChatToolCall } from './chatToolLog.js';
@@ -530,6 +531,12 @@ export async function getPooleChatResponse(
     // Persist latest session state (some tool may have mutated it).
     const latest = pooleSessions.get(conversationId)?.state ?? session;
     await saveSession(conversationId, latest);
+
+    // PROMISED_FOLLOWUP_NET — see chatAgentBookar / followUpPromise.ts. A promise that a person
+    // will be in touch, with no message recorded, reaches nobody unless it is flagged here.
+    if (promisesFollowUp(content) && await flagPromisedFollowUp(conversationId)) {
+      return { content, needsHumanAssistance: true };
+    }
 
     return { content, needsHumanAssistance: false };
   } catch (error) {

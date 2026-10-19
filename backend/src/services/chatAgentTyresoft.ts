@@ -1,5 +1,6 @@
 import { prisma } from '../db.js';
-import { notifyMessaging } from './messagingNotifications.js';
+import { notifyMessaging, flagPromisedFollowUp } from './messagingNotifications.js';
+import { promisesFollowUp } from './followUpPromise.js';
 import OpenAI from 'openai';
 import { getInstrumentedOpenAI } from '../utils/aiUsage.js';
 import axios from 'axios';
@@ -470,6 +471,12 @@ export async function getTyresoftChatResponse(
 
     const content = response.choices[0]?.message?.content ||
       'Sorry, I\'m unable to respond right now. Please try again or call us directly.';
+
+    // PROMISED_FOLLOWUP_NET — see chatAgentBookar / followUpPromise.ts. A promise that a person
+    // will be in touch, with no message recorded, reaches nobody unless it is flagged here.
+    if (promisesFollowUp(content) && await flagPromisedFollowUp(conversationId)) {
+      return { content, needsHumanAssistance: true };
+    }
 
     return { content, needsHumanAssistance: false };
   } catch (error) {

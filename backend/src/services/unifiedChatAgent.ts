@@ -27,11 +27,12 @@ import { bookingAtFrom } from './garageHiveJobMatch.js';
 import { GarageHiveChatDiary } from './chatDiaries/garageHive.js';
 import { TyresoftChatDiary } from './chatDiaries/tyresoft.js';
 import { tyreStockFor } from './chatDiaries/tyreStock.js';
-import { notifyMessaging } from './messagingNotifications.js';
+import { notifyMessaging, flagPromisedFollowUp } from './messagingNotifications.js';
 import { notifyFlaggedConversation } from '../utils/push.js';
 import { BookarChatDiary } from './chatDiaries/bookar.js';
 import { PooleChatDiary } from './chatDiaries/poole.js';
 import { BoschChatDiary } from './chatDiaries/bosch.js';
+import { promisesFollowUp } from './followUpPromise.js';
 import {
   type ChatDiaryAdapter, type DiaryService, type DiarySlot, type DiaryTyre, DiaryError,
 } from './chatDiaries/types.js';
@@ -1110,9 +1111,37 @@ export async function getUnifiedChatResponse(
     && String((m as any).content).trim().length > 0);
   session.history = spoken.slice(-20) as OpenAI.Chat.ChatCompletionMessageParam[];
 
+  // PROMISED_FOLLOWUP_NET: the reply promises a person will get back to them, but take_message
+  // was never called — so the conversation is not flagged and the garage is told nothing. The
+  // model composes a convincing hand-off and stops; a customer who asks to be EMAILED rather
+  // than called is the common case (see chatAgentV2 for the Ecotest lead that found this).
+  //
+  // Records what take_message would have recorded, without claiming a preferred day it was never
+  // given, and leaves the reply alone — it is the right thing to say, it just was not true yet.
+  let promiseFlagged = false;
+  if (!session.messageTaken && promisesFollowUp(content)) {
+    // `messageTaken` is deliberately NOT set: it tells the prompt a message is already with the
+    // team and not to call take_message again, which would stop the model ever recording the
+    // proper note. The one-alert-per-conversation guard lives in flagPromisedFollowUp instead,
+    // and the note goes on first so the alert can read it.
+    const note = {
+      messageTaken: true,
+      message: `The agent promised follow-up${session.email ? ` BY EMAIL to ${session.email}` : ''} `
+        + `but recorded no message. Customer said: "${String(message).slice(0, 200)}"`,
+      customerName: session.customerName, phone: session.phone, contactEmail: session.email,
+      registration: session.registration, takenAt: new Date().toISOString(),
+    };
+    await prisma.$executeRawUnsafe(
+      `UPDATE "ChatConversation" SET "sessionState" = `
+      + `COALESCE("sessionState", '{}'::jsonb) || $2::jsonb WHERE id = $1`,
+      conversationId, JSON.stringify(note),
+    ).catch((e) => console.error('[UNIFIED_CHAT] could not record the promised follow-up:', e?.message));
+    promiseFlagged = await flagPromisedFollowUp(conversationId);
+  }
+
   return {
     content,
     diary: adapter.label,
-    needsHumanAssistance: Boolean(session.messageTaken && !session.bookingReference),
+    needsHumanAssistance: Boolean((session.messageTaken || promiseFlagged) && !session.bookingReference),
   };
 }

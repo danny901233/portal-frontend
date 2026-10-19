@@ -22,7 +22,8 @@
  *     unlike Tyresoft/GH which force those into "take a message".
  */
 import { prisma } from '../db.js';
-import { notifyMessaging } from './messagingNotifications.js';
+import { notifyMessaging, flagPromisedFollowUp } from './messagingNotifications.js';
+import { promisesFollowUp } from './followUpPromise.js';
 import OpenAI from 'openai';
 import { getInstrumentedOpenAI } from '../utils/aiUsage.js';
 import { logChatToolCall } from './chatToolLog.js';
@@ -534,6 +535,14 @@ export async function getBookarChatResponse(
     // Grab the LATEST in-memory snapshot in case a tool mutated it.
     const latest = bookarSessions.get(conversationId)?.state ?? session;
     await saveSession(conversationId, latest);
+
+    // PROMISED_FOLLOWUP_NET: the reply promises a person will get back to them, but no message was
+    // recorded — so the conversation never reaches the needs-attention list and the garage is told
+    // nothing. The model composes a convincing hand-off and does not call the tool; the lead is
+    // lost in silence. See followUpPromise.ts for the Ecotest enquiry that found this.
+    if (promisesFollowUp(content) && await flagPromisedFollowUp(conversationId)) {
+      return { content, needsHumanAssistance: true };
+    }
 
     return { content, needsHumanAssistance: false };
   } catch (error) {

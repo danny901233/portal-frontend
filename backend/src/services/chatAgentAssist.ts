@@ -1,5 +1,6 @@
 import { prisma } from '../db.js';
-import { notifyMessaging } from './messagingNotifications.js';
+import { notifyMessaging, flagPromisedFollowUp } from './messagingNotifications.js';
+import { promisesFollowUp } from './followUpPromise.js';
 import OpenAI from 'openai';
 import { getInstrumentedOpenAI } from '../utils/aiUsage.js';
 import { logChatToolCall } from './chatToolLog.js';
@@ -391,6 +392,13 @@ export async function getAssistChatResponse(
     const content =
       response.choices[0]?.message?.content ||
       "Sorry, I'm unable to respond right now. Please try again or call us directly.";
+
+    // PROMISED_FOLLOWUP_NET — see chatAgentBookar / followUpPromise.ts. Assist takes messages for
+    // a living, which makes an unrecorded "someone will be in touch" its worst failure.
+    if (promisesFollowUp(content) && await flagPromisedFollowUp(conversationId)) {
+      return { content, needsHumanAssistance: true };
+    }
+
     return { content, needsHumanAssistance: false };
   } catch (error: any) {
     console.error('[ASSIST_CHAT] Error:', error.message);

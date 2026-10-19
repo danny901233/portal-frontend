@@ -1,6 +1,7 @@
 import { prisma } from '../db.js';
 import { sendEmail } from '../utils/email.js';
 import twilio from 'twilio';
+import { notifyFlaggedConversation } from '../utils/push.js';
 
 // Reuse the same Twilio credentials used for number provisioning. SMS also needs
 // a sender number — set TWILIO_SMS_FROM to an SMS-capable Twilio number. Without
@@ -42,10 +43,35 @@ function escapeHtml(s: string): string {
  * Reads the agent's own session, so the "wanted" line is the note the agent recorded rather than
  * a second guess at it.
  */
-async function buildEscalationSummary(
-  conversationId: string,
-  session: Record<string, any> | null,
-): Promise<{ facts: Array<[string, string]>; transcript: Array<{ role: string; text: string }> }> {
+/**
+ * The agent promised someone would be in touch without recording a message. Flag the
+ * conversation and alert the garage — once.
+ *
+ * Shared by every chat agent's PROMISED_FOLLOWUP_NET, so the one-per-conversation guard lives in
+ * the `where` clause rather than in each agent's own session bookkeeping: a conversation that is
+ * already flagged (by `take_message`, by the agent's own escalation, or by an earlier promise)
+ * does not alert again, however many times the model repeats the promise.
+ *
+ * Returns true only if this call was the one that flagged it.
+ */
+export async function flagPromisedFollowUp(conversationId: string): Promise<boolean> {
+  const { count } = await prisma.chatConversation.updateMany({
+    where: { id: conversationId, needsAttention: false },
+    data: { needsAttention: true },
+  });
+  if (!count) return false;
+  // A scenario run drives the real agent against a real test garage, so it trips this too.
+  // Nobody should be paged by a regression run.
+  if (process.env.CHAT_SCENARIO_RUN !== '1') {
+    void notifyFlaggedConversation(conversationId);
+    void notifyMessaging({ conversationId, event: 'escalated' });
+  }
+  console.log(`[PROMISED_FOLLOWUP_NET] ${conversationId} flagged — the reply promised follow-up `
+    + 'but no message was recorded');
+  return true;
+}
+
+export function escalationFacts(session: Record<string, any> | null): Array<[string, string]> {
   const s = session || {};
   const vehicle = [s.vehicleMake, s.vehicleModel].filter(Boolean).join(' ').trim();
   const job = s.serviceSelectedName || (s.outboundServiceType === 'mot' ? 'MOT' : '');
@@ -55,6 +81,9 @@ async function buildEscalationSummary(
     facts.push(['Customer', [s.customerNameFirst, s.customerNameLast].filter(Boolean).join(' ')]);
   }
   if (s.contactPhone) facts.push(['Best number', String(s.contactPhone)]);
+  // A customer who asked to be emailed is owed an email, and the address was only ever in the
+  // transcript before this line existed.
+  if (s.contactEmail) facts.push(['Email', String(s.contactEmail)]);
   if (s.vrn) facts.push(['Vehicle', vehicle ? `${vehicle} (${s.vrn})` : String(s.vrn)]);
   else if (vehicle) facts.push(['Vehicle', vehicle]);
   if (job) facts.push(['Work', String(job)]);
@@ -77,6 +106,14 @@ async function buildEscalationSummary(
     if (wanted) facts.push(['Wanted', wanted]);
   }
   if (s.notes) facts.push(['Notes', String(s.notes)]);
+  return facts;
+}
+
+async function buildEscalationSummary(
+  conversationId: string,
+  session: Record<string, any> | null,
+): Promise<{ facts: Array<[string, string]>; transcript: Array<{ role: string; text: string }> }> {
+  const facts = escalationFacts(session);
 
   let transcript: Array<{ role: string; text: string }> = [];
   try {

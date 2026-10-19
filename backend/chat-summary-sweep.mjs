@@ -16,6 +16,7 @@
  *   node chat-summary-sweep.mjs --dry-run        list what it would send, send nothing
  *   node chat-summary-sweep.mjs --no-ai          plain summaries, no model call
  *   node chat-summary-sweep.mjs --limit=200      widen the batch
+ *   node chat-summary-sweep.mjs --garage=<id>    one garage only (use a test garage to verify)
  *
  * CHAT_SUMMARY_START_AT (ISO date, in .env) is the rollout guard: nothing whose last message
  * predates it is ever summarised, so the first run cannot email the back catalogue.
@@ -43,9 +44,11 @@ if (flag('dry-run')) {
   const { PrismaClient } = await import('@prisma/client');
   const prisma = new PrismaClient();
   const idle = Number(process.env.CHAT_SUMMARY_IDLE_MINUTES || 20);
+  const onlyGarageDry = value('garage', '');
   const due = await prisma.chatConversation.findMany({
     where: {
       summaryEmailSentAt: null,
+      ...(onlyGarageDry ? { garageId: onlyGarageDry } : {}),
       lastMessageAt: {
         lte: new Date(Date.now() - idle * 60_000),
         gte: new Date(Math.max(startAt.getTime(), Date.now() - 24 * 3_600_000)),
@@ -67,10 +70,12 @@ if (flag('dry-run')) {
   process.exit(0);
 }
 
+const onlyGarage = value('garage', '');
 const result = await sendDueChatSummaries({
   startAt,
   limit: Number(value('limit', 50)),
   useAi: !flag('no-ai'),
+  ...(onlyGarage ? { garageIds: [onlyGarage] } : {}),
 });
 console.log(`[CHAT_SUMMARY] considered=${result.considered} sent=${result.sent} `
   + `skipped=${result.skipped} failed=${result.failed}`);

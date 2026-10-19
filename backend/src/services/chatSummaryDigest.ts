@@ -159,6 +159,8 @@ export async function sendDueChatSummaries(options: {
   limit?: number;
   now?: Date;
   useAi?: boolean;
+  /** Restrict to these garages — for verifying the path against a test garage, or a pilot. */
+  garageIds?: string[];
 }): Promise<{ considered: number; sent: number; skipped: number; failed: number }> {
   const now = options.now ?? new Date();
   const limit = options.limit ?? 50;
@@ -172,6 +174,7 @@ export async function sendDueChatSummaries(options: {
     where: {
       summaryEmailSentAt: null,
       lastMessageAt: { lte: idleBefore, gte: notBefore },
+      ...(options.garageIds?.length ? { garageId: { in: options.garageIds } } : {}),
     },
     orderBy: { lastMessageAt: 'asc' },
     take: limit,

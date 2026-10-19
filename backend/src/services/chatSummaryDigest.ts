@@ -1,6 +1,8 @@
 import { prisma } from '../db.js';
 import { sendChatSummaryEmail } from '../utils/email.js';
 import { getInstrumentedOpenAI, withAiContext } from '../utils/aiUsage.js';
+import { sendArrearsCallNoticeEmail } from '../utils/email.js';
+import { isGarageLocked } from '../utils/arrears.js';
 
 /**
  * A summary email for EVERY chat conversation, the way the voice side has always sent one per
@@ -40,6 +42,26 @@ export function isDueForSummary(input: SummaryDueInput, now: Date = new Date()):
   if (quietMs < IDLE_MINUTES * 60_000) return false;
   if (quietMs > MAX_AGE_HOURS * 3_600_000) return false;
   return true;
+}
+
+/**
+ * May this garage be sent what was actually said?
+ *
+ * Same rule as the call side (routes/calls.ts): an account in arrears is told a conversation was
+ * handled and nothing of its content until the account is up to date, and an archived garage is
+ * emailed nothing at all.
+ *
+ * Deliberately NOT gated on messagingNotifyEmail. That switch governs the per-message and
+ * escalation alerts a garage opts into; this is the chat equivalent of the per-call summary,
+ * which every garage gets. A conversation nobody hears about is the thing being fixed.
+ */
+export function summaryDelivery(
+  garage: { accessRestricted?: boolean | null; paymentFailedAt?: Date | string | null; archivedAt?: Date | null },
+  now: Date = new Date(),
+): 'summary' | 'arrears-notice' | 'skip' {
+  if (garage.archivedAt) return 'skip';
+  if (isGarageLocked(garage, now)) return 'arrears-notice';
+  return 'summary';
 }
 
 export interface ConversationShape {
@@ -187,6 +209,10 @@ export async function sendDueChatSummaries(options: {
         where: { garageId: conv.garageId },
         select: { branchName: true, notificationEmails: true },
       });
+      const garage = await prisma.garage.findUnique({
+        where: { id: conv.garageId },
+        select: { accessRestricted: true, paymentFailedAt: true, archivedAt: true },
+      });
       const to = (Array.isArray(cfg?.notificationEmails) ? cfg!.notificationEmails : [])
         .filter(Boolean) as string[];
       if (!to.length) {
@@ -197,10 +223,28 @@ export async function sendDueChatSummaries(options: {
         continue;
       }
 
+      const delivery = garage ? summaryDelivery(garage, now) : 'skip';
+      if (delivery === 'skip') {
+        await stamp(conv.id);
+        skipped += 1;
+        continue;
+      }
+
       // Claim it BEFORE sending. A duplicate summary is worse than a missing one, and the send
       // is the slow part — long enough for the next sweep to start.
       if (!(await stamp(conv.id))) {
         skipped += 1;
+        continue;
+      }
+
+      if (delivery === 'arrears-notice') {
+        await sendArrearsCallNoticeEmail(to, {
+          branchName: cfg?.branchName || 'Your branch',
+          createdAt: conv.createdAt.toISOString(),
+          portalUrl: process.env.PORTAL_URL || 'https://portal.receptionmate.co.uk',
+        });
+        console.log(`[CHAT_SUMMARY] ${conv.id}: garage in arrears — notice sent, content withheld`);
+        sent += 1;
         continue;
       }
 

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { isDueForSummary, describeConversation } from './chatSummaryDigest.js';
+import { isDueForSummary, describeConversation, summaryDelivery } from './chatSummaryDigest.js';
 
 const now = new Date('2026-10-19T14:00:00Z');
 const due = {
@@ -110,4 +110,44 @@ test('a long opening message is trimmed', () => {
   });
   assert.ok(out.length < 250, `too long: ${out.length}`);
   assert.ok(out.includes('…'));
+});
+
+// ── Who may be sent the conversation itself ──
+//
+// Matches the call side (routes/calls.ts): an account in arrears is told a conversation was
+// handled and nothing about what was said, until it is brought up to date.
+
+test('an ordinary garage gets the summary', () => {
+  assert.equal(summaryDelivery({ accessRestricted: false, paymentFailedAt: null, archivedAt: null }), 'summary');
+});
+
+test('a garage flagged in arrears gets the notice, not the content', () => {
+  assert.equal(summaryDelivery({ accessRestricted: true, paymentFailedAt: null, archivedAt: null }), 'arrears-notice');
+});
+
+test('a failed payment past the grace window withholds the content', () => {
+  assert.equal(
+    summaryDelivery(
+      { accessRestricted: false, paymentFailedAt: new Date('2026-10-10T00:00:00Z'), archivedAt: null },
+      new Date('2026-10-19T14:00:00Z'),
+    ),
+    'arrears-notice',
+  );
+});
+
+test('a failed payment inside the grace window still gets the summary', () => {
+  assert.equal(
+    summaryDelivery(
+      { accessRestricted: false, paymentFailedAt: new Date('2026-10-19T08:00:00Z'), archivedAt: null },
+      new Date('2026-10-19T14:00:00Z'),
+    ),
+    'summary',
+  );
+});
+
+test('an archived garage is emailed nothing', () => {
+  assert.equal(
+    summaryDelivery({ accessRestricted: false, paymentFailedAt: null, archivedAt: new Date('2026-10-01T00:00:00Z') }),
+    'skip',
+  );
 });

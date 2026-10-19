@@ -1264,7 +1264,12 @@ async function getChatAgentResponseInner(
     // A customer who says "my email is …" to get a price is handing us the one detail the garage
     // needs to answer, and until this existed it was left in the transcript: Ecotest, 19 Oct 2026,
     // where the agent promised an email to an address no record of the enquiry ever carried.
-    if (!session.contactEmail) {
+    //
+    // NOT during contact collection. That step has its own parser, and it only treats a message
+    // as "the email" when the session does not have one yet — so saving it here first made the
+    // fastpath fall through to its note branch, which recorded "Customer note:
+    // dan.testington@example.com", took a message and flagged a chat that had just booked.
+    if (!session.contactEmail && (session.step as Step) !== Step.NEED_CONTACT) {
       const emailInMsg = firstEmailAddress(message);
       if (emailInMsg) {
         session.contactEmail = emailInMsg;

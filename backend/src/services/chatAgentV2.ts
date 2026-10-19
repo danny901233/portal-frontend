@@ -11,6 +11,8 @@ import { notifyFlaggedConversation } from '../utils/push.js';
 import { deriveEnquiryTypeFromSession, maybeUpdateEnquiryType } from './conversationEnquiryType.js';
 import { splitPersonName } from '../utils/personName.js';
 import { sendChatSummaryEmail } from '../utils/email.js';
+import { promisesFollowUp, firstEmailAddress } from './followUpPromise.js';
+import { surnameFromReply } from './contactReply.js';
 
 // Lazy-load OpenAI client
 let openaiClient: OpenAI | null = null;
@@ -655,34 +657,6 @@ export function isAskingAboutExistingBooking(message: string): boolean {
  * beyond…"), matched on the "11". Neither answer told her the truth, which is that 8:30 is the
  * only time this garage publishes.
  */
-/**
- * Does this reply promise that a HUMAN will follow up?
- *
- * The moment the agent says "the team will be in touch", a person has to act — and take_message is
- * the only thing in this agent that puts the conversation in front of one. The model composes that
- * promise freely, from any step, without calling the tool: Andrew Stolagiewicz asked JDK what a B
- * service would cost on 5 Oct 2026, was told three times that the team would be in touch, and
- * nothing was recorded, nothing flagged, no email sent. The garage never knew he existed.
- *
- * Deliberately narrow: it wants an explicit commitment that somebody will make contact, not merely
- * a mention of the team. "The team will go through everything with you before any work goes ahead"
- * is reassurance about a booking that already exists; "the team will get back to you" is a debt.
- */
-export function promisesHumanFollowUp(reply: string): boolean {
-  const t = String(reply || '');
-  // Someone will make contact.
-  if (/\b(the team|they|someone|a member of the team|my colleague|we)\b[^.!?]{0,40}?\b(will|'ll|\u2019ll)\b[^.!?]{0,40}?\b(be in touch|get back to you|come back to you|contact you|call you|ring you|message you|reach out|give you a (call|ring))\b/i.test(t)) {
-    return true;
-  }
-  // The agent is handing it over itself.
-  // Both apostrophes: WhatsApp replies come through with a curly one, and /i'?ll/ silently missed
-  // every "I\u2019ll let the team know" the model actually writes.
-  if (/\b(i['\u2019]?ll|i will|let me)\b[^.!?]{0,30}?\b(let the team know|pass (this|that|it) on|ask (the team|someone)|get someone to|get the team to|have someone)\b/i.test(t)) {
-    return true;
-  }
-  return false;
-}
-
 export function unsatisfiableTimeRequest(
   pref: string,
   timeslots: Array<{ date: string; time: string }>,
@@ -919,18 +893,24 @@ export async function getChatAgentResponse(
     // case that was silently dropping leads, because this net used to test the step alone.
     const promisedFollowUp = !!res?.content
       && session.step !== Step.CONFIRMED && session.step !== Step.DONE
-      && promisesHumanFollowUp(res.content);
+      && promisesFollowUp(res.content);
     const inMessageOnly = session.step === Step.MESSAGE_ONLY
       && !!session.customerNameFirst && !!session.contactPhone;
-    if (!session.messageTaken && !!session.contactPhone && (inMessageOnly || promisedFollowUp)) {
+    // A number OR an email address. Requiring a number meant a customer who asked to be EMAILED
+    // was never recorded — the Ecotest clutch enquiry of 19 Oct 2026, where the agent promised a
+    // Service Advisor's email and the garage was told nothing.
+    if (!session.messageTaken && (!!session.contactPhone || !!session.contactEmail)
+        && (inMessageOnly || promisedFollowUp)) {
       const summary = [
         session.serviceHint || '',
         session.notes || '',
         session.vrn ? `Vehicle: ${[session.vehicleMake, session.vehicleModel].filter(Boolean).join(' ')} (${session.vrn})` : '',
+        session.contactEmail ? `Asked to be emailed at ${session.contactEmail}` : '',
         `Latest message: "${String(message).slice(0, 200)}"`,
       ].filter(Boolean).join('. ');
       session.messageTaken = true;
-      await handleTakeMessage({ message: summary, phone: session.contactPhone }, session, conversationId);
+      await handleTakeMessage(
+        { message: summary, phone: session.contactPhone || '' }, session, conversationId);
       console.log('[MESSAGE_TAKEN_SAFETY_NET] take_message was not called by the model — recorded '
         + `and flagged here (${inMessageOnly ? 'step=message_only' : `promised follow-up at step=${session.step}`})`);
       // Keep the model's wording, which is warmer than the canned line, but report the handoff.
@@ -1276,6 +1256,19 @@ async function getChatAgentResponseInner(
         setCustomerProvidedPhone(session, chosenMsgPhone.replace(/\s+/g, ''));
         console.log(`[SEED_CONTACT] Phone found in message: ${session.contactPhone}${hasMsgCorrection ? ' (corrected)' : ''}${
           wasSeeded && wasSeeded !== session.contactPhone ? ` (replacing seeded ${wasSeeded})` : ''}`);
+        seedApplied = true;
+      }
+    }
+
+    // An address typed anywhere in the conversation, not only when the booking flow asks for one.
+    // A customer who says "my email is …" to get a price is handing us the one detail the garage
+    // needs to answer, and until this existed it was left in the transcript: Ecotest, 19 Oct 2026,
+    // where the agent promised an email to an address no record of the enquiry ever carried.
+    if (!session.contactEmail) {
+      const emailInMsg = firstEmailAddress(message);
+      if (emailInMsg) {
+        session.contactEmail = emailInMsg;
+        console.log(`[SEED_CONTACT] Email found in message: ${emailInMsg.replace(/^(.{3}).*(@.*)$/, '$1…$2')}`);
         seedApplied = true;
       }
     }
@@ -1863,7 +1856,8 @@ async function getChatAgentResponseInner(
 
       // Check if the message looks like a note/question rather than contact info
       const contactArgs = extractContactArgsFromMessage(message, session);
-      const hasContactInfo = contactArgs.phone || contactArgs.email || contactArgs.postcode || contactArgs.houseNumber;
+      const hasContactInfo = contactArgs.phone || contactArgs.email || contactArgs.postcode
+        || contactArgs.houseNumber || contactArgs.last_name;
 
       if (!hasContactInfo) {
         const msg = message.trim();
@@ -2301,9 +2295,15 @@ async function getChatAgentResponseInner(
             session,
             conversationId
           );
-          logChatToolCall({ conversationId, garageId, agentType: 'automate', toolName: functionName, args: functionArgs, result: instructions, durationMs: Date.now() - _t0 });
+          // Handlers in SELF_LOGGED_TOOLS record their own call (see logHandledTool), so the
+          // fastpaths that bypass this loop are logged too. Logging here as well would double them.
+          if (!SELF_LOGGED_TOOLS.has(functionName)) {
+            logChatToolCall({ conversationId, garageId, agentType: 'automate', toolName: functionName, args: functionArgs, result: instructions, durationMs: Date.now() - _t0 });
+          }
         } catch (_e: any) {
-          logChatToolCall({ conversationId, garageId, agentType: 'automate', toolName: functionName, args: functionArgs, result: { error: _e?.message || 'tool threw' }, durationMs: Date.now() - _t0 });
+          if (!SELF_LOGGED_TOOLS.has(functionName)) {
+            logChatToolCall({ conversationId, garageId, agentType: 'automate', toolName: functionName, args: functionArgs, result: { error: _e?.message || 'tool threw' }, durationMs: Date.now() - _t0 });
+          }
           throw _e;
         }
 
@@ -2444,6 +2444,15 @@ function normaliseVoiceToText(text: string): string {
 function extractContactArgsFromMessage(message: string, session: ChatSession): any {
   const args: any = {};
   const text = normaliseVoiceToText(message.trim());
+
+  // A reply to "and finally, what's your surname?". This extractor drives the contact fastpath,
+  // which returns before the model ever sees the turn — so a surname it does not parse is a
+  // surname the model can never pass to set_contact_info, and the booking goes in as
+  // "<First> Customer". Only read it while a surname is actually outstanding.
+  if (session.lastNameAsked && !session.customerNameLast) {
+    const surname = surnameFromReply(message);
+    if (surname) args.last_name = surname;
+  }
 
   const emailMatch = text.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
   if (!session.contactEmail && emailMatch) {
@@ -3104,7 +3113,87 @@ async function handleLookupVehicle(args: any, session: ChatSession, conversation
   }
 }
 
+/**
+ * Tool names whose handler logs itself, so the model's tool loop must not log them a second time.
+ */
+const SELF_LOGGED_TOOLS = new Set([
+  'confirm_vehicle', 'select_service', 'confirm_booking', 'select_timeslot',
+  'set_contact_info', 'record_date_preference', 'take_message',
+]);
+
+/**
+ * Record one ChatToolCall around a handler, wherever it was called from.
+ *
+ * The loop that runs the model's tool calls used to be the only place that logged, so the
+ * diagnostics showed only what the MODEL asked for. Most of this agent's work is done by
+ * deterministic fastpaths that call these handlers directly and return before the loop — so
+ * Katherine Ractliffe's booking at Speedy Spanners (19 Oct 2026) showed nine tool calls and
+ * stopped three minutes before the booking it had just made, because confirm_slot, four rounds
+ * of set_contact_info and the Garage Hive submission inside it all bypassed the logger.
+ *
+ * Wrapping the handlers instead means every route through them is recorded once, including the
+ * chains where one handler calls another.
+ */
+async function logHandledTool(
+  toolName: string,
+  args: any,
+  conversationId: string,
+  run: () => Promise<string>,
+): Promise<string> {
+  const startedAt = Date.now();
+  try {
+    const result = await run();
+    logChatToolCall({
+      conversationId, garageId: CURRENT_GARAGE_ID, agentType: 'automate',
+      toolName, args, result, durationMs: Date.now() - startedAt,
+    });
+    return result;
+  } catch (e: any) {
+    logChatToolCall({
+      conversationId, garageId: CURRENT_GARAGE_ID, agentType: 'automate',
+      toolName, args, result: { error: e?.message || 'tool threw' },
+      durationMs: Date.now() - startedAt,
+    });
+    throw e;
+  }
+}
+
 async function handleConfirmVehicle(args: any, session: ChatSession, conversationId: string): Promise<string> {
+  return logHandledTool('confirm_vehicle', args, conversationId,
+    () => handleConfirmVehicleImpl(args, session, conversationId));
+}
+
+async function handleSelectService(args: any, session: ChatSession, conversationId: string): Promise<string> {
+  return logHandledTool('select_service', args, conversationId,
+    () => handleSelectServiceImpl(args, session, conversationId));
+}
+
+async function handleConfirmBooking(args: any, session: ChatSession, conversationId: string): Promise<string> {
+  return logHandledTool('confirm_booking', args, conversationId,
+    () => handleConfirmBookingImpl(args, session, conversationId));
+}
+
+async function handleSelectTimeslot(args: any, session: ChatSession, conversationId: string): Promise<string> {
+  return logHandledTool('select_timeslot', args, conversationId,
+    () => handleSelectTimeslotImpl(args, session, conversationId));
+}
+
+async function handleSetContactInfo(args: any, session: ChatSession, conversationId: string): Promise<string> {
+  return logHandledTool('set_contact_info', args, conversationId,
+    () => handleSetContactInfoImpl(args, session, conversationId));
+}
+
+async function handleRecordDatePreference(args: any, session: ChatSession, conversationId: string): Promise<string> {
+  return logHandledTool('record_date_preference', args, conversationId,
+    () => handleRecordDatePreferenceImpl(args, session, conversationId));
+}
+
+async function handleTakeMessage(args: any, session: ChatSession, conversationId: string): Promise<string> {
+  return logHandledTool('take_message', args, conversationId,
+    () => handleTakeMessageImpl(args, session, conversationId));
+}
+
+async function handleConfirmVehicleImpl(args: any, session: ChatSession, conversationId: string): Promise<string> {
   const { confirmed, corrected_first_name = '', corrected_last_name = '' } = args;
 
   // Guard: if services are already loaded, don't re-run confirm_vehicle — just tell AI to call select_service
@@ -3270,7 +3359,7 @@ async function reloadServiceCatalogue(session: ChatSession, conversationId: stri
   return !!(session.servicesAvailable && session.servicesAvailable.length > 0);
 }
 
-async function handleSelectService(args: any, session: ChatSession, conversationId: string): Promise<string> {
+async function handleSelectServiceImpl(args: any, session: ChatSession, conversationId: string): Promise<string> {
   const { service_name } = args;
 
   if (session.step === Step.NEED_CONTACT) {
@@ -3748,7 +3837,7 @@ When the customer responds:
   }
 }
 
-async function handleConfirmBooking(args: any, session: ChatSession, conversationId: string): Promise<string> {
+async function handleConfirmBookingImpl(args: any, session: ChatSession, conversationId: string): Promise<string> {
   const { confirmed } = args;
 
   if (!confirmed) {
@@ -3770,7 +3859,7 @@ When the customer responds:
 - If vague ("next week", "end of month") → ask "Which day works best for you?" without calling select_timeslot yet.`;
 }
 
-async function handleSelectTimeslot(args: any, session: ChatSession, conversationId: string): Promise<string> {
+async function handleSelectTimeslotImpl(args: any, session: ChatSession, conversationId: string): Promise<string> {
   const { preference } = args;
 
   if (session.step === Step.NEED_CONTACT && session.bookingDate && session.bookingTime) {
@@ -4081,7 +4170,7 @@ When they choose, call select_timeslot again.`;
 Say ONLY: "I've got ${dateNatural} at ${timeNatural} — does that work for you?" and STOP. Do not ask for contact details yet. Wait for them to confirm.`;
 }
 
-async function handleSetContactInfo(args: any, session: ChatSession, conversationId: string): Promise<string> {
+async function handleSetContactInfoImpl(args: any, session: ChatSession, conversationId: string): Promise<string> {
   const rawPhone: string = args?.phone ?? '';
   const rawEmail: string = args?.email ?? '';
   // Normalise voice-to-text: "oh seven seven..." → "077...", "chris at test dot com" → "chris@test.com"
@@ -4239,6 +4328,12 @@ async function handleSetContactInfo(args: any, session: ChatSession, conversatio
       // with nothing means they declined to give one.
       contact_last_name: session.customerNameLast || 'Customer',
       contact_email: session.contactEmail,
+      // `contact_phone` is the key Garage Hive actually reads. We sent `contact_number`, which it
+      // silently ignored: every chat booking reached the diary with no phone number on it (nine of
+      // the ten in the box log on 19 Oct 2026), so the garage could not ring the customer back.
+      // Proved by probing /set-contact-info on the demo account with all three spellings — only
+      // contact_phone came back in the echo. Both are sent in case a garage reads the old one.
+      contact_phone: session.contactPhone,
       contact_number: session.contactPhone,
       contact_address: contactAddress,
       contact_city: session.contactCity,
@@ -4462,7 +4557,7 @@ async function reminderExtraAsks(conversationId: string): Promise<string[]> {
   }
 }
 
-async function handleRecordDatePreference(args: any, session: ChatSession, conversationId: string): Promise<string> {
+async function handleRecordDatePreferenceImpl(args: any, session: ChatSession, conversationId: string): Promise<string> {
   const anythingElse = String(args?.anything_else || '').trim();
   const extraDetails = String(args?.extra_details || '').trim();
   const job = session.outboundServiceType === 'mot' ? 'MOT' : 'service';
@@ -4548,7 +4643,7 @@ async function handleRecordDatePreference(args: any, session: ChatSession, conve
     + `to us.${askChannel}\n\nConversation complete.`;
 }
 
-async function handleTakeMessage(args: any, session: ChatSession, conversationId: string): Promise<string> {
+async function handleTakeMessageImpl(args: any, session: ChatSession, conversationId: string): Promise<string> {
   const { message, phone, callback_time = '' } = args;
   
   console.log(`[TAKE_MESSAGE] Phone: ${phone}, Message: ${message.substring(0, 50)}...`);

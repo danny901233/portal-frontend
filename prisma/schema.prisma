@@ -840,6 +840,11 @@ model ChatConversation {
   assignee                 User?                     @relation("ChatConversationAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
   unreadCount              Int                       @default(0)
   lastMessageAt            DateTime                  @default(now())
+  // When the garage was emailed the summary of this conversation. The voice side has always
+  // sent one per call; chat only ever emailed on a booking or an escalation, so an enquiry
+  // that did neither was invisible unless someone opened the portal. Set by the sweep in
+  // chatSummaryDigest.ts, and the thing that stops a conversation being summarised twice.
+  summaryEmailSentAt       DateTime?
   sessionState             Json?
   messages                 ChatMessage[]
   toolCalls                ChatToolCall[]
@@ -847,6 +852,7 @@ model ChatConversation {
   createdAt                DateTime                  @default(now())
   updatedAt                DateTime                  @updatedAt
 
+  @@index([summaryEmailSentAt, lastMessageAt])
   @@index([garageId, status])
   @@index([garageId, platform])
   @@index([garageId, customerId])

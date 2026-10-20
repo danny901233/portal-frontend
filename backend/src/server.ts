@@ -39,6 +39,7 @@ import emailLogRouter from './routes/emailLog.js';
 import stripeWebhook from './routes/webhooks/stripe.js';
 import mailgunInboundWebhook from './routes/webhooks/mailgun-inbound.js';
 import livekitDemoRouter from './routes/livekit-demo.js';
+import demoProspectRouter from './routes/demo-prospect.js';
 import featureAnnouncementRouter from './routes/featureAnnouncement.js';
 import usersRouter from './routes/users.js';
 import publicSignupRouter from './routes/public-signup.js';
@@ -188,6 +189,9 @@ app.use('/api', publicLeadRouter);
 app.use('/api/public/connect-signup', connectSignupRouter);
 app.use('/api', connectBillingRouter);
 app.use('/api', livekitDemoRouter);
+// Routes live under /api/public/* so they inherit the public CORS allowance above and skip the
+// portal's authenticate middleware — a cold prospect has no login and never will.
+app.use('/api', demoProspectRouter);
 app.use('/api', agreementsRouter);
 app.use('/api', supportRouter);
 app.use('/api', supportVoiceRouter);

@@ -107,10 +107,44 @@ async function liveDemoCount(
     // In the unified project the demo shares a project with live customer calls, so the filter
     // has to be exact: this garage, and the _web_ marker the portal puts on browser rooms. A
     // loose "garage-" match would count real calls and turn prospects away for no reason.
-    const prefix = isUnified ? `garage-${DEMO_GARAGE_ID}_web_` : 'demo-';
-    return rooms.filter((r) => r.name.startsWith(prefix)).length;
+    // Count every browser demo, not just the shared demo garage's. Per-prospect demos run under
+    // their own synthetic ids, so a filter pinned to DEMO_GARAGE_ID would stop counting them and
+    // the cap would silently go back to being a no-op — the same bug c215fc7f fixed. `_web_` is
+    // the marker the portal puts on browser rooms and a customer's SIP call never carries it, so
+    // it is the right thing to match on: all demos, no real calls.
+    if (isUnified) {
+      return rooms.filter((r) => r.name.includes('_web_')).length;
+    }
+    return rooms.filter((r) => r.name.startsWith('demo-')).length;
   } catch (err) {
     console.error('[demo] could not list rooms for the concurrency check:', err);
+    return null;
+  }
+}
+
+/**
+ * Resolve a prospect's personal link slug to the agent id their demo should run as.
+ *
+ * The slug is only ever used as a database lookup key — the id returned comes from the
+ * DemoProspect row, never from the request — so nothing caller-supplied reaches the room name.
+ * Anything unresolvable (unknown, expired, or not yet built) returns null and the caller falls
+ * back to the shared demo garage: a generic demo is a soft landing, a dead room is not.
+ */
+async function resolveProspectAgentId(slugValue: unknown): Promise<string | null> {
+  if (typeof slugValue !== 'string') return null;
+  const slug = slugValue.toLowerCase();
+  if (slug.length < 6 || slug.length > 80 || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) return null;
+  try {
+    const prospect = await prisma.demoProspect.findUnique({
+      where: { slug },
+      select: { agentId: true, builtAt: true, expiresAt: true, spokenName: true },
+    });
+    if (!prospect?.builtAt) return null;
+    if (prospect.expiresAt.getTime() <= Date.now()) return null;
+    console.log(`[demo] prospect demo for ${prospect.spokenName} (agent ${prospect.agentId})`);
+    return prospect.agentId;
+  } catch (err) {
+    console.error('[demo] prospect lookup failed, falling back to the shared demo garage:', err);
     return null;
   }
 }
@@ -184,8 +218,12 @@ router.post('/livekit/demo-token', async (req: Request, res: Response) => {
   // garage's config — diary, voice, hours, knowledge base — loads with no metadata plumbing and
   // no agent change. The "_web_" segment is what tells the agent this is a browser call, which
   // it uses only to make the greeting non-interruptible (laptop speaker echo reads as a barge-in).
+  // A personal link resolves to that prospect's own agent; everything else is the shared demo.
+  const demoAgentId = (useUnified ? await resolveProspectAgentId(req.body?.prospectSlug) : null)
+    ?? DEMO_GARAGE_ID;
+
   const roomName = useUnified
-    ? `garage-${DEMO_GARAGE_ID}_web_${randomBytes(6).toString('hex')}`
+    ? `garage-${demoAgentId}_web_${randomBytes(6).toString('hex')}`
     : `demo-${randomBytes(8).toString('hex')}`;
   const identity = `visitor-${randomBytes(4).toString('hex')}`;
 

@@ -333,7 +333,11 @@ export const parseIntegrationSettings = (
   };
 };
 
-const defaultConfiguration: AgentConfigurationPayload = {
+// Exported so the demo-prospect route can start from exactly the defaults a real garage gets,
+// rather than hand-rolling a config object. Hand-rolling is what let the box validator silently
+// drop ten fields and wipe FAQs to [] — a config this agent reads should only ever be built by
+// the one code path that knows all of its fields.
+export const defaultConfiguration: AgentConfigurationPayload = {
   branchName: '',
   phoneNumber: '',
   emailAddress: '',
@@ -517,7 +521,7 @@ async function recordConfigChanges(
   }
 }
 
-const buildConfigurationResponse = (configuration: PrismaAgentConfiguration | null) => {
+export const buildConfigurationResponse = (configuration: PrismaAgentConfiguration | null) => {
   if (!configuration) {
     return { ...sanitizeConfigForResponse(defaultConfiguration), ...extraAgentFields(null) };
   }
@@ -859,7 +863,11 @@ const getDynamoClient = () => {
   return dynamoClientCache || null;
 };
 
-const writeAgentConfigToDynamo = async (
+// Exported for the demo-prospect route, which writes a prospect's runtime config under a
+// synthetic id that has no Garage row behind it. Note this function takes the already-built
+// configuration object — it does NOT read Postgres — which is precisely what makes a
+// garage-less demo agent possible.
+export const writeAgentConfigToDynamo = async (
   garageId: string,
   configuration: unknown,
   knowledgeBase: unknown[],

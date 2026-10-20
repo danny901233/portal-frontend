@@ -61,6 +61,13 @@ function useIsMobile() {
 // /connect-garagehive-advanced shipped asking GarageHive to sign in to a portal they have no
 // account for.
 const publicPaths = new Set(['/login', '/reset-password', '/terms', '/agreement/sign', '/demo', '/demo-embed', '/connect-garagehive', '/connect-garagehive-advanced', '/connect-diary']);
+// Public pages whose path carries an id or token, so an exact-match Set can never recognise them.
+// '/try/<token>' is the personal demo link we email cold prospects: without this it matches
+// nothing above, bootstrapSession runs, and a garage owner who has no portal account — and never
+// will — gets bounced to a login screen instead of hearing their receptionist.
+const publicPrefixes = ['/try/'];
+const isPublicPath = (pathname: string | null): boolean =>
+  publicPaths.has(pathname ?? '') || publicPrefixes.some((p) => (pathname ?? '').startsWith(p));
 const paymentPaths = new Set(['/setup-payment', '/setup-payment/callback']);
 
 export default function AppShell({ children }: { children: ReactNode }) {
@@ -131,7 +138,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
     [pathname, visibleGarageIds.length],
   );
 
-  const shouldShowChrome = useMemo(() => !publicPaths.has(pathname ?? '') && !paymentPaths.has(pathname ?? ''), [pathname]);
+  const shouldShowChrome = useMemo(() => !isPublicPath(pathname) && !paymentPaths.has(pathname ?? ''), [pathname]);
 
   useEffect(() => {
     if (!allowAllAssignedBranches && branchScope === 'all') {

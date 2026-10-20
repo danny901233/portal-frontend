@@ -13,6 +13,8 @@ import { authenticate } from '../middleware/auth.js';
 import { callFeedbackSchema, createCallSchema } from '../utils/validators.js';
 import { classifyCallCategory } from '../utils/callClassifier.js';
 import { callerNumberForStorage } from '../utils/callerNumber.js';
+import { sendDemoCallSummary } from '../services/demoProspectSummary.js';
+import type { DemoProspectForSummary } from '../services/demoProspectSummary.js';
 import type {
   CallWithParsedJson,
   MetricsRecord,
@@ -87,6 +89,10 @@ const csvEscape = (value: string | number | null | undefined) => {
 // OBJECT keyed by index ({"0":"a","1":"b",…}) instead of an array. With 20+ branches the all-branches
 // filter hit this: Array.isArray() was false, the object got wrapped as a single non-string element,
 // and every id was dropped (403 "No valid garage IDs"). Normalise array | index-object | single -> string[].
+// The real "ReceptionMate Demo" garage. Demo-prospect calls are logged here because their own
+// agent ids deliberately have no Garage row behind them.
+const DEMO_PROSPECT_LOG_GARAGE_ID = 'c7f53608-b0eb-4bdd-93da-02f2875acd93';
+
 const normalizeGarageIds = (garageIds: unknown): string[] => {
   if (Array.isArray(garageIds)) {
     return garageIds.filter((v): v is string => typeof v === 'string');
@@ -352,6 +358,42 @@ router.post('/calls', async (req: Request, res: Response) => {
 
     const payload = parseResult.data;
 
+    // A demo-prospect call arrives under a synthetic agent id that has no Garage row — that is
+    // the whole point of it, so 500 cold prospects never appear as customers. Call.garageId has a
+    // foreign key to Garage, so the insert would fail and we would lose the transcript. Log it
+    // against the one real Demo garage instead (exactly as /demo/call-log already does) and keep
+    // the prospect on the record in metrics, so the recording, transcript and AI call analysis
+    // all still work — which is how we judge whether these demos are any good.
+    let prospectForMetrics: DemoProspectForSummary | null = null;
+    try {
+      const prospect = await prisma.demoProspect.findUnique({
+        where: { agentId: payload.garageId },
+        select: { id: true, spokenName: true, email: true, summaryEmailedAt: true },
+      });
+      if (prospect) {
+        prospectForMetrics = prospect;
+        payload.garageId = DEMO_PROSPECT_LOG_GARAGE_ID;
+        // Stamp the prospect onto the PAYLOAD, not just onto the row we are about to create. The
+        // AI diagnosis below rewrites metrics from `payload.metrics`, so anything added only at
+        // create time is silently overwritten a few seconds later — which is exactly what
+        // happened: the call logged correctly and then lost all trace of whose demo it was.
+        if (payload.metrics && typeof payload.metrics === 'object' && !Array.isArray(payload.metrics)) {
+          (payload.metrics as Record<string, unknown>).demoProspect = {
+            id: prospect.id,
+            name: prospect.spokenName,
+            email: prospect.email,
+          };
+        }
+        await prisma.demoProspect.update({
+          where: { id: prospect.id },
+          data: { lastCalledAt: new Date(), callCount: { increment: 1 } },
+        });
+        console.log(`[CALL] demo-prospect call for ${prospect.spokenName} → logged against the Demo garage`);
+      }
+    } catch (err) {
+      console.error('[CALL] demo-prospect remap failed', err);
+    }
+
     // Try to get recording data from Twilio recording callback by twilioCallSid
     let finalRecordingUrl = payload.recordingUrl;
     let finalRecordingDuration: number | null = null;
@@ -511,6 +553,8 @@ router.post('/calls', async (req: Request, res: Response) => {
         // route to what a booking was actually worth. bookingDetails is prose and joins to nothing.
         bookingReference: payload.bookingReference ?? null,
         bookingAt: payload.bookingAt ?? bookingAtFromDetails,
+        // metrics.demoProspect is stamped onto the payload itself up in the remap above, so it
+        // survives the diagnosis rewrite rather than being clobbered by it.
         metrics: payload.metrics,
         transcript: payload.transcript,
         summary: payload.summary,
@@ -543,6 +587,26 @@ router.post('/calls', async (req: Request, res: Response) => {
       customerPhone || fromNumber,
       payload.customerName,
     );
+
+    // A demo prospect has just heard their own receptionist. Email them what it did, while it is
+    // still the most interesting thing that happened to them today — the demo is persuasive on the
+    // call and forgotten twenty minutes later, so this is what turns it into something they can
+    // read, forward to a partner and act on. Solicited: they pressed the button.
+    //
+    // Fire-and-forget for the same reason as the diagnosis below — the agent is waiting on this
+    // response, and a prospect's follow-up must never hold up a call record.
+    if (prospectForMetrics) {
+      const prospect = prospectForMetrics;
+      void sendDemoCallSummary(prospect, {
+        durationSeconds: actualDuration,
+        summary: payload.summary,
+        customerName: payload.customerName,
+        registrationNumber: payload.registrationNumber,
+        bookingDetails: payload.bookingDetails,
+        confirmedBooking,
+        transcriptTurns: Array.isArray(payload.transcript) ? payload.transcript.length : 0,
+      });
+    }
 
     // Stage 2 — automatic AI call diagnosis (gpt-4o-mini). Fire-and-forget so it never
     // delays the agent's webhook response; the verdict is merged into the call's metrics

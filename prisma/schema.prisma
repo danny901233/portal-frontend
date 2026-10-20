@@ -1746,3 +1746,63 @@ model CallbackAttempt {
   @@index([garageId, createdAt])
   @@index([status, dueAt])
 }
+
+/// A cold prospect who has been emailed a personal link to hear an AI receptionist answering
+/// as THEIR garage.
+///
+/// Deliberately NOT a Garage row. The agent reads its runtime config from the `AgentConfig`
+/// DynamoDB table keyed on whatever id it finds in the LiveKit room name, and never consults
+/// Postgres for it — so a prospect's agent is built by writing that DynamoDB item directly
+/// against `agentId` below. Creating 500 Garage rows instead would put 500 fake customers into
+/// the garage pickers, the dashboards, billing, the arrears sweep, the onboarding pipeline and
+/// the watchdog's routing audit, and "remember to filter them out everywhere" is the version
+/// that leaks: archived garages already came back through the branch dropdown once.
+model DemoProspect {
+  id           String    @id @default(cuid())
+  /// The whole of the emailed URL: "binley-woods-service-centre-9f3a".
+  ///
+  /// Their own name, because the link IS the pitch — a garage owner can see it is theirs before
+  /// deciding whether to click, which an opaque token cannot do. The four-character suffix is not
+  /// decoration: without it the URL is guessable, and since a first visit BUILDS the agent, each
+  /// guess would spend a website scrape, an OpenAI call and a config write, while a 200 against a
+  /// 404 would let anyone enumerate the prospect list. Names alone also collide — 29 pairs across
+  /// the 6,803 contacts in the CRM.
+  slug         String    @unique
+  /// Digits a `tel:` link auto-sends as DTMF, so someone tapping the link on a phone lands on
+  /// their own agent without typing anything. Short, because a dialler sends it as tones.
+  code         String    @unique
+  /// The id the agent resolves out of the room name. Matches no Garage row by design.
+  agentId      String    @unique @default(uuid())
+  businessName String
+  /// What the agent actually says. The scraped name is lowercased and often keyword-stuffed
+  /// ("hilltop mot & service centre - tyres, brakes, camberley"), and the greeting is the first
+  /// thing a prospect hears, so the spoken form is stored rather than derived at call time.
+  spokenName   String
+  /// Taken from their own email domain, which is why the shortlist was filtered to garages
+  /// whose address matches their name — it doubles as a free, self-verifying website lookup.
+  websiteUrl   String?
+  email        String?
+  /// HighLevel contact, so a demo call can be pushed back onto the right opportunity.
+  contactId    String?
+  /// The garage's REAL opening hours, parsed from their own website before any link is sent, in
+  /// the weeklyOpeningHours shape. Resolved ahead of time on purpose: a wrong answer here is
+  /// asserted as fact by the agent, so it has to be reviewable in a spreadsheet rather than first
+  /// seen by the prospect. Null means we do not know, and the agent must not claim to.
+  weeklyOpeningHours Json?
+  /// Where the hours came from — "website", "places", "manual" — so a bad batch is traceable.
+  hoursSource  String?
+  /// Null until the first click. Set when the DynamoDB config has been written.
+  builtAt      DateTime?
+  lastCalledAt DateTime?
+  callCount    Int       @default(0)
+  /// When we emailed them the summary of their own demo call. Set once: the follow-up is
+  /// persuasive the first time and spam by the third, and a prospect who rings it four times to
+  /// show a colleague should not be punished for the enthusiasm.
+  summaryEmailedAt DateTime?
+  /// Demo configs are temporary; the DynamoDB item carries a matching TTL so it self-cleans.
+  expiresAt    DateTime
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([expiresAt])
+}

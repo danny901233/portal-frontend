@@ -139,8 +139,18 @@ test('"that is now booked" is a claim', () => {
   assert.equal(claimsBookingMade('That’s now booked for Tuesday, see you then!'), true);
 });
 
-test('"I have got you down for" is a claim', () => {
-  assert.equal(claimsBookingMade("I've got you down for Monday 26th October."), true);
+// "I've got you down for Tuesday 27th October at 8:30am — does that work for you?" is how the
+// agent PROPOSES a drop-off slot. Caught as a false positive on the GH test garage: the question
+// mark governs the whole reply, so the clause before the dash is not a claim.
+test('proposing a slot and asking if it works is not a claim', () => {
+  assert.equal(
+    claimsBookingMade("I've got you down for Tuesday 27th October at 8:30am — does that work for you?"),
+    false,
+  );
+});
+
+test('a dash does not detach the question mark that follows it', () => {
+  assert.equal(claimsBookingMade('Booked you in for Monday — is that still alright?'), false);
 });
 
 // Offers and questions are the normal booking conversation and must not trip it.

@@ -97,9 +97,11 @@ const BOOKING_CLAIMED = [
   // "all booked in", "you're booked in for", "that's booked for"
   /\b(?:all\s+)?booked\s+(?:you\s+)?in\b/i,
   /\b(?:you(?:'|’)?re|you\s+are|it(?:'|’)?s|it\s+is|that(?:'|’)?s|that\s+is)\s+(?:now\s+)?booked\b/i,
-  /\b(?:i(?:'|’)?ve|i\s+have)\s+(?:got\s+)?you\s+(?:down|booked)\b/i,
   /\byour\s+booking\s+is\s+(?:confirmed|in|made)\b/i,
 ];
+// Deliberately absent: "I've got you down for <date>". That is how the agent PROPOSES a drop-off
+// slot — "I've got you down for Tuesday 27th October at 8:30am — does that work for you?" — and
+// reading it as a claim flagged a booking that was going perfectly well.
 
 // "can", "could", "shall", "would like" — an offer, not a fact. Checked on the same sentence.
 const OFFER = /\b(?:can|could|shall|may|would|happy to|able to|if you(?:'|’)?d like|want me to)\b/i;
@@ -108,7 +110,7 @@ export function claimsBookingMade(reply: string): boolean {
   const text = String(reply || '');
   if (!text.trim()) return false;
 
-  for (const sentence of text.split(/(?<=[.!?])\s+|\n+|\s+—\s+/)) {
+  for (const sentence of text.split(/(?<=[.!?])\s+|\n+/)) {
     const s = sentence.trim();
     if (!s || s.endsWith('?') || OFFER.test(s)) continue;
     if (BOOKING_CLAIMED.some((re) => re.test(s))) return true;

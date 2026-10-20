@@ -25,6 +25,7 @@ import {
 } from './config.js';
 import { industryDefaultFaqs, generateFaqsFromWebsite } from '../utils/faqGenerator.js';
 import { fetchWebsiteInfo } from '../utils/scraper.js';
+import { fetchPlaceDetails } from '../utils/googlePlaces.js';
 import type { WeeklyOpeningHours } from '../utils/googlePlaces.js';
 
 const router = Router();
@@ -126,9 +127,19 @@ type KnowledgeDoc = { title: string; url: string; content: string };
 const websiteKnowledge = async (
   websiteUrl: string,
   spokenName: string,
-): Promise<KnowledgeDoc[]> => {
+  /** Google's address, so the knowledge base can answer "where are you?" from the real one. */
+  knownAddress: string,
+): Promise<{ docs: KnowledgeDoc[]; publicEmail: string }> => {
   try {
     const info = await fetchWebsiteInfo(websiteUrl);
+
+    // The garage's OWN published email, for the agent to offer if a caller asks. Taken from their
+    // site rather than from our CRM contact record, which is often an owner's personal address
+    // that has no business being read out to callers.
+    const publicEmail = (info.emails || [])
+      .map((e) => e.trim())
+      .find((e) => /^[^@\s]+@[^@\s]+\.[a-z]{2,}$/i.test(e) && !/receptionmate\.co\.uk$/i.test(e))
+      ?? '';
 
     // Retrieval is plain token overlap against the title and content (search_knowledge in the
     // agent's portal_config.py), so a page only answers questions that reuse its own words.
@@ -149,18 +160,20 @@ const websiteKnowledge = async (
       lead,
       info.title,
       info.description,
-      info.address && `Address: ${info.address}`,
+      // Google's address first, since it is the authoritative one; the page's own only if Google
+      // had none.
+      knownAddress ? `Address: ${knownAddress}` : (info.address && `Address: ${info.address}`),
       ...(info.knowledgeChunks || []).slice(0, 25),
     ].filter((p): p is string => typeof p === 'string' && p.trim().length > 0);
 
     const content = parts.join('\n').slice(0, 20000).trim();
     // Too thin to ground an answer. A title and a cookie banner is worse than admitting we do not
     // know, because the agent would answer confidently from almost nothing.
-    if (content.replace(/\s/g, '').length < 120) return [];
-    return [{ title: `About ${spokenName}`, url: websiteUrl, content }];
+    if (content.replace(/\s/g, '').length < 120) return { docs: [], publicEmail };
+    return { docs: [{ title: `About ${spokenName}`, url: websiteUrl, content }], publicEmail };
   } catch (err) {
     console.warn(`[DEMO_PROSPECT] knowledge scrape failed for ${spokenName}`, err);
-    return [];
+    return { docs: [], publicEmail: '' };
   }
 };
 
@@ -260,13 +273,48 @@ router.post('/public/demo-prospect/:slug', async (req: Request, res: Response) =
   const knownHours = (prospect.weeklyOpeningHours as WeeklyOpeningHours | null) ?? null;
   const hours = knownHours ?? FALLBACK_HOURS;
 
+  // Their address and phone number, from Google, fetched once and cached on the row.
+  //
+  // The agent is handed "- address: …" in its prompt and had nothing to put there, so a prospect
+  // asking where they were based got an offer to take a message — on a demo meant to prove the
+  // thing knows them. Their website is not a fallback: the scrape found no address at all on
+  // Protech's site, and the phone numbers it did find included "30 - 18" lifted from an hours
+  // line. Google is the authority for both.
+  let branchAddress = prospect.branchAddress ?? '';
+  let phoneNumber = prospect.phoneNumber ?? '';
+  if (prospect.placeId && !branchAddress) {
+    try {
+      const details = await fetchPlaceDetails(prospect.placeId);
+      if (details?.address) branchAddress = details.address;
+      if (details?.phone) phoneNumber = details.phone;
+      if (branchAddress || phoneNumber) {
+        // Cached so this is billed once per prospect rather than once per build, and so a wrong
+        // address is reviewable in the table afterwards instead of only ever being heard.
+        await prisma.demoProspect.update({
+          where: { id: prospect.id },
+          data: { branchAddress: branchAddress || null, phoneNumber: phoneNumber || null },
+        });
+        console.log(`[DEMO_PROSPECT] ${spokenName}: address/phone from Google`);
+      }
+    } catch (err) {
+      // Never fatal: an agent with no address is worse than one with, but far better than none.
+      console.warn(`[DEMO_PROSPECT] place lookup failed for ${spokenName}`, err);
+    }
+  }
+
   // Start from exactly the defaults a real garage gets and override only what makes this THEIR
   // agent. Building the object by hand is what silently dropped ten fields last time.
   const synthetic = {
     ...defaultConfiguration,
     branchName: spokenName,
     websiteUrl,
-    emailAddress: prospect.email ?? '',
+    branchAddress,
+    phoneNumber,
+    // NOT prospect.email. That is where our own post-call summary goes, and the agent reads this
+    // field out as the garage's own address — so a test row pointed at us had the demo telling a
+    // caller that Protech's email was dan@receptionmate.co.uk. Set below from their own website
+    // if the scrape finds a real address there; otherwise the agent simply does not offer one.
+    emailAddress: '',
     weeklyOpeningHours: hours,
     greetingLine: `[timeofday], ${spokenName}, Leah speaking, how can I help?`,
     // The fake diary: never fails, never invents a price, and an unpriced job becomes a
@@ -322,11 +370,22 @@ router.post('/public/demo-prospect/:slug', async (req: Request, res: Response) =
         // The knowledge base first, and written on its own as soon as it is ready: it is what lets
         // the agent talk about the garage at all, and it must not be lost if the FAQ generation
         // below fails or OpenAI is down.
-        const knowledge = await websiteKnowledge(websiteUrl, spokenName);
+        const { docs: knowledge, publicEmail } = await websiteKnowledge(websiteUrl, spokenName, branchAddress);
         const knowledgeVersion = knowledge.length ? new Date().toISOString() : null;
-        if (knowledge.length) {
-          await writeAgentConfigToDynamo(prospect.agentId, configuration, knowledge, knowledgeVersion);
-          console.log(`[DEMO_PROSPECT] ${spokenName}: knowledge base from ${websiteUrl} (${knowledge[0].content.length} chars)`);
+
+        // Their own published email, now that we have scraped it. Rebuilt through
+        // buildConfigurationResponse rather than patched onto the response object, so it goes
+        // through the same shaping as every other field.
+        const withEmail = publicEmail
+          ? buildConfigurationResponse({
+              ...(synthetic as unknown as Record<string, unknown>),
+              emailAddress: publicEmail,
+            } as unknown as Parameters<typeof buildConfigurationResponse>[0])
+          : configuration;
+
+        if (knowledge.length || publicEmail) {
+          await writeAgentConfigToDynamo(prospect.agentId, withEmail, knowledge, knowledgeVersion);
+          console.log(`[DEMO_PROSPECT] ${spokenName}: knowledge base ${knowledge.length ? `${knowledge[0].content.length} chars` : 'none'}${publicEmail ? `, email ${publicEmail}` : ''}`);
         }
 
         // knownHours, not the fallback. Handing the generator invented hours is precisely what
@@ -345,6 +404,9 @@ router.post('/public/demo-prospect/:slug', async (req: Request, res: Response) =
         }
         const enriched = buildConfigurationResponse({
           ...(synthetic as unknown as Record<string, unknown>),
+          // emailAddress carried through for the same reason as `knowledge` below: this write
+          // replaces the whole item, so rebuilding from `synthetic` alone would blank it again.
+          ...(publicEmail ? { emailAddress: publicEmail } : {}),
           faqs,
         } as unknown as Parameters<typeof buildConfigurationResponse>[0]);
         // Carries `knowledge` through deliberately: this write replaces the whole item, so passing

@@ -1781,9 +1781,25 @@ model DemoProspect {
   /// Taken from their own email domain, which is why the shortlist was filtered to garages
   /// whose address matches their name — it doubles as a free, self-verifying website lookup.
   websiteUrl   String?
+  /// Where OUR post-call summary goes. NOT the garage's public email — the two were the same
+  /// field once, and the agent read it out to a caller as the garage's own address, which during
+  /// testing meant it gave out a receptionmate.co.uk address as Protech's. The address the agent
+  /// may quote is scraped from the garage's own site at build time and never stored here.
   email        String?
   /// HighLevel contact, so a demo call can be pushed back onto the right opportunity.
   contactId    String?
+  /// Google place, from the shortlist enrichment. Kept so the address below can be fetched once
+  /// and cached rather than re-billed on every build.
+  placeId      String?
+  /// The garage's real address, as Google formats it. Needed because the agent is handed
+  /// "- address: …" in its prompt and simply has no answer without it: asked where they were
+  /// based, the demo could only offer to take a message. The website scrape is not a substitute —
+  /// it found no address at all on Protech's site.
+  branchAddress String?
+  /// The garage's real phone number, from Google rather than the page. The website extractor
+  /// returned "30 - 18" out of an hours line next to the real number, and a mangled number read
+  /// out as fact is worse than none.
+  phoneNumber  String?
   /// The garage's REAL opening hours, parsed from their own website before any link is sent, in
   /// the weeklyOpeningHours shape. Resolved ahead of time on purpose: a wrong answer here is
   /// asserted as fact by the agent, so it has to be reviewable in a spreadsheet rather than first

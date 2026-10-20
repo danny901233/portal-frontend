@@ -27,6 +27,11 @@ const opt = (n, d = null) => { const i = argv.indexOf(n); return i >= 0 ? argv[i
 const APPLY = flag('--apply');
 const CSV = opt('--csv');
 const ENRICHED = opt('--enriched');
+// places.json from the Places enrichment pass: [{ contactId, placeId, ... }]. Carried onto the
+// row so the build can fetch the garage's real address and phone from Google once and cache them.
+// Without a placeId the agent has no address at all, and told a prospect asking where they were
+// based that it would pass the question to the team.
+const PLACES = opt('--places');
 const DAYS = Number(opt('--days', '30'));
 const LIMIT = Number(opt('--limit', '500'));
 const REQUIRE_SITE = !flag('--allow-dead-sites');
@@ -70,6 +75,14 @@ let enrich = new Map();
 if (ENRICHED && fs.existsSync(ENRICHED)) {
   for (const e of JSON.parse(fs.readFileSync(ENRICHED, 'utf8'))) enrich.set(e.contactId, e);
   console.log(`enrichment loaded for ${enrich.size} contacts`);
+}
+
+const places = new Map();
+if (PLACES && fs.existsSync(PLACES)) {
+  for (const p of JSON.parse(fs.readFileSync(PLACES, 'utf8'))) {
+    if (p && p.contactId && p.placeId) places.set(p.contactId, p.placeId);
+  }
+  console.log(`place ids loaded for ${places.size} contacts`);
 }
 
 const main = async () => {
@@ -139,6 +152,7 @@ const main = async () => {
       websiteUrl: r.website,
       email: r.email || null,
       contactId: r.contactId || null,
+      placeId: places.get(r.contactId) || null,
       expiresAt,
     });
   }

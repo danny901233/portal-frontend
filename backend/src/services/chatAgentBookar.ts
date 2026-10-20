@@ -799,6 +799,23 @@ function handoverDirective(messagingHandoff: boolean): string {
     : 'tell them the team will confirm it shortly — you have no tool to pass this on, so do not promise that you have.';
 }
 
+/**
+ * The names behind the ids being booked, so every result that leads to a read-back says what the
+ * customer is actually getting.
+ *
+ * The test garage, 20 Oct 2026: the agent told a customer it would book a towbar fitting under
+ * "Diagnostic Fault Code Check" and then checked availability for id 25, "Engine Oil & Filter
+ * Change". Once a job can be booked under a general heading, the heading is the only thing the
+ * garage sees — so naming the wrong one is no longer cosmetic.
+ */
+function bookingForNames(session: BookarSessionState, serviceIds: number[]): string {
+  const all = session.servicesOptions || [];
+  const names = serviceIds
+    .map((id) => all.find((s) => s.id === id)?.name)
+    .filter((n): n is string => !!n);
+  return names.join(' + ');
+}
+
 async function executeTool(
   name: string,
   args: any,
@@ -1084,8 +1101,9 @@ async function executeTool(
                 `Service id(s) ${unknown.join(', ')} do not exist for this garage. ` +
                 `The only bookable ids are: ${bookable.map((s) => `${s.id} = ${s.name}`).join('; ')}. ` +
                 'Call bk_list_availability again using ids copied exactly from that list. ' +
-                'If the customer wants something that is not on it, that service cannot be ' +
-                `booked here — ${messagingHandoff ? 'use bk_take_message' : 'say so and give them the garage phone number'} instead of guessing an id.`,
+                'If the customer wants something not on that list, do NOT guess an id and do ' +
+                'NOT tell them it cannot be booked — use the MATCHING directive from ' +
+                'bk_list_services and book it under the general heading it names.',
             };
           }
         }
@@ -1182,6 +1200,12 @@ async function executeTool(
           count: flat.length,
           next_slots: flat,
           searched: { from: dateFrom, to: dateTo, service_ids: serviceIds },
+          booking_for: bookingForNames(session, serviceIds),
+          directive:
+            `These slots are for "${bookingForNames(session, serviceIds)}" — that is the heading `
+            + 'this booking will carry. If that is not the heading you told the customer about, '
+            + 'say the right one now or call bk_list_availability again with the correct id. Never '
+            + 'read back a service you have not actually checked availability for.',
         };
       }
 

@@ -77,6 +77,31 @@ export default function TryClient({ slug }: { slug: string }) {
     setPhase('ended');
   }, []);
 
+  /**
+   * Build their agent as the dialler opens, so it exists by the time the call connects.
+   *
+   * Without this the phone path was broken for every real prospect. The agent is built on first
+   * use, and only the browser button did that — "Call and listen" is a plain tel: link, so a
+   * prospect who tapped it first (the obvious thing to do, it is the primary button) reached a
+   * prospect with no agent, and the webhook sent them to the generic demo. Every test call here
+   * worked only because those agents had already been built by hand.
+   *
+   * Deliberately not awaited and deliberately not blocking the dial: the first config write is the
+   * quick one and lands well inside the six seconds the dial string pauses before sending the
+   * code. keepalive matters — the handset takes the page into the background the moment the
+   * dialler opens, and without it the browser is free to cancel the request in flight.
+   */
+  const buildBeforeCalling = useCallback(() => {
+    try {
+      void fetch(`/api/public/demo-prospect/${encodeURIComponent(slug)}`, {
+        method: 'POST',
+        keepalive: true,
+      });
+    } catch {
+      /* the call still goes through; the webhook falls back to the generic demo */
+    }
+  }, [slug]);
+
   const start = useCallback(async () => {
     setError('');
     setSeconds(0);
@@ -164,7 +189,7 @@ export default function TryClient({ slug }: { slug: string }) {
             </p>
             {isMobile && telHref ? (
               <>
-                <a href={telHref} style={btn}>Call and listen</a>
+                <a href={telHref} onClick={buildBeforeCalling} style={btn}>Call and listen</a>
                 <button onClick={start} style={linkBtn}>or talk in this browser</button>
               </>
             ) : (

@@ -110,13 +110,46 @@ const dialAgent = (id: string): string =>
 const say = (line: string) =>
   xml(`  <Say voice="Polly.Amy-Neural">${line}</Say>\n  <Hangup/>`);
 
+/** Digits only, so '+44 1733 342264' and '+441733342264' compare equal. */
+const digitsOf = (phone: string): string => (phone || '').replace(/\D/g, '');
+
 /**
- * The call lands here. Collect the code without saying anything.
+ * Identify the caller by the number they rang from, before resorting to tones.
  *
- * No prompt on purpose: the tones arrive from the dial string within a moment of answering, so a
- * spoken "please enter your code" would be talking over them and would make a demo that is supposed
- * to feel like ringing a garage feel like ringing a call centre. Anyone who dialled the number by
- * hand enters nothing, the Gather times out, and they get the generic demo rather than a dead end.
+ * This is the silent path. A garage owner ringing from the garage's own line is recognised with no
+ * beeps and no pause at all, because we already hold that number from Google for every prospect
+ * with a placeId. It does nothing for a call from a personal mobile, which is why the DTMF path
+ * stays — but when it hits, it is the experience the demo should have.
+ */
+const prospectByCallerId = async (from: string) => {
+  const digits = digitsOf(from);
+  if (digits.length < 9) return null;
+  try {
+    const candidates = await prisma.demoProspect.findMany({
+      where: { phoneNumber: { not: null }, builtAt: { not: null }, expiresAt: { gt: new Date() } },
+      select: { id: true, agentId: true, spokenName: true, phoneNumber: true },
+    });
+    // Compared on the last nine digits so 0 / +44 / 44 prefixes cannot cause a miss.
+    const tail = digits.slice(-9);
+    return candidates.find((c) => digitsOf(c.phoneNumber || '').slice(-9) === tail) ?? null;
+  } catch (err) {
+    console.error('[DEMO_CALL] caller-id lookup failed', err);
+    return null;
+  }
+};
+
+/**
+ * The call lands here. Try the caller's number first, then collect the code.
+ *
+ * TIMING IS THE WHOLE GAME ON THE GATHER. The dial string is "...,,,<code>#", and each comma is
+ * roughly two seconds of pause on iOS — so the tones arrive about six seconds after the call
+ * connects. The first version waited four, gave up before they landed, and sent three real test
+ * calls to the generic demo while the caller could plainly hear their own handset sending the
+ * code. The wait now comfortably outlasts the pause, and finishOnKey ends it the moment the
+ * trailing # arrives rather than sitting out the full timeout.
+ *
+ * The short line inside the Gather is for whoever dialled the number by hand: without it they get
+ * ten seconds of dead air. Digits interrupt it, so a link caller loses nothing.
  */
 router.all('/demo-prospect-call', async (req: Request, res: Response) => {
   if (!fromTwilio(req, '/webhooks/demo-prospect-call')) {
@@ -136,9 +169,21 @@ router.all('/demo-prospect-call', async (req: Request, res: Response) => {
     return res.type('text/xml').send(say('The demo line is not available right now.'));
   }
 
+  // The silent path: recognised by the number they rang from, so no tones and no waiting.
+  const known = await prospectByCallerId(from);
+  if (known) {
+    prisma.demoProspect
+      .update({ where: { id: known.id }, data: { lastCalledAt: new Date(), callCount: { increment: 1 } } })
+      .catch((err) => console.error('[DEMO_CALL] could not record the call', err));
+    console.log(`[DEMO_CALL] ${known.spokenName} (agent ${known.agentId}) by caller id ${from}`);
+    return res.type('text/xml').send(dialAgent(known.agentId));
+  }
+
   const base = process.env.PORTAL_BASE_URL || 'https://portal.receptionmate.co.uk';
   return res.type('text/xml').send(xml(
-    `  <Gather numDigits="5" timeout="4" action="${base}/webhooks/demo-prospect-call/connect" method="POST"/>\n` +
+    `  <Gather numDigits="5" timeout="10" finishOnKey="#" action="${base}/webhooks/demo-prospect-call/connect" method="POST">\n` +
+    `    <Say voice="Polly.Amy-Neural">Just a moment, connecting you.</Say>\n` +
+    `  </Gather>\n` +
     `  <Redirect method="POST">${base}/webhooks/demo-prospect-call/connect</Redirect>`,
   ));
 });

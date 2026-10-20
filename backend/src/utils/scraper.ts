@@ -182,6 +182,14 @@ const descendantText = (element: unknown): string => {
       if (node.data) parts.push(node.data);
       return;
     }
+    // SKIP_ANCESTORS is applied with .closest(), which only looks UPWARDS — so it never catches a
+    // <script> nested INSIDE a selected element, and walking into one stores the page's JavaScript
+    // as garage knowledge. 22 documents across 16 live garages currently contain things like
+    // "createElement", "addEventListener" and "MutationObserver", which the agent can retrieve and
+    // read to a caller. Checked here because this walker is the only place that sees the nodes.
+    if (node.type === 'script' || node.type === 'style') return;
+    const tag = String(node.name || '').toLowerCase();
+    if (tag === 'script' || tag === 'style' || tag === 'noscript' || tag === 'template') return;
     for (const child of node.children ?? []) walk(child);
   };
   walk(element);

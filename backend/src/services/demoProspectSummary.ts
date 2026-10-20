@@ -28,8 +28,9 @@ const SIGNUP_BASE = process.env.DEMO_SIGNUP_URL || 'https://www.receptionmate.co
  * query string (marketing-site/src/pages/get-started.astro), so one click lands them on the Assist
  * branch with step one already done.
  *
- * No price here on purpose: the only figure I could verify in that page was in its French copy
- * block, and the landing page states the terms itself. Add it once the GBP figure is confirmed.
+ * The price IS stated now, and taken from ASSIST_DEFAULTS in routes/public-signup.ts rather than
+ * from marketing copy, because that constant is what the signup actually bills on. Anything quoted
+ * here has to match what they are charged, or the first invoice is an argument.
  */
 const signupUrl = (spokenName: string): string => {
   try {
@@ -49,6 +50,25 @@ const signupUrl = (spokenName: string): string => {
  */
 const MIN_SECONDS = 25;
 const MIN_TRANSCRIPT_TURNS = 4;
+
+/**
+ * What Assist actually costs, mirroring ASSIST_DEFAULTS in routes/public-signup.ts — the constant
+ * the signup bills on — and STRIPE_TRIAL_DAYS, which production sets explicitly to 14.
+ *
+ * Kept as named values so a quote in this email cannot drift from what the card is charged. The
+ * per-minute rate and the included allowance matter as much as the headline: a garage told only
+ * "£200 a month" has not been told what a busy month costs.
+ *
+ * The public pricing page's FAQ still answers "do you offer a free trial?" with "no", which
+ * contradicts both this and the signup's own behaviour. That page needs fixing; this email states
+ * what the code does.
+ */
+const PRICING = {
+  monthlyGbp: 200,
+  includedMinutes: 400,
+  perMinutePence: 25,
+  trialDays: 14,
+};
 
 const esc = (v: string): string =>
   v.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -126,9 +146,36 @@ const buildEmail = (name: string, f: DemoCallFacts) => {
       It answers the calls nobody gets to: after five or six rings, or out of hours. No number
       porting and nothing to install — your existing line just forwards when it goes unanswered.
     </p>
+
+    <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;margin:0 0 24px;background:#f6f7fb;border-radius:11px">
+      <tr><td style="padding:18px 20px">
+        <p style="margin:0 0 10px;font-weight:600">What it costs</p>
+        <p style="margin:0 0 10px;line-height:1.7">
+          <strong>${PRICING.trialDays} days free</strong> to begin with. You add a card to start it,
+          but nothing is charged until the ${PRICING.trialDays} days are up, and you can stop before
+          then and pay nothing.
+        </p>
+        <p style="margin:0;line-height:1.7">
+          After that it's <strong>£${PRICING.monthlyGbp} a month plus VAT</strong>, which includes
+          ${PRICING.includedMinutes} minutes of answered calls. Over that it's
+          ${PRICING.perMinutePence}p a minute. No setup fee, and no contract — you can switch it off
+          at the end of any month.
+        </p>
+      </td></tr>
+    </table>
+
+    <p style="margin:0 0 8px"><strong>The first few weeks</strong></p>
+    <p style="margin:0 0 24px;line-height:1.6">
+      It starts answering straight away, but it spends its first two to three weeks learning your
+      garage properly — from the real calls coming through, and from whatever you give it to read:
+      your price list, the jobs you do and don't take, which motors you won't touch, how you like
+      things worded. It gets noticeably sharper over that first fortnight, and you can listen to
+      every call it takes while it does.
+    </p>
+
     <p style="margin:0 0 10px">
       <a href="${signup}" style="background:#3426cf;color:#fff;text-decoration:none;padding:13px 22px;border-radius:9px;font-weight:600;display:inline-block">
-        Set it up for ${esc(name)}
+        Start ${esc(name)}'s free trial
       </a>
     </p>
     <p style="margin:0 0 24px;line-height:1.6;color:#55585f;font-size:14px">
@@ -150,7 +197,21 @@ const buildEmail = (name: string, f: DemoCallFacts) => {
     'untouched. Pointed at your real one, that same call would have put the job in it.\n\n' +
     'It answers the calls nobody gets to: after five or six rings, or out of hours. No number ' +
     'porting and nothing to install.\n\n' +
-    `Set it up for ${name}: ${signup}\n\n` +
+    'WHAT IT COSTS\n' +
+    `${PRICING.trialDays} days free to begin with. You add a card to start it, but nothing is ` +
+    `charged until the ${PRICING.trialDays} days are up, and you can stop before then and pay ` +
+    'nothing.\n' +
+    `After that it's £${PRICING.monthlyGbp} a month plus VAT, which includes ` +
+    `${PRICING.includedMinutes} minutes of answered calls. Over that it's ` +
+    `${PRICING.perMinutePence}p a minute. No setup fee, and no contract — you can switch it off ` +
+    'at the end of any month.\n\n' +
+    'THE FIRST FEW WEEKS\n' +
+    'It starts answering straight away, but it spends its first two to three weeks learning your ' +
+    "garage properly — from the real calls coming through, and from whatever you give it to read: " +
+    "your price list, the jobs you do and don't take, which motors you won't touch, how you like " +
+    'things worded. It gets noticeably sharper over that first fortnight, and you can listen to ' +
+    'every call it takes while it does.\n\n' +
+    `Start ${name}'s free trial: ${signup}\n\n` +
     'Want to hear the recording, or have it answer differently? Just reply to this email.';
 
   return { subject, html: brandedEmailShell(body), text };

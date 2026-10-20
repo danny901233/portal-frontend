@@ -63,6 +63,30 @@ const ASKS_ABOUT_HOURS = /\b(open(ing)?|hours|close[ds]?|closing|what time|when 
 const LEAKS_THE_SOURCE =
   /\b(website content|the content|not (specified?|provided|detailed|mentioned)|does not (specify|detail|mention|provide)|no information (is )?(available|provided)|based on the (website|content)|unclear from)\b/i;
 
+/**
+ * True when an answer recites a UK phone number.
+ *
+ * The generator keeps writing "you can book by calling us on 01213 288302 or 07449 304374" and
+ * the agent reads it out verbatim — to a caller who is already on the phone to the garage. Two
+ * things wrong with that. It is absurd on a voice call, and the numbers are the model's
+ * transcription off a web page: that first one is really 0121 328 8302, regrouped into something
+ * nobody can write down, and the second is a mobile found somewhere on the site. All three
+ * garages built so far had one of these.
+ *
+ * The agent deliberately keeps the garage's own number OUT of its prompt for a related reason
+ * (agent.py:5392 — the model confuses it with the caller's own number and reads it back), so an
+ * FAQ is not the place to reintroduce it.
+ *
+ * Matched on normalised digits rather than shape, so "08:30 to 17:30" and "£40.00" cannot trip it.
+ */
+const recitesAPhoneNumber = (text: string): boolean => {
+  for (const candidate of text.matchAll(/[\d+][\d\s().+-]{8,}/g)) {
+    const digits = candidate[0].replace(/\D/g, '');
+    if (/^(?:0|44)\d{9,11}$/.test(digits)) return true;
+  }
+  return false;
+};
+
 /** True when at least one day is open. An all-closed week is never acceptable on a demo. */
 const hasAnOpenDay = (hours: WeeklyOpeningHours | null | undefined): boolean =>
   !!hours && Object.values(hours).some((d) => d && !d.closed && d.open);
@@ -127,8 +151,6 @@ type KnowledgeDoc = { title: string; url: string; content: string };
 const websiteKnowledge = async (
   websiteUrl: string,
   spokenName: string,
-  /** Google's address, so the knowledge base can answer "where are you?" from the real one. */
-  knownAddress: string,
 ): Promise<{ docs: KnowledgeDoc[]; publicEmail: string }> => {
   try {
     const info = await fetchWebsiteInfo(websiteUrl);
@@ -149,9 +171,15 @@ const websiteKnowledge = async (
     //
     // It names no opening times and no prices on purpose. Those would make this page a rival
     // source for the two questions that must only ever come from the verified fields.
+    // Services and specialisms ONLY. The first version named "their address and location, and how
+    // to contact them", which told the model this document was partly about contact details — so
+    // asked "tell me about the garage" it answered with a description AND volunteered the address
+    // unprompted. Contact details belong in the prompt's own contact block, which is governed by
+    // "if the caller asks for any of these"; the knowledge base should never be a second route to
+    // them.
     const lead =
-      `${spokenName} is a car garage. This page covers who they are, the services and work they ` +
-      `carry out, where they are based, their address and location, and how to contact them.`;
+      `${spokenName} is a car garage. This page describes who they are, the work and services ` +
+      `they carry out, and what they specialise in.`;
 
     // info.phoneNumbers is NOT included: on this very garage it extracted "30 - 18" out of an
     // hours line and a date alongside the real number, and a mangled number read aloud as fact is
@@ -160,9 +188,9 @@ const websiteKnowledge = async (
       lead,
       info.title,
       info.description,
-      // Google's address first, since it is the authoritative one; the page's own only if Google
-      // had none.
-      knownAddress ? `Address: ${knownAddress}` : (info.address && `Address: ${info.address}`),
+      // No address line. It lives in the prompt's contact block, where the instruction is "if the
+      // caller asks"; repeating it here put it inside the snippet returned for "tell me about the
+      // garage", and the model duly read it out to someone who had not asked.
       ...(info.knowledgeChunks || []).slice(0, 25),
     ].filter((p): p is string => typeof p === 'string' && p.trim().length > 0);
 
@@ -317,6 +345,16 @@ router.post('/public/demo-prospect/:slug', async (req: Request, res: Response) =
     emailAddress: '',
     weeklyOpeningHours: hours,
     greetingLine: `[timeofday], ${spokenName}, Leah speaking, how can I help?`,
+    // A garage rule rather than a hope. The agent renders customRules under "# Garage rules …
+    // They win over the general guidance above", and any rule containing "never" is promoted to a
+    // HARD RULE, so this is the strongest lever the config has. Worded with "never" on purpose.
+    //
+    // Needed because the model volunteers what it holds: handed an address it offered it inside an
+    // answer to "tell me about the garage", which is not how a receptionist behaves.
+    customRules: [
+      'Never give out the address, phone number, email or website unless the caller has asked '
+      + 'for it. Answer only what was actually asked.',
+    ],
     // The fake diary: never fails, never invents a price, and an unpriced job becomes a
     // take-a-message lead rather than a dead end.
     integrationProvider: 'demo',
@@ -370,7 +408,7 @@ router.post('/public/demo-prospect/:slug', async (req: Request, res: Response) =
         // The knowledge base first, and written on its own as soon as it is ready: it is what lets
         // the agent talk about the garage at all, and it must not be lost if the FAQ generation
         // below fails or OpenAI is down.
-        const { docs: knowledge, publicEmail } = await websiteKnowledge(websiteUrl, spokenName, branchAddress);
+        const { docs: knowledge, publicEmail } = await websiteKnowledge(websiteUrl, spokenName);
         const knowledgeVersion = knowledge.length ? new Date().toISOString() : null;
 
         // Their own published email, now that we have scraped it. Rebuilt through
@@ -397,7 +435,8 @@ router.post('/public/demo-prospect/:slug', async (req: Request, res: Response) =
         // answer.
         const faqs = generated
           .filter((f) => knownHours || !ASKS_ABOUT_HOURS.test(f.question))
-          .filter((f) => !LEAKS_THE_SOURCE.test(f.answer));
+          .filter((f) => !LEAKS_THE_SOURCE.test(f.answer))
+          .filter((f) => !recitesAPhoneNumber(f.answer));
         if (!Array.isArray(faqs) || faqs.length === 0) return;
         if (faqs.length < generated.length) {
           console.log(`[DEMO_PROSPECT] ${spokenName}: dropped ${generated.length - faqs.length} unusable FAQ(s)`);

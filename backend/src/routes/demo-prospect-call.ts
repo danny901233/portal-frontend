@@ -110,8 +110,27 @@ const dialAgent = (id: string): string =>
 const say = (line: string) =>
   xml(`  <Say voice="Polly.Amy-Neural">${line}</Say>\n  <Hangup/>`);
 
-/** Digits only, so '+44 1733 342264' and '+441733342264' compare equal. */
-const digitsOf = (phone: string): string => (phone || '').replace(/\D/g, '');
+/**
+ * A UK number in one canonical form, so the stored and dialled spellings compare exactly.
+ *
+ * Exactly, not by a tail. Comparing the last nine digits looked tolerant and was wrong: the
+ * landline 01733 342264 and the mobile 07733 342264 share their last nine digits, so a stranger
+ * ringing from that mobile would have been greeted as Thompson Service Centre. Only the full
+ * number can decide this.
+ *
+ * Returns '' for anything it cannot place, and '' never matches a stored number.
+ */
+const normaliseUkPhone = (phone: string): string => {
+  let d = (phone || '').replace(/\D/g, '');
+  if (!d) return '';
+  if (d.startsWith('00')) d = d.slice(2);
+  if (d.startsWith('44')) d = d.slice(2);
+  else if (d.startsWith('0')) d = d.slice(1);
+  else return '';                     // not a UK number in any spelling we issue links to
+  // A UK national significant number is 9 or 10 digits after the trunk prefix.
+  if (d.length < 9 || d.length > 10) return '';
+  return `+44${d}`;
+};
 
 /**
  * Identify the caller by the number they rang from, before resorting to tones.
@@ -120,18 +139,24 @@ const digitsOf = (phone: string): string => (phone || '').replace(/\D/g, '');
  * beeps and no pause at all, because we already hold that number from Google for every prospect
  * with a placeId. It does nothing for a call from a personal mobile, which is why the DTMF path
  * stays — but when it hits, it is the experience the demo should have.
+ *
+ * CALLER ID IS NOT PROOF OF IDENTITY. It is spoofable, and a garage's number is published on its
+ * own website, so this is a convenience and not an authentication step. What it can get you is a
+ * demo answering in that garage's name, using facts already on their public site, against a
+ * practice diary — and, if you then hold a conversation past the summary thresholds, one email to
+ * that garage describing a call they did not make. That is a nuisance rather than a breach, and
+ * it is the reason nothing behind this line is allowed to touch a real diary or a real customer
+ * record. If it ever needs to be airtight, the answer is to drop this path and keep the tones.
  */
 const prospectByCallerId = async (from: string) => {
-  const digits = digitsOf(from);
-  if (digits.length < 9) return null;
+  const caller = normaliseUkPhone(from);
+  if (!caller) return null;
   try {
     const candidates = await prisma.demoProspect.findMany({
       where: { phoneNumber: { not: null }, builtAt: { not: null }, expiresAt: { gt: new Date() } },
       select: { id: true, agentId: true, spokenName: true, phoneNumber: true },
     });
-    // Compared on the last nine digits so 0 / +44 / 44 prefixes cannot cause a miss.
-    const tail = digits.slice(-9);
-    return candidates.find((c) => digitsOf(c.phoneNumber || '').slice(-9) === tail) ?? null;
+    return candidates.find((c) => normaliseUkPhone(c.phoneNumber || '') === caller) ?? null;
   } catch (err) {
     console.error('[DEMO_CALL] caller-id lookup failed', err);
     return null;

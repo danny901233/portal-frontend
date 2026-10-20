@@ -138,49 +138,42 @@ const buildEmail = (name: string, f: DemoCallFacts) => {
     </p>
     ${summaryHtml}
     ${capturedHtml}
-    <p style="margin:0 0 20px;line-height:1.6">
-      Nothing was really booked — the demo answers from a practice diary, so your own diary is
-      untouched. Pointed at your real one, that same call would have put the job in it.
-    </p>
-    <p style="margin:0 0 24px;line-height:1.6">
-      It answers the calls nobody gets to: after five or six rings, or out of hours. No number
-      porting and nothing to install — your existing line just forwards when it goes unanswered.
+    <p style="margin:0 0 22px;line-height:1.6">
+      Nothing was really booked — that was a practice diary, so yours is untouched.
     </p>
 
-    <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;margin:0 0 24px;background:#f6f7fb;border-radius:11px">
-      <tr><td style="padding:18px 20px">
-        <p style="margin:0 0 10px;font-weight:600">What it costs</p>
-        <p style="margin:0 0 10px;line-height:1.7">
-          <strong>${PRICING.trialDays} days free</strong> to begin with. You add a card to start it,
-          but nothing is charged until the ${PRICING.trialDays} days are up, and you can stop before
-          then and pay nothing.
+    <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;margin:0 0 22px;background:#f6f7fb;border-radius:12px">
+      <tr><td style="padding:20px">
+        <p style="margin:0 0 4px;font-size:19px;font-weight:700;color:#1d1a72">
+          ${PRICING.trialDays} days free
         </p>
-        <p style="margin:0;line-height:1.7">
-          After that it's <strong>£${PRICING.monthlyGbp} a month plus VAT</strong>, which includes
-          ${PRICING.includedMinutes} minutes of answered calls. Over that it's
-          ${PRICING.perMinutePence}p a minute. No setup fee, and no contract — you can switch it off
-          at the end of any month.
+        <p style="margin:0 0 16px;line-height:1.5;color:#44474f">
+          Add a card to start. Nothing is charged for ${PRICING.trialDays} days, and if you stop
+          before then you pay nothing at all.
+        </p>
+        <p style="margin:0 0 4px;font-size:17px;font-weight:700;color:#1d1a72">
+          Then £${PRICING.monthlyGbp} a month + VAT
+        </p>
+        <p style="margin:0;line-height:1.5;color:#44474f">
+          Includes ${PRICING.includedMinutes} minutes of answered calls, then
+          ${PRICING.perMinutePence}p a minute. No setup fee. Cancel at the end of any month.
         </p>
       </td></tr>
     </table>
 
-    <p style="margin:0 0 8px"><strong>The first few weeks</strong></p>
-    <p style="margin:0 0 24px;line-height:1.6">
-      It starts answering straight away, but it spends its first two to three weeks learning your
-      garage properly — from the real calls coming through, and from whatever you give it to read:
-      your price list, the jobs you do and don't take, which motors you won't touch, how you like
-      things worded. It gets noticeably sharper over that first fortnight, and you can listen to
-      every call it takes while it does.
+    <p style="margin:0 0 22px;line-height:1.6">
+      <strong>It gets better over the first few weeks.</strong> It answers from day one, then spends
+      two to three weeks learning your garage — from the calls coming in, and from what you give it
+      to read: your price list, the jobs you take, how you word things.
     </p>
 
-    <p style="margin:0 0 10px">
-      <a href="${signup}" style="background:#3426cf;color:#fff;text-decoration:none;padding:13px 22px;border-radius:9px;font-weight:600;display:inline-block">
-        Start ${esc(name)}'s free trial
+    <p style="margin:0 0 8px">
+      <a href="${signup}" style="background:#3426cf;color:#fff;text-decoration:none;padding:14px 24px;border-radius:9px;font-weight:600;display:inline-block">
+        Start ${esc(name)}'s ${PRICING.trialDays}-day free trial
       </a>
     </p>
-    <p style="margin:0 0 24px;line-height:1.6;color:#55585f;font-size:14px">
-      That takes a couple of minutes and needs no integration — it answers and takes the booking
-      into your portal inbox, so there is nothing to connect to your diary first.
+    <p style="margin:0 0 22px;line-height:1.6;color:#55585f;font-size:14px">
+      Takes a couple of minutes. Nothing to connect to your diary first.
     </p>
     <p style="margin:0;line-height:1.6;color:#55585f">
       Want to hear the recording, or have it answer differently? Just reply to this email — it
@@ -193,25 +186,18 @@ const buildEmail = (name: string, f: DemoCallFacts) => {
     (rows.length
       ? `What it picked up:\n${rows.map((r) => `- ${r.replace(/<[^>]+>/g, '')}`).join('\n')}\n\n`
       : '') +
-    'Nothing was really booked — the demo answers from a practice diary, so your own diary is ' +
-    'untouched. Pointed at your real one, that same call would have put the job in it.\n\n' +
-    'It answers the calls nobody gets to: after five or six rings, or out of hours. No number ' +
-    'porting and nothing to install.\n\n' +
-    'WHAT IT COSTS\n' +
-    `${PRICING.trialDays} days free to begin with. You add a card to start it, but nothing is ` +
-    `charged until the ${PRICING.trialDays} days are up, and you can stop before then and pay ` +
-    'nothing.\n' +
-    `After that it's £${PRICING.monthlyGbp} a month plus VAT, which includes ` +
-    `${PRICING.includedMinutes} minutes of answered calls. Over that it's ` +
-    `${PRICING.perMinutePence}p a minute. No setup fee, and no contract — you can switch it off ` +
-    'at the end of any month.\n\n' +
-    'THE FIRST FEW WEEKS\n' +
-    'It starts answering straight away, but it spends its first two to three weeks learning your ' +
-    "garage properly — from the real calls coming through, and from whatever you give it to read: " +
-    "your price list, the jobs you do and don't take, which motors you won't touch, how you like " +
-    'things worded. It gets noticeably sharper over that first fortnight, and you can listen to ' +
-    'every call it takes while it does.\n\n' +
-    `Start ${name}'s free trial: ${signup}\n\n` +
+    'Nothing was really booked — that was a practice diary, so yours is untouched.\n\n' +
+    `${PRICING.trialDays} DAYS FREE\n` +
+    `Add a card to start. Nothing is charged for ${PRICING.trialDays} days, and if you stop before ` +
+    'then you pay nothing at all.\n\n' +
+    `THEN £${PRICING.monthlyGbp} A MONTH + VAT\n` +
+    `Includes ${PRICING.includedMinutes} minutes of answered calls, then ` +
+    `${PRICING.perMinutePence}p a minute. No setup fee. Cancel at the end of any month.\n\n` +
+    'It gets better over the first few weeks: it answers from day one, then spends two to three ' +
+    'weeks learning your garage — from the calls coming in, and from what you give it to read: ' +
+    'your price list, the jobs you take, how you word things.\n\n' +
+    `Start ${name}'s ${PRICING.trialDays}-day free trial: ${signup}\n` +
+    'Takes a couple of minutes. Nothing to connect to your diary first.\n\n' +
     'Want to hear the recording, or have it answer differently? Just reply to this email.';
 
   return { subject, html: brandedEmailShell(body), text };

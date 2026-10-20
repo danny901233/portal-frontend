@@ -654,6 +654,8 @@ export interface ChatSummaryEmailData {
   bookingDescription?: string | null;
   createdAt: string;
   conversationId: string;
+  /** Tags the EmailLog row, so the summary shows on the garage's own email log. */
+  garageId?: string | null;
 }
 
 /**
@@ -729,6 +731,8 @@ export const sendChatSummaryEmail = async (
       : `New ${channel} conversation — ${who}`,
     html,
     text,
+    template: confirmedBooking ? 'chat_booking_summary' : 'chat_conversation_summary',
+    garageId: data.garageId ?? null,
   });
 };
 

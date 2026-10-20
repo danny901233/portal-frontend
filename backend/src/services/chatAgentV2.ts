@@ -1,5 +1,5 @@
 import { prisma } from '../db.js';
-import { notifyMessaging } from './messagingNotifications.js';
+import { notifyMessaging, flagPromisedFollowUp } from './messagingNotifications.js';
 import OpenAI from 'openai';
 import { getInstrumentedOpenAI } from '../utils/aiUsage.js';
 import axios from 'axios';
@@ -11,8 +11,9 @@ import { notifyFlaggedConversation } from '../utils/push.js';
 import { deriveEnquiryTypeFromSession, maybeUpdateEnquiryType } from './conversationEnquiryType.js';
 import { splitPersonName } from '../utils/personName.js';
 import { sendChatSummaryEmail } from '../utils/email.js';
-import { promisesFollowUp, firstEmailAddress } from './followUpPromise.js';
+import { promisesFollowUp, firstEmailAddress, claimsBookingMade } from './followUpPromise.js';
 import { surnameFromReply } from './contactReply.js';
+import { clearsTimePreference, preferredTimeFromMessage, timePreferenceForMatching } from './timePreference.js';
 
 // Lazy-load OpenAI client
 let openaiClient: OpenAI | null = null;
@@ -916,6 +917,35 @@ export async function getChatAgentResponse(
       // Keep the model's wording, which is warmer than the canned line, but report the handoff.
       return { ...res, needsHumanAssistance: true };
     }
+
+    // PHANTOM_BOOKING_NET: the reply says the booking is made, and the session says it is not.
+    //
+    // Worse than an unrecorded promise: the customer leaves believing a date is in the diary.
+    // Speedy Spanners, 19 Oct 2026 — a saved time blocked every date Laura named, the agent asked
+    // three times and then announced "All booked in for 2nd November" with no date on the session
+    // and nothing ever sent to Garage Hive. She was expecting her car to be collected.
+    //
+    // The claim cannot be unsaid — it has already gone to the customer — so the only thing left is
+    // to make sure a human sees it. Flagged once per conversation, and the note says plainly that
+    // the diary has nothing, so whoever reads it knows to ring the customer.
+    const claimedBooking = !!res?.content && claimsBookingMade(res.content);
+    const reallyBooked = session.step === Step.CONFIRMED || session.step === Step.DONE
+      || (!!session.bookingDate && !!session.bookingTime);
+    if (claimedBooking && !reallyBooked) {
+      const wanted = [
+        session.serviceSelectedName || session.serviceHint || 'work not identified',
+        session.vrn ? `Vehicle: ${[session.vehicleMake, session.vehicleModel].filter(Boolean).join(' ')} (${session.vrn})` : '',
+        session.preferredDate ? `They asked for ${session.preferredDate}` : '',
+        `Agent said: "${String(res.content).replace(/\s+/g, ' ').slice(0, 200)}"`,
+      ].filter(Boolean).join('. ');
+      session.notes = (session.notes ? `${session.notes} | ` : '')
+        + `AGENT CLAIMED A BOOKING THAT WAS NEVER MADE — nothing was sent to the diary. ${wanted}`;
+      await saveSession(conversationId, session);
+      console.error('[PHANTOM_BOOKING_NET] the agent told the customer they were booked but '
+        + `step=${session.step} and no date is set — flagging for a human`);
+      await flagPromisedFollowUp(conversationId);
+      return { ...res, needsHumanAssistance: true };
+    }
   } catch (e) {
     console.error('[MESSAGE_TAKEN_SAFETY_NET] failed:', e);
   }
@@ -1434,31 +1464,14 @@ async function getChatAgentResponseInner(
     // "past 5pm" / "after 3" / "5pm" / "morning" / "afternoon" / "evening" → saved
     // "any time" / "earliest" / "don't mind" → cleared
     if (!session.bookingTime) {
-      const timeLower = message.toLowerCase();
-      const clearTime = /\b(any\s*time|earliest|soonest|don'?t\s*mind|whenever|no\s*preference|flexible)\b/i.test(timeLower);
-      if (clearTime && session.preferredTime) {
+      if (clearsTimePreference(message) && session.preferredTime) {
         session.preferredTime = undefined;
         await saveSession(conversationId, session);
         console.log(`[PREFERRED_TIME] Cleared (customer said flexible)`);
       } else {
-        // Match specific times: "5pm", "past 3pm", "after 5", "around 2pm"
-        const timeMatch = timeLower.match(/\b(?:past|after|from|around|at|by)?\s*(\d{1,2})\s*(?::(\d{2}))?\s*(am|pm)?\b/i);
-        // Match period words: "morning", "afternoon", "evening"
-        const periodMatch = timeLower.match(/\b(morning|afternoon|evening)\b/i);
-        let newTime: string | undefined;
-        if (timeMatch) {
-          let h = parseInt(timeMatch[1], 10);
-          const m = timeMatch[2] ? parseInt(timeMatch[2], 10) : 0;
-          const mer = (timeMatch[3] || '').toLowerCase();
-          if (mer === 'pm' && h < 12) h += 12;
-          if (mer === 'am' && h === 12) h = 0;
-          if (!mer && h >= 1 && h <= 6) h += 12; // 1-6 without am/pm = PM in booking context
-          if (h >= 7 && h <= 23) { // reasonable booking hour
-            newTime = `${h}:${String(m).padStart(2, '0')}`;
-          }
-        } else if (periodMatch) {
-          newTime = periodMatch[1].toLowerCase(); // "morning", "afternoon", "evening"
-        }
+        // See timePreference.ts: this used to match any bare number anywhere in the message, so a
+        // house number became an appointment time and blocked every date the customer asked for.
+        const newTime = preferredTimeFromMessage(message);
         if (newTime && newTime !== session.preferredTime) {
           session.preferredTime = newTime;
           await saveSession(conversationId, session);
@@ -3901,15 +3914,16 @@ async function handleSelectTimeslotImpl(args: any, session: ChatSession, convers
   }
 
   // Inverse: day given but no time — inject preferredTime so "Monday instead" carries forward "5pm"
-  const hasTimeInPref = /\b(\d{1,2}\s*(?::\d{2})?\s*(?:am|pm)?)\b/i.test(effectivePref) && /\d/.test(effectivePref.match(/\b(\d{1,2})\s*(?::\d{2})?\s*(?:am|pm)?\b/i)?.[1] || '');
-  const hasExplicitTime = hasTimeInPref || hasTodInPref; // "morning"/"afternoon" counts as time intent
-  if (hasDayInPref && !hasExplicitTime && session.preferredTime) {
-    // Inject as "past Xpm" for numeric times, or append period word directly
-    const timeLabel = /^\d/.test(session.preferredTime)
-      ? `past ${formatTimeNaturally(session.preferredTime)}`
-      : session.preferredTime; // "morning", "afternoon", "evening"
-    effectivePref = `${effectivePref} ${timeLabel}`;
+  // Carry a stated time onto a new day ("Monday instead" keeps 5pm) — but NEVER at a drop-off
+  // garage, where there is one slot a day and no time to choose. Carrying one there made a date
+  // the diary HAS look unavailable, and the customer was asked for a date over and over.
+  const carried = timePreferenceForMatching(
+    effectivePref, session.preferredTime, Boolean(session.useDropOffBooking));
+  if (carried !== effectivePref) {
+    effectivePref = carried;
     console.log(`[SELECT_TIMESLOT] Injected preferredTime: "${effectivePref}" (from saved: ${session.preferredTime})`);
+  } else if (session.preferredTime && session.useDropOffBooking) {
+    console.log(`[SELECT_TIMESLOT] Drop-off booking — ignoring saved time ${session.preferredTime}`);
   }
 
   console.log(`[SELECT_TIMESLOT] Preference: "${effectivePref}", dropOff: ${session.useDropOffBooking}`);

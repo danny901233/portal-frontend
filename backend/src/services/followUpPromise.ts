@@ -81,3 +81,37 @@ export function firstEmailAddress(text: string): string | null {
   if (!m) return null;
   return m[0].replace(/[.,;:!?)\]]+$/, '');
 }
+
+/**
+ * Did the agent tell the customer their booking is made?
+ *
+ * The counterpart to promisesFollowUp, for the worse failure: not an unrecorded promise but an
+ * announced booking that does not exist. Speedy Spanners, 19 Oct 2026 — the diary date never got
+ * set (see timePreference.ts for why), the agent said "All booked in for 2nd November" anyway,
+ * and the customer went away expecting her car to be collected.
+ *
+ * Only a statement counts. "Would you like me to book that in?" and "I can get you booked in" are
+ * the ordinary booking conversation, and flagging those would flag nearly every chat.
+ */
+const BOOKING_CLAIMED = [
+  // "all booked in", "you're booked in for", "that's booked for"
+  /\b(?:all\s+)?booked\s+(?:you\s+)?in\b/i,
+  /\b(?:you(?:'|’)?re|you\s+are|it(?:'|’)?s|it\s+is|that(?:'|’)?s|that\s+is)\s+(?:now\s+)?booked\b/i,
+  /\b(?:i(?:'|’)?ve|i\s+have)\s+(?:got\s+)?you\s+(?:down|booked)\b/i,
+  /\byour\s+booking\s+is\s+(?:confirmed|in|made)\b/i,
+];
+
+// "can", "could", "shall", "would like" — an offer, not a fact. Checked on the same sentence.
+const OFFER = /\b(?:can|could|shall|may|would|happy to|able to|if you(?:'|’)?d like|want me to)\b/i;
+
+export function claimsBookingMade(reply: string): boolean {
+  const text = String(reply || '');
+  if (!text.trim()) return false;
+
+  for (const sentence of text.split(/(?<=[.!?])\s+|\n+|\s+—\s+/)) {
+    const s = sentence.trim();
+    if (!s || s.endsWith('?') || OFFER.test(s)) continue;
+    if (BOOKING_CLAIMED.some((re) => re.test(s))) return true;
+  }
+  return false;
+}

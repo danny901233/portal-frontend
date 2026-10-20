@@ -113,6 +113,7 @@ async function aiSummary(
   fallback: string,
   garageId: string,
   conversationId: string,
+  diaryState: string,
 ): Promise<string> {
   try {
     const openai = getInstrumentedOpenAI();
@@ -134,9 +135,13 @@ async function aiSummary(
             + 'customer conversation. Two sentences maximum. Say what the customer wanted, what '
             + 'was agreed, and anything still outstanding. No greeting, no sign-off, no '
             + 'speculation, and never invent a price, a date or a booking that is not in the '
-            + 'conversation.',
+            + 'conversation.\n\nThe DIARY STATE below is the system of record, not the '
+            + 'transcript. The agent sometimes tells a customer they are booked when nothing '
+            + 'reached the diary. If the conversation claims a booking the diary does not have, '
+            + 'your FIRST words must say so plainly — e.g. "NOT BOOKED: the agent told them it '
+            + 'was booked but nothing reached the diary" — and then say what they wanted.',
         },
-          { role: 'user', content: lines },
+          { role: 'user', content: `DIARY STATE: ${diaryState}\n\n${lines}` },
         ],
       }),
     );
@@ -261,8 +266,11 @@ export async function sendDueChatSummaries(options: {
         needsAttention: conv.needsAttention,
       };
       const plain = describeConversation(shape);
+      const diaryState = conv.confirmedBooking && conv.bookingDetails
+        ? `a booking EXISTS in the diary — ${conv.bookingDetails}`
+        : 'there is NO booking in the diary for this conversation';
       const summary = useAi
-        ? await aiSummary(messages, plain, conv.garageId, conv.id)
+        ? await aiSummary(messages, plain, conv.garageId, conv.id, diaryState)
         : plain;
 
       await sendChatSummaryEmail(to, {
@@ -279,6 +287,7 @@ export async function sendDueChatSummaries(options: {
         bookingDescription: conv.bookingDetails,
         createdAt: conv.createdAt.toISOString(),
         conversationId: conv.id,
+        garageId: conv.garageId,
       });
       sent += 1;
     } catch (e: any) {

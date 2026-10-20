@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { promisesFollowUp, firstEmailAddress } from './followUpPromise.js';
+import { promisesFollowUp, firstEmailAddress, claimsBookingMade } from './followUpPromise.js';
 
 // The Ecotest lead, 19 Oct 2026 (conversation cmvf2ax520cj5swt16ca1buc8). The agent said this and
 // nobody at the garage was ever told, because take_message was never called.
@@ -116,4 +116,50 @@ test('no address returns null', () => {
 
 test('a bare domain is not an address', () => {
   assert.equal(firstEmailAddress('have a look at bracknellmot-ecotest.co.uk'), null);
+});
+
+// ── A booking the agent announced ──
+//
+// Speedy Spanners, 19 Oct 2026: three rounds of "which date suits you?" and then "All booked in
+// for 2nd November" — with no date on the session and nothing ever sent to the diary. Laura was
+// expecting a collection that nobody at the garage knew about.
+
+test('"all booked in" is a claim', () => {
+  assert.equal(
+    claimsBookingMade('All booked in for 2nd November — we’ll collect your Tucson in the morning.'),
+    true,
+  );
+});
+
+test('"you\'re booked in for" is a claim', () => {
+  assert.equal(claimsBookingMade("All done! You're booked in for Friday 11th December at 8:30am."), true);
+});
+
+test('"that is now booked" is a claim', () => {
+  assert.equal(claimsBookingMade('That’s now booked for Tuesday, see you then!'), true);
+});
+
+test('"I have got you down for" is a claim', () => {
+  assert.equal(claimsBookingMade("I've got you down for Monday 26th October."), true);
+});
+
+// Offers and questions are the normal booking conversation and must not trip it.
+test('offering to book is not a claim', () => {
+  assert.equal(claimsBookingMade('Would you like me to book that in for you?'), false);
+});
+
+test('saying it can be booked is not a claim', () => {
+  assert.equal(claimsBookingMade('I can get you booked in for Friday if that suits.'), false);
+});
+
+test('asking which date suits is not a claim', () => {
+  assert.equal(claimsBookingMade('Is 2nd November still good for you, or would you like another date?'), false);
+});
+
+test('a price with no booking is not a claim', () => {
+  assert.equal(claimsBookingMade('A Full Service for your Ford Kuga is £289.20.'), false);
+});
+
+test('an empty reply is not a claim', () => {
+  assert.equal(claimsBookingMade(''), false);
 });

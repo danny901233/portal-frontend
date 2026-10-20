@@ -1542,6 +1542,9 @@ async function bookarCreateBooking(
         customerPhone: session.customerPhone,
         confirmedBooking: true,
         bookingDetails: summary,
+        // The reference lived on the session only, so the portal's own field sat empty on every
+        // Bookar booking — and it is what the garage quotes back when a customer rings up.
+        bookingReference: booking.reference || null,
         capturedRevenue: totalRevenue > 0 ? totalRevenue : null,
       },
     });

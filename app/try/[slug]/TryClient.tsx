@@ -4,24 +4,17 @@
 // type a name or an email would be asking a known person to introduce themselves — which is
 // exactly the friction that makes people close the tab.
 //
-// Desktop: press the button, allow the mic, talk.
-// Mobile: a tel: link whose dial string carries their code as auto-DTMF, so the dialler sends it
-// and they never see a reference number. The backend's Gather catches the tones, falls back to
-// caller-ID, then to the generic demo — never a dead end.
+// One button on every device: press it, allow the mic, talk. See the note by the render for why
+// there is no "call it from your phone" option yet.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { LocalAudioTrack, RemoteTrack, Room as RoomType } from 'livekit-client';
 
 type Phase = 'loading' | 'ready' | 'building' | 'connecting' | 'live' | 'ended' | 'failed' | 'gone';
 
-// The number a prospect rings on mobile. One shared line for everyone — the code in the dial
-// string is what picks their garage, so this never needs to be per-prospect.
-const DEMO_NUMBER = '+443330411784';
-
 export default function TryClient({ slug }: { slug: string }) {
   const [phase, setPhase] = useState<Phase>('loading');
   const [name, setName] = useState('your garage');
-  const [code, setCode] = useState('');
   const [error, setError] = useState('');
   const [seconds, setSeconds] = useState(0);
   const [isMobile, setIsMobile] = useState(false);
@@ -47,7 +40,6 @@ export default function TryClient({ slug }: { slug: string }) {
         const data = await res.json();
         if (!live) return;
         setName(data.spokenName || 'your garage');
-        setCode(data.code || '');
         setPhase('ready');
       } catch {
         if (live) setPhase('ready'); // let them try anyway; the build call will say if it's dead
@@ -91,7 +83,6 @@ export default function TryClient({ slug }: { slug: string }) {
       if (!built.ok) throw new Error('We could not build your receptionist just now.');
       const info = await built.json();
       if (info.spokenName) setName(info.spokenName);
-      if (info.code) setCode(info.code);
 
       setPhase('connecting');
       const { Room, RoomEvent, Track, createLocalAudioTrack } = await import('livekit-client');
@@ -126,8 +117,15 @@ export default function TryClient({ slug }: { slug: string }) {
     }
   }, [slug]);
 
-  // Commas are dialler pauses; %23 is '#'. The handset emits the tones itself once connected.
-  const telHref = code ? `tel:${DEMO_NUMBER},,,${code}%23` : `tel:${DEMO_NUMBER}`;
+  // There is no phone option here on purpose. A "Call and listen" tel: link used to sit on this
+  // page, and it was worse than having nothing: the shared demo number has no <Gather> on it, so
+  // the code in the dial string was never read and every caller landed on the GENERIC ReceptionMate
+  // demo agent while believing they were hearing their own garage. That undersells the product to
+  // the exact person we are trying to convince.
+  //
+  // To bring it back, the phone leg needs its own number and a webhook that reads the 5-digit code
+  // and puts the caller into "garage-<agentId>_…" — /webhooks/showcall is the working precedent.
+  // DemoProspect.code is still issued and still unique, ready for it.
 
   if (phase === 'gone') {
     return (
@@ -154,14 +152,9 @@ export default function TryClient({ slug }: { slug: string }) {
               This is what your customers hear when nobody can get to the phone. Ask it to book an
               MOT for next week.
             </p>
-            {isMobile ? (
-              <>
-                <a href={telHref} style={btn}>Call and listen</a>
-                <button onClick={start} style={linkBtn}>or talk in this browser</button>
-              </>
-            ) : (
-              <button onClick={start} style={btn}>Talk to it now</button>
-            )}
+            <button onClick={start} style={btn}>
+              {isMobile ? 'Tap to talk to it' : 'Talk to it now'}
+            </button>
             {phase === 'ended' && <p style={muted}>Call ended. Press again to go another round.</p>}
             {phase === 'failed' && <p style={errStyle}>{error}</p>}
           </>
@@ -234,18 +227,6 @@ const btn: React.CSSProperties = {
   borderRadius: 11,
   cursor: 'pointer',
   textDecoration: 'none',
-};
-const linkBtn: React.CSSProperties = {
-  display: 'block',
-  width: '100%',
-  marginTop: 12,
-  padding: 8,
-  background: 'none',
-  border: 0,
-  color: '#6470ed',
-  fontSize: 14,
-  cursor: 'pointer',
-  textDecoration: 'underline',
 };
 const muted: React.CSSProperties = { margin: '16px 0 0', fontSize: 13, color: '#6b7280' };
 const errStyle: React.CSSProperties = { margin: '16px 0 0', fontSize: 14, color: '#b42318' };

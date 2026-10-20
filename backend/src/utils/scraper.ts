@@ -160,6 +160,34 @@ const SKIP_ANCESTORS = 'nav,header,footer,script,style,noscript,button,form,sele
 // accordion divs and stat tiles. We therefore read semantic text elements AND leaf
 // div/span nodes (leaf-only, so a container's text isn't captured alongside its
 // children and duplicated), with a low length floor so short facts survive.
+/**
+ * An element's text with its descendants separated by spaces.
+ *
+ * Cheerio's `.text()` concatenates descendant text nodes with NOTHING between them, so a service
+ * card built from stacked spans —
+ *   <li><span>GHOST</span><span>IMMOBILISER</span><span>BIRMINGHAM</span></li>
+ * — comes back as "GHOSTIMMOBILISERBIRMINGHAM". Everything downstream is token-based, so that is
+ * one unmatchable token: Smart MOT's agent was holding their immobiliser work and could not find
+ * it when a caller asked, and their site does this to a dozen services. Same for
+ * "ECU REMAPPINGBIRMINGHAM" and "FRONT BRAKE PADREPLACEMENT".
+ *
+ * The trade is that a word split mid-way by an inline tag ("al<i>ign</i>ment") becomes three
+ * tokens. That is rare on these sites; stacked-span cards are not.
+ */
+const descendantText = (element: unknown): string => {
+  const parts: string[] = [];
+  const walk = (node: any): void => {
+    if (!node) return;
+    if (node.type === 'text') {
+      if (node.data) parts.push(node.data);
+      return;
+    }
+    for (const child of node.children ?? []) walk(child);
+  };
+  walk(element);
+  return parts.join(' ');
+};
+
 const extractParagraphs = ($: ReturnType<typeof load>) => {
   const root = $('main').length ? $('main') : $('article').length ? $('article') : $('body');
   const seen = new Set<string>();
@@ -179,7 +207,7 @@ const extractParagraphs = ($: ReturnType<typeof load>) => {
     if ($el.closest(SKIP_ANCESTORS).length) {
       return;
     }
-    consider($el.text(), $el.is('p,blockquote') ? MIN_PARAGRAPH_LENGTH : MIN_ITEM_LENGTH);
+    consider(descendantText(element), $el.is('p,blockquote') ? MIN_PARAGRAPH_LENGTH : MIN_ITEM_LENGTH);
   });
 
   root.find('div,span').each((_, element) => {
@@ -187,7 +215,7 @@ const extractParagraphs = ($: ReturnType<typeof load>) => {
     if ($el.children().length > 0 || $el.closest(SKIP_ANCESTORS).length) {
       return;
     }
-    consider($el.text(), MIN_ITEM_LENGTH);
+    consider(descendantText(element), MIN_ITEM_LENGTH);
   });
 
   return paragraphs.slice(0, MAX_KNOWLEDGE_CHUNKS * 3);

@@ -103,9 +103,33 @@ setInterval(() => {
 
 const xml = (body: string) => `<?xml version="1.0" encoding="UTF-8"?>\n<Response>\n${body}\n</Response>`;
 
-/** Dial the unified agent as `garageOrAgentId`. */
+/**
+ * Dial the unified agent for this garage or prospect id.
+ *
+ * The SIP user is "garage-<id>", not the bare id, because that string BECOMES the room name: the
+ * dispatch rule is a callee rule with no prefix, so the room is named exactly what is dialled, and
+ * the agent reads the garage out of "garage-<id>".
+ *
+ * A prefix on the rule looked like the tidier way to do that and silently broke it. LiveKit joins
+ * prefix and callee with an underscore, so room_prefix "garage-" produced
+ * "garage-_50a82485-…", the agent's ^garage-([0-9a-fA-F-]{6,}) found no match, no config loaded,
+ * and every caller was greeted as "the garage" — its _DEFAULT_BRANCH. The id has to arrive as part
+ * of the dialled string, with nothing inserted into it.
+ *
+ * The trunk matches on the called number, so its numbers are these same garage-<id> strings.
+ */
 const dialAgent = (id: string): string =>
-  xml(`  <Dial><Sip>sip:${id}@${SIP_DOMAIN()}${SIP_EDGE}</Sip></Dial>`);
+  xml(`  <Dial><Sip>sip:garage-${id}@${SIP_DOMAIN()}${SIP_EDGE}</Sip></Dial>`);
+
+/**
+ * Fall back to the shared demo garage.
+ *
+ * Dialled as the BARE id, unlike a prospect. The demo garage is a real garage with its own trunk
+ * and its own rule, and that trunk's numbers list the plain uuid — so "garage-<id>" would match no
+ * trunk at all and the fallback would fail the call instead of softening it.
+ */
+const dialSharedDemo = (): string =>
+  xml(`  <Dial><Sip>sip:${DEMO_GARAGE_ID}@${SIP_DOMAIN()}${SIP_EDGE}</Sip></Dial>`);
 
 const say = (line: string) =>
   xml(`  <Say voice="Polly.Amy-Neural">${line}</Say>\n  <Hangup/>`);
@@ -228,7 +252,7 @@ router.post('/demo-prospect-call/connect', async (req: Request, res: Response) =
   const digits = String(req.body?.Digits || '').replace(/\D/g, '');
   if (!digits) {
     console.log('[DEMO_CALL] no code entered — generic demo');
-    return res.type('text/xml').send(dialAgent(DEMO_GARAGE_ID));
+    return res.type('text/xml').send(dialSharedDemo());
   }
 
   try {
@@ -238,7 +262,7 @@ router.post('/demo-prospect-call/connect', async (req: Request, res: Response) =
     });
     if (!prospect || !prospect.builtAt || prospect.expiresAt.getTime() <= Date.now()) {
       console.warn(`[DEMO_CALL] code ${digits} ${!prospect ? 'unknown' : !prospect.builtAt ? 'not built' : 'expired'} — generic demo`);
-      return res.type('text/xml').send(dialAgent(DEMO_GARAGE_ID));
+      return res.type('text/xml').send(dialSharedDemo());
     }
 
     // Best-effort: the call matters more than the counter.
@@ -250,7 +274,7 @@ router.post('/demo-prospect-call/connect', async (req: Request, res: Response) =
     return res.type('text/xml').send(dialAgent(prospect.agentId));
   } catch (err) {
     console.error('[DEMO_CALL] lookup failed — generic demo', err);
-    return res.type('text/xml').send(dialAgent(DEMO_GARAGE_ID));
+    return res.type('text/xml').send(dialSharedDemo());
   }
 });
 

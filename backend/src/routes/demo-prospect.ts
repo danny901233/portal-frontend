@@ -24,6 +24,7 @@ import {
   writeAgentConfigToDynamo,
 } from './config.js';
 import { industryDefaultFaqs, generateFaqsFromWebsite } from '../utils/faqGenerator.js';
+import { fetchWebsiteInfo } from '../utils/scraper.js';
 import type { WeeklyOpeningHours } from '../utils/googlePlaces.js';
 
 const router = Router();
@@ -105,6 +106,62 @@ export const toSpokenName = (raw: string): string => {
   s = s.replace(/\s*\b(ltd|limited|llp|plc)\b\.?\s*$/i, '');
   s = s.replace(/&/g, ' and ').replace(/\s+/g, ' ').trim();
   return titleCaseForSpeech(s) || raw;
+};
+
+type KnowledgeDoc = { title: string; url: string; content: string };
+
+/**
+ * The garage's own website, as a knowledge document the agent can answer from.
+ *
+ * Without this the agent answers FAQ-shaped questions and nothing else. "Can you tell me a bit
+ * about my garage" — the first thing a prospect asks, because hearing it know them IS the demo —
+ * matches no FAQ and falls through to "I don't have any details about [garage] here myself", which
+ * reads as the product knowing nothing at all. The FAQs alone are too narrow: 8 fixed questions
+ * against keyword retrieval, so anything phrased loosely misses every one.
+ *
+ * Scraped hours are deliberately NOT included. weeklyOpeningHours is authoritative and is already
+ * stated as fact; adding the website's hours text here would hand the agent a second, unvetted
+ * version to read out — the exact failure the hours parser exists to prevent.
+ */
+const websiteKnowledge = async (
+  websiteUrl: string,
+  spokenName: string,
+): Promise<KnowledgeDoc[]> => {
+  try {
+    const info = await fetchWebsiteInfo(websiteUrl);
+
+    // Retrieval is plain token overlap against the title and content (search_knowledge in the
+    // agent's portal_config.py), so a page only answers questions that reuse its own words.
+    // "Where are you based?" scored zero against a page that says "located in the heart of Essex".
+    // This lead sentence supplies the vocabulary callers actually use, in prose rather than a
+    // keyword list, because the model may read it back.
+    //
+    // It names no opening times and no prices on purpose. Those would make this page a rival
+    // source for the two questions that must only ever come from the verified fields.
+    const lead =
+      `${spokenName} is a car garage. This page covers who they are, the services and work they ` +
+      `carry out, where they are based, their address and location, and how to contact them.`;
+
+    // info.phoneNumbers is NOT included: on this very garage it extracted "30 - 18" out of an
+    // hours line and a date alongside the real number, and a mangled number read aloud as fact is
+    // worse than no number. The FAQ pass picks the real one up from the page correctly.
+    const parts = [
+      lead,
+      info.title,
+      info.description,
+      info.address && `Address: ${info.address}`,
+      ...(info.knowledgeChunks || []).slice(0, 25),
+    ].filter((p): p is string => typeof p === 'string' && p.trim().length > 0);
+
+    const content = parts.join('\n').slice(0, 20000).trim();
+    // Too thin to ground an answer. A title and a cookie banner is worse than admitting we do not
+    // know, because the agent would answer confidently from almost nothing.
+    if (content.replace(/\s/g, '').length < 120) return [];
+    return [{ title: `About ${spokenName}`, url: websiteUrl, content }];
+  } catch (err) {
+    console.warn(`[DEMO_PROSPECT] knowledge scrape failed for ${spokenName}`, err);
+    return [];
+  }
 };
 
 /**
@@ -262,6 +319,16 @@ router.post('/public/demo-prospect/:slug', async (req: Request, res: Response) =
   if (websiteUrl) {
     void (async () => {
       try {
+        // The knowledge base first, and written on its own as soon as it is ready: it is what lets
+        // the agent talk about the garage at all, and it must not be lost if the FAQ generation
+        // below fails or OpenAI is down.
+        const knowledge = await websiteKnowledge(websiteUrl, spokenName);
+        const knowledgeVersion = knowledge.length ? new Date().toISOString() : null;
+        if (knowledge.length) {
+          await writeAgentConfigToDynamo(prospect.agentId, configuration, knowledge, knowledgeVersion);
+          console.log(`[DEMO_PROSPECT] ${spokenName}: knowledge base from ${websiteUrl} (${knowledge[0].content.length} chars)`);
+        }
+
         // knownHours, not the fallback. Handing the generator invented hours is precisely what
         // produced an FAQ stating the wrong opening time as fact.
         const generated = await generateFaqsFromWebsite(websiteUrl, spokenName, knownHours);
@@ -280,7 +347,9 @@ router.post('/public/demo-prospect/:slug', async (req: Request, res: Response) =
           ...(synthetic as unknown as Record<string, unknown>),
           faqs,
         } as unknown as Parameters<typeof buildConfigurationResponse>[0]);
-        await writeAgentConfigToDynamo(prospect.agentId, enriched, [], null);
+        // Carries `knowledge` through deliberately: this write replaces the whole item, so passing
+        // [] here would silently wipe the knowledge base written moments earlier.
+        await writeAgentConfigToDynamo(prospect.agentId, enriched, knowledge, knowledgeVersion);
         console.log(`[DEMO_PROSPECT] ${spokenName}: ${faqs.length} FAQ(s) from ${websiteUrl}`);
       } catch (err) {
         console.error(`[DEMO_PROSPECT] website FAQ pass failed for ${spokenName}`, err);

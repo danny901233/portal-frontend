@@ -20,9 +20,39 @@
 
 import type { Request, Response } from 'express';
 import { Router } from 'express';
+import twilio from 'twilio';
 import { prisma } from '../db.js';
 
 const router = Router();
+
+/**
+ * Only Twilio may drive these endpoints.
+ *
+ * Without this they are public, and both of the things that makes possible are worse than they
+ * first look. A code is five digits — a hundred thousand of them — and the reply differs by
+ * whether one resolves (the prospect's agent id comes back instead of the demo garage's), so the
+ * pair becomes an oracle for enumerating the whole prospect list in minutes. That is the same
+ * exposure the slug suffix was widened to 64 bits to prevent, and a DTMF code cannot be widened:
+ * it has to stay short enough for a dialler to send.
+ *
+ * It also protects the shared ceiling below. The daily cap exists to bound cost, but an open
+ * endpoint lets anyone exhaust it with 150 requests and take the demo line down for every real
+ * prospect for the rest of the day.
+ *
+ * Mirrors the check on /api/sms/inbound. The URL is rebuilt from PORTAL_BASE_URL rather than the
+ * Host header, because the signature is over the URL Twilio called and this runs behind nginx.
+ */
+const fromTwilio = (req: Request, path: string): boolean => {
+  const authToken = process.env.TWILIO_AUTH_TOKEN;
+  if (!authToken) {
+    console.error('[DEMO_CALL] TWILIO_AUTH_TOKEN not set — refusing the call rather than serving an unauthenticated line');
+    return false;
+  }
+  const signature = req.headers['x-twilio-signature'] as string | undefined;
+  if (!signature) return false;
+  const base = process.env.PORTAL_BASE_URL || `https://${req.headers.host}`;
+  return twilio.validateRequest(authToken, signature, `${base}${path}`, req.body || {});
+};
 
 /** The shared demo garage, used whenever a call cannot be tied to a prospect. */
 const DEMO_GARAGE_ID = 'c7f53608-b0eb-4bdd-93da-02f2875acd93';
@@ -89,7 +119,13 @@ const say = (line: string) =>
  * hand enters nothing, the Gather times out, and they get the generic demo rather than a dead end.
  */
 router.all('/demo-prospect-call', async (req: Request, res: Response) => {
+  if (!fromTwilio(req, '/webhooks/demo-prospect-call')) {
+    console.warn('[DEMO_CALL] rejected an unsigned request to the demo line');
+    return res.status(403).type('text/xml').send(xml('  <Hangup/>'));
+  }
   const from = String(req.body?.From || req.query?.From || '');
+  // Checked after the signature on purpose: an unsigned request must not be able to consume the
+  // shared daily allowance.
   const blocked = overCeiling(from);
   if (blocked) {
     console.warn(`[DEMO_CALL] refusing call from ${from || 'withheld'} — ${blocked}`);
@@ -115,6 +151,10 @@ router.all('/demo-prospect-call', async (req: Request, res: Response) => {
  * someone we cold-emailed is not.
  */
 router.post('/demo-prospect-call/connect', async (req: Request, res: Response) => {
+  if (!fromTwilio(req, '/webhooks/demo-prospect-call/connect')) {
+    console.warn('[DEMO_CALL] rejected an unsigned code lookup');
+    return res.status(403).type('text/xml').send(xml('  <Hangup/>'));
+  }
   const digits = String(req.body?.Digits || '').replace(/\D/g, '');
   if (!digits) {
     console.log('[DEMO_CALL] no code entered — generic demo');

@@ -24,6 +24,7 @@
 import { prisma } from '../db.js';
 import { notifyMessaging, flagPromisedFollowUp } from './messagingNotifications.js';
 import { promisesFollowUp } from './followUpPromise.js';
+import { matchingDirective } from './bookarServiceMatch.js';
 import OpenAI from 'openai';
 import { getInstrumentedOpenAI } from '../utils/aiUsage.js';
 import { logChatToolCall } from './chatToolLog.js';
@@ -557,9 +558,15 @@ export async function getBookarChatResponse(
 
 function buildTools(hasCreds: boolean, messagingHandoff: boolean = true, advisoryUpsells: boolean = false): OpenAI.Chat.ChatCompletionTool[] {
   // Named in the descriptions below only when the tool is actually in the list.
+  // The result of bk_list_services carries a MATCHING directive naming this garage's own general
+  // headings (a free triage slot, a diagnostic, an "Others"), so an unnamed job has somewhere to
+  // go. Before that existed, this description was the model's only guidance and it dutifully
+  // recited the phone number — 56 times in 30 days at EAC Telford, 0 of those booked.
   const unbookable = messagingHandoff
-    ? 'fall back to bk_take_message'
-    : 'tell the customer we cannot book that one over chat and give them the garage phone number';
+    ? 'follow the MATCHING directive in that result, and only call bk_take_message if it says '
+      + 'nothing in the list fits'
+    : 'follow the MATCHING directive in that result — it names the general heading to book it '
+      + 'under';
   // ── Always-on tools (work with or without Bookar creds) ──────────────────
   const tools: OpenAI.Chat.ChatCompletionTool[] = [
     {
@@ -624,7 +631,7 @@ function buildTools(hasCreds: boolean, messagingHandoff: boolean = true, advisor
       function: {
         name: 'bk_list_services',
         description:
-          'List services + REAL prices for THIS vehicle. MUST be called before quoting any price — Bookar prices are vehicle-specific and matrix-based. NEVER invent, estimate or carry over a price from another conversation. If the caller asks for a service not in the returned list (e.g. "wheel alignment" and the list is only MOT/Service), do NOT invent it — ' + unbookable + '.',
+          'List services + REAL prices for THIS vehicle. MUST be called before quoting any price — Bookar prices are vehicle-specific and matrix-based. NEVER invent, estimate or carry over a price from another conversation. Call it for ANY work the customer describes, including a symptom, a repair or a part — not just MOTs and services. If what they asked for is not in the returned list by name, do NOT invent it and do NOT refuse it — ' + unbookable + '.',
         parameters: {
           type: 'object',
           properties: {
@@ -1022,15 +1029,20 @@ async function executeTool(
         // Format for the LLM — keep it small; strip disabled entries so the
         // model can't accidentally offer something the garage has switched off.
         const enabled = services.filter((s) => s.enabled !== false);
+        const forModel = enabled.map((s) => ({
+          id: s.id,
+          name: s.name,
+          type: s.type,
+          price: fmtMoney(s.price?.total ?? 0),
+          price_numeric: s.price?.total ?? 0,
+        }));
         return {
-          count: enabled.length,
-          services: enabled.map((s) => ({
-            id: s.id,
-            name: s.name,
-            type: s.type,
-            price: fmtMoney(s.price?.total ?? 0),
-            price_numeric: s.price?.total ?? 0,
-          })),
+          count: forModel.length,
+          services: forModel,
+          // Where to put a job the list does not name. Travels WITH the catalogue because that is
+          // where the choice is made — a paragraph in the system prompt lost this argument 56
+          // times in 30 days at EAC Telford, every one of them ending in "give us a ring".
+          directive: matchingDirective(forModel, messagingHandoff),
         };
       }
 
@@ -1545,9 +1557,15 @@ function buildSystemPrompt(
   // With handoff off there is no bk_take_message in the tool list, so the prompt
   // must not send the model looking for it — it would flounder and recite the
   // phone number as its only remaining move.
+  // NOT the phone number. bk_list_services returns a MATCHING directive naming this garage's own
+  // general headings — a free triage slot, a diagnostic, an "Others" — and booking under one of
+  // those is what the garage wants. Only genuinely unlisted work falls through to a message, or
+  // to the number when there is no tool to pass it on with.
   const unbookableFallback = humanEscalation
-    ? 'fall back to bk_take_message so the team can help'
-    : 'say we cannot book that one over chat and give them the garage phone number';
+    ? 'book it under the general heading named in that directive with their words in the notes, '
+      + 'or call bk_take_message if the directive says nothing fits'
+    : 'book it under the general heading named in that directive with their words in the notes — '
+      + 'only if the directive says nothing fits should you say we cannot book that one over chat';
   const branchName = config.branchName || 'our garage';
   const agentName = (config.agentName || '').trim();
   const who = agentName ? `${agentName}, a friendly receptionist` : 'a friendly receptionist';
@@ -1600,7 +1618,13 @@ function buildSystemPrompt(
         prompt += `${d}: ${times.open} - ${times.close}\n`;
       }
     }
-    prompt += `\nWe're currently ${isOpen ? 'OPEN' : 'CLOSED'}.\n\n`;
+    prompt += `\nWe're currently ${isOpen ? 'OPEN' : 'CLOSED'}.\n`;
+    // Being closed is not a reason to stop booking: the diary is open whatever the hour, and
+    // a chat at 9pm is a booking the garage would otherwise lose. EAC's agent answered four
+    // conversations with "we're currently closed, you can reach us on 01952…".
+    prompt += `Closed only means nobody is in the workshop right now. The diary still takes `
+      + `bookings, so carry on and book them in — never tell a customer to ring back later or `
+      + `give out the phone number because we are closed.\n\n`;
   }
 
   // ── Knowledge docs (garage-specific FAQs uploaded by the customer) ────
@@ -1655,7 +1679,7 @@ function buildSystemPrompt(
     prompt += `2. NAME: If we don't already have a name, ask for it in one short sentence.\n`;
     prompt += `3. REG: Ask for their vehicle registration. Once you have it, call bk_lookup_vehicle. Read back the make/model naturally, e.g. "I can see that's a 2019 Ford Focus — is that right?" If mot_expiry is present, weave it in naturally if relevant.\n`;
     prompt += `3b. WHAT THEY NEED: Unless they have already said, ask what they would like booking in for — one short sentence, e.g. "What are you after — a service, an MOT, or something else?". Do NOT open the catalogue at them. bk_list_services returns EVERYTHING the garage offers (31 items at EAC Telford), and picking three to recite answers a question they did not ask — the first widget conversation was quoted a Major Service, a Full Service and an MOT off the back of "book car in".\n`;
-    prompt += `4. SERVICES: Call bk_list_services with the same VRM and match what they ASKED for. Name at most two options, and only when their answer genuinely leaves a choice (e.g. they said "a service" and there is a Full and an Interim) — then ask which. If they were specific, go straight to that service and its price. Only if they say they are unsure should you suggest the likeliest couple. Quote prices ONLY from the returned list — never invent, estimate or carry over a price from memory. If the customer asks for a service NOT in the returned list (e.g. wheel alignment but the list only has MOT/Service), do NOT invent it — apologise briefly and ${unbookableFallback}.\n`;
+    prompt += `4. SERVICES: Call bk_list_services with the same VRM and match what they ASKED for. Name at most two options, and only when their answer genuinely leaves a choice (e.g. they said "a service" and there is a Full and an Interim) — then ask which. If they were specific, go straight to that service and its price. Only if they say they are unsure should you suggest the likeliest couple. Quote prices ONLY from the returned list — never invent, estimate or carry over a price from memory. If the customer asks for work NOT in the returned list by name (a DPF clean, a battery, discs and pads, a described fault), do NOT invent a service and do NOT refuse it — read the MATCHING directive that came back with the list and ${unbookableFallback}.\n`;
     // Only teach the upsell when the garage opted in. The payload for it is already gated
     // on advisoryUpsellsEnabled in executeTool, but this instruction was not, so the model
     // was told to offer an add-on alongside the price quote on every Bookar garage. With the
@@ -1682,7 +1706,8 @@ function buildSystemPrompt(
     prompt += `- NEVER call bk_create_booking twice in one conversation. If a booking has already been created in this session (session.bookingReference is set) and the customer wants a different slot, use bk_reschedule_booking with that reference — do NOT create a second booking.\n`;
     prompt += `- NEVER re-run bk_lookup_vehicle for a VRM already captured in this session.\n`;
     prompt += `- NEVER ask for information already saved in the active session (see below).\n`;
-    prompt += `- If the customer wants a service that isn't in the bk_list_services result, do NOT try to force it — ${unbookableFallback}.\n`;
+    prompt += `- If the customer wants work that isn't in the bk_list_services result by name, do NOT try to force a price onto it — ${unbookableFallback}.\n`;
+    prompt += `- ANY job the customer describes is worth calling bk_list_services for: a noise, a warning light, a repair, a part, a clean, a key. This garage books those under a general heading, so "we can't book that over chat" is almost never true — check the list and its MATCHING directive before you say anything of the kind.\n`;
     prompt += `- CRITICAL: When a customer provides their name, phone number, email or reg, do NOT greet them again or start over. Continue from where you left off.\n`;
     prompt += `- CRITICAL: If they give only their name and you still need phone/email, say "Thanks [name] — what's the best number to reach you on?" — do NOT say "Hello [name]! How can I assist you today?"\n`;
     prompt += `- Never use markdown: no **bold**, no bullets, no dashes. Plain sentences only.\n`;

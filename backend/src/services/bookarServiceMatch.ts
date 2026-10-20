@@ -113,17 +113,25 @@ export function matchingDirective(services: BookarServiceLike[], canTakeMessage:
       + `"gears sticking") → ${symptomHome}`);
   }
   if (f.catchAll) {
-    routes.push(`any other named job the list does not carry ("DPF clean", "battery replacement", `
-      + `"discs and pads", "spare key", "towbar") → ${name(f.catchAll)}`);
+    routes.push(`anything else at all, whatever it is — a DPF clean, a battery, discs and pads, `
+      + `a spare key, a towbar, a part to order, a job you have never heard of → `
+      + `${name(f.catchAll)}`);
   }
+
+  // With a catch-all in the list there is nothing this garage cannot take, so the directive offers
+  // no way to refuse. Only a catalogue with no general heading at all keeps a last resort.
+  const close = f.catchAll
+    ? `There is a heading here for every job, so "we cannot book that" is never true at this `
+      + `garage — book it and let the team price it.`
+    : `Only if none of those fit, ${lastResort}.`;
 
   return 'MATCHING: if what the customer wants is not in this list by name, do not tell them we '
     + 'cannot book it over chat and do not give out the phone number — this garage takes that work, '
-    + `it simply books under a general heading. Use ${routes.join('; ')}. Put their own words in `
-    + 'the booking notes so the team knows what the job is. The price on that heading is NOT a '
-    + 'quote for their job, so SAY THIS when you offer it, in your own words but with nothing '
-    + 'left out: that the slot is booked under <heading>, that the £x covers that booking, and '
-    + 'that the team will confirm the cost of the work itself when they see the vehicle. Quoting '
-    + 'the heading\'s price as if it were the price of their job is the one thing you must not do. '
-    + `Only if none of those fit, ${lastResort}.`;
+    + `it simply books under a general heading. Use ${routes.join('; ')}. Pass their own words to `
+    + 'bk_create_booking as job_description so the garage knows what the job is — the heading alone '
+    + 'tells them nothing. The price on that heading is NOT a quote for their job, so SAY THIS when '
+    + 'you offer it, in your own words but with nothing left out: that the slot is booked under '
+    + '<heading>, that the £x covers that booking, and that the team will confirm the cost of the '
+    + 'work itself when they see the vehicle. Quoting the heading\'s price as if it were the price '
+    + `of their job is the one thing you must not do. ${close}`;
 }

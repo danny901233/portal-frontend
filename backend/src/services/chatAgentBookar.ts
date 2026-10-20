@@ -700,7 +700,19 @@ function buildTools(hasCreds: boolean, messagingHandoff: boolean = true, advisor
         name: 'bk_create_booking',
         description:
           'Create the booking on Bookar. Idempotent — safe to retry with the same conversation. ONLY call after the customer has said YES to the read-back summary AND you have: VRM (via bk_lookup_vehicle), service_ids (via bk_list_services + caller choice), a slot (via bk_confirm_slot), and name + phone + email (via bk_save_customer_details).',
-        parameters: { type: 'object', properties: {} },
+        parameters: {
+          type: 'object',
+          properties: {
+            job_description: {
+              type: 'string',
+              description:
+                'What the customer actually wants doing, in their own words — REQUIRED whenever '
+                + 'the service you booked is a general heading (a catch-all like "Others", a '
+                + 'triage or a diagnostic) rather than the job itself. "Others" tells the garage '
+                + 'nothing; "DPF clean — car in limp mode on the motorway" tells them everything.',
+            },
+          },
+        },
       },
     },
     {
@@ -1240,7 +1252,10 @@ async function executeTool(
 
       case 'bk_create_booking': {
         if (!client) return { error: 'Bookar API not configured for this garage' };
-        return await bookarCreateBooking(session, conversationId, garageId, client, messagingHandoff);
+        return await bookarCreateBooking(
+          session, conversationId, garageId, client, messagingHandoff,
+          String(args.job_description || '').trim().slice(0, 300),
+        );
       }
 
       case 'bk_retrieve_booking': {
@@ -1368,6 +1383,7 @@ async function bookarCreateBooking(
   garageId: string,
   client: BookarClient,
   messagingHandoff: boolean = true,
+  jobDescription = '',
 ): Promise<any> {
   // ── Preflight checks — bail early with a directive the LLM can act on ──
   if (!session.vrm) {
@@ -1475,9 +1491,13 @@ async function bookarCreateBooking(
     .map((id) => services.find((s) => s.id === id))
     .filter((s): s is BookarService => !!s);
 
-  const summary = chosen.length
-    ? `${chosen.map((s) => s.name).join(', ')} on ${session.selectedSlot.date} at ${normaliseTime(session.selectedSlot.time)}`
-    : `Booking on ${session.selectedSlot.date} at ${normaliseTime(session.selectedSlot.time)}`;
+  // Bookar's booking payload has nowhere to put a job description, so a booking made under a
+  // general heading ("Others") reaches the garage saying nothing about the work. Carrying the
+  // customer's own words here is what makes it legible in the portal inbox and in the
+  // per-conversation summary email.
+  const heading = chosen.length ? chosen.map((s) => s.name).join(', ') : 'Booking';
+  const job = jobDescription ? ` — ${jobDescription}` : '';
+  const summary = `${heading}${job} on ${session.selectedSlot.date} at ${normaliseTime(session.selectedSlot.time)}`;
 
   // Sum of quoted service prices for capturedRevenue. Bookar returns per-service
   // totals so this is trivially deterministic — no LLM arithmetic.

@@ -68,15 +68,26 @@ test('the directive forbids refusing a job the garage can take', () => {
   assert.match(matchingDirective(EAC, true), /do not tell them we cannot book it/i);
 });
 
-// The phone number stays available for work the garage genuinely does not do — a motorcycle, a
-// towbar it cannot source — but only after the catalogue's own headings have been ruled out.
-test('the phone number comes last, not first', () => {
+// A garage with an "Others" heading can book anything, so there is no refusal to offer. Dan,
+// 20 Oct 2026: "if it cant book it should be booked under other? so everything should be
+// possible."
+test('a catalogue with a catch-all leaves no way to refuse', () => {
   const d = matchingDirective(EAC, false);
-  const dont = d.indexOf('do not give out the phone number');
-  const lastResort = d.indexOf('Only if none of those fit');
-  const offer = d.lastIndexOf('garage phone number');
-  assert.ok(dont > -1 && lastResort > dont, 'the rule must come before the last resort');
-  assert.ok(offer > lastResort, 'the phone number must only appear as the last resort');
+  // The prohibition may mention the phone number; nothing may OFFER it as a move.
+  assert.doesNotMatch(d, /give them the garage phone number/i);
+  assert.doesNotMatch(d, /cannot book that one over chat/i);
+  assert.doesNotMatch(d, /bk_take_message if/);
+  assert.match(d, /never true at this garage/i);
+});
+
+test('the catch-all is described as covering everything', () => {
+  assert.match(matchingDirective(EAC, true), /anything else at all|every other job|whatever it is/i);
+});
+
+// Bookar's booking payload has no field for a job description, so the only way the garage learns
+// what "Others" means is the job_description we store our side.
+test('the directive requires the job to be written down', () => {
+  assert.match(matchingDirective(EAC, true), /job_description/);
 });
 
 test('with no fallback and no handoff, the phone number is the honest answer', () => {

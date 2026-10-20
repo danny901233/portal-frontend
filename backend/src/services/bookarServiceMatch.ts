@@ -120,6 +120,10 @@ export function matchingDirective(services: BookarServiceLike[], canTakeMessage:
   return 'MATCHING: if what the customer wants is not in this list by name, do not tell them we '
     + 'cannot book it over chat and do not give out the phone number — this garage takes that work, '
     + `it simply books under a general heading. Use ${routes.join('; ')}. Put their own words in `
-    + 'the booking notes so the team knows what the job is, and tell them the price shown is for '
-    + `that heading and the team will confirm the job itself. Only if none of those fit, ${lastResort}.`;
+    + 'the booking notes so the team knows what the job is. The price on that heading is NOT a '
+    + 'quote for their job, so SAY THIS when you offer it, in your own words but with nothing '
+    + 'left out: that the slot is booked under <heading>, that the £x covers that booking, and '
+    + 'that the team will confirm the cost of the work itself when they see the vehicle. Quoting '
+    + 'the heading\'s price as if it were the price of their job is the one thing you must not do. '
+    + `Only if none of those fit, ${lastResort}.`;
 }

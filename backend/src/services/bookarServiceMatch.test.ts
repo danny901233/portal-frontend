@@ -92,3 +92,11 @@ test('with no fallback but handoff on, it takes a message instead', () => {
 test('the customer\'s own words go in the notes', () => {
   assert.match(matchingDirective(EAC, true), /their own words/i);
 });
+
+// A DPF clean booked under a £49.99 diagnostic heading must not be quoted as £49.99 for the DPF
+// clean. The test garage's agent did exactly that, so the directive now dictates the words.
+test('the directive dictates the price caveat word for word', () => {
+  const d = matchingDirective(EAC, true);
+  assert.match(d, /SAY THIS/);
+  assert.match(d, /covers (?:the )?booking|price for that heading|confirm the cost/i);
+});

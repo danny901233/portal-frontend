@@ -231,13 +231,11 @@ router.all('/demo-prospect-call', async (req: Request, res: Response) => {
   const base = process.env.PORTAL_BASE_URL || 'https://portal.receptionmate.co.uk';
   return res.type('text/xml').send(xml(
     `  <Gather numDigits="5" timeout="10" finishOnKey="#" action="${base}/webhooks/demo-prospect-call/connect" method="POST">\n` +
-    // Two sentences, for two kinds of caller. Someone who tapped the link is already sending the
-    // code as tones and will cut this off — finishOnKey ends the Gather the moment the # lands, so
-    // they hear the first few words at most. Someone who DIALLED the number off the email hears
-    // the whole thing, and the second sentence is the only thing that stops them being stranded on
-    // the generic demo.
-    `    <Say voice="Polly.Amy-Neural">One moment, I'm just building your receptionist. `
-    + `If you have a code from the email, type it in now.</Say>\n` +
+    // One sentence. The email carries a single link to the page and no number, so every caller
+    // arrives by tapping the page's own button with the code already in the dial string — nobody
+    // has a code to be told about. The line is here for the pause before their tones land, and
+    // finishOnKey cuts it off the moment the # arrives.
+    `    <Say voice="Polly.Amy-Neural">One moment, I'm just building your receptionist.</Say>\n` +
     `  </Gather>\n` +
     `  <Redirect method="POST">${base}/webhooks/demo-prospect-call/connect</Redirect>`,
   ));

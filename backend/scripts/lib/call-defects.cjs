@@ -24,9 +24,11 @@ const SEVERITY = { high: 'high', medium: 'medium', low: 'low' };
 // NEED_NAME gathered the caller's problem and recorded none of it.
 const MUST_COMPLETE = ['take_message', 'confirm_booking'];
 
-// Openers the agent uses to start a call. Said again mid-call, the caller
-// believes they have been cut off and started over.
-const GREETING_RE = /\b(you'?re through to|thanks for calling|welcome to|you'?ve reached)\b/i;
+// Openers the agent uses to START a call. Said again mid-call, the caller
+// believes they have been cut off and put back to the beginning.
+// "Thanks for calling" is deliberately NOT here: it is how the agent says
+// goodbye, and including it flagged 29 of 218 calls, nearly all sign-offs.
+const GREETING_RE = /\b(you'?re through to|you'?ve reached|welcome to)\b/i;
 
 // A turn ending on one of these was cut off, not finished. Checking only for a
 // missing full stop flags every normal trailing-off reply, which is noise.
@@ -64,6 +66,21 @@ function ttsRan(usage) {
   });
 }
 
+/**
+ * Did this plate actually get written into a message or a booking? A plate that
+ * recognition supplied and the agent never acted on carries no risk — and
+ * recognition supplying plates is the feature working, on roughly a fifth of
+ * calls. The harm only exists once an unverified plate is recorded against a job.
+ */
+function plateWasUsed(history, plate) {
+  const want = plate.replace(/\s+/g, '').toUpperCase();
+  return (history || []).some((h) => {
+    const args = (h && h.args) || {};
+    return Object.keys(args).some((k) => /registration|vrn|plate/i.test(k)
+      && String(args[k] || '').replace(/\s+/g, '').toUpperCase() === want);
+  });
+}
+
 /** "STATUS: NEED_NAME" -> "NEED_NAME"; absent -> "". */
 function statusOf(entry) {
   return String((entry && entry.status) || '').replace(/^\s*STATUS:\s*/i, '').trim().toUpperCase();
@@ -96,14 +113,17 @@ function scanOne(call, feedbackFor) {
   //    recognition supplied it. When recognition matches the wrong person, every
   //    field downstream reads as success and the job goes on the wrong vehicle.
   const plate = String(call.registrationNumber || capture.registration || '').trim();
-  if (capture.registration_captured === true && Number(capture.registration_rounds) === 0 && plate) {
+  const history = Array.isArray(m.tool_call_history) ? m.tool_call_history : [];
+  const unverified = capture.registration_captured === true
+    && Number(capture.registration_rounds) === 0 && Boolean(plate);
+  if (unverified && plateWasUsed(history, plate)) {
     add('reg-not-from-caller', SEVERITY.high,
-        `Plate ${plate} was never spoken by the caller — it came from caller recognition `
-        + `(0 rounds of asking). Check it is actually their vehicle.`);
+        `Plate ${plate} was never spoken by the caller — caller recognition supplied it `
+        + `(0 rounds of asking) and the agent then wrote it into a message or booking. `
+        + `If recognition matched the wrong person, this is someone else's vehicle.`);
   }
 
   // 3. A tool that gathered everything and recorded nothing.
-  const history = Array.isArray(m.tool_call_history) ? m.tool_call_history : [];
   for (const tool of MUST_COMPLETE) {
     const calls = history.filter((h) => String((h && h.tool) || '') === tool);
     if (!calls.length) continue;
@@ -131,11 +151,18 @@ function scanOne(call, feedbackFor) {
         `The agent greeted the caller again mid-call: "${textOf(laterGreeting).slice(0, 120)}"`);
   }
 
-  // 6. An agent turn that stops mid-sentence.
-  const lastAgent = agentTurns.length ? textOf(agentTurns[agentTurns.length - 1]) : '';
-  if (lastAgent && !/[.!?…"')\]]$/.test(lastAgent) && DANGLING_RE.test(lastAgent)) {
-    add('truncated-turn', SEVERITY.low,
-        `The agent's last words stop mid-sentence: "${lastAgent.slice(-80)}"`);
+  // 6. An agent turn that stops mid-sentence WITH the call still going. A
+  //    truncated FINAL turn is almost always the caller hanging up during the
+  //    goodbye — the agent did nothing wrong and the caller heard what they
+  //    needed. Only a cut-off the caller had to talk over is a fault.
+  for (let i = 0; i < turns.length - 1; i += 1) {
+    if (!isAgent(turns[i])) continue;
+    const said = textOf(turns[i]);
+    if (said && !/[.!?…"')\]]$/.test(said) && DANGLING_RE.test(said)) {
+      add('truncated-turn', SEVERITY.low,
+          `The agent was cut off mid-sentence and the call carried on: "${said.slice(-80)}"`);
+      break;
+    }
   }
 
   // 7. The garage said it was wrong. That outranks anything the metrics say.

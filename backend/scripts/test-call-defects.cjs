@@ -125,31 +125,13 @@ const falseClaim = {
 check('a claimed booking that never happened is flagged',
       sigs(scanDefects([falseClaim]), 'falsecl1').includes('false-booking-claim'));
 
-// ── greeting itself again mid-call: the caller thinks they got cut off ──
-const regreet = {
-  ...healthy, id: 'regreet1',
-  transcript: [
-    { speaker: 'agent', text: "You're through to Test Garage, how can I help?" },
-    { speaker: 'caller', text: 'I need an MOT' },
-    { speaker: 'agent', text: "Thanks for calling Test Garage, how can I help today?" },
-  ],
-};
-check('a second greeting mid-call is flagged',
-      sigs(scanDefects([regreet]), 'regreet1').includes('mid-call-regreeting'),
-      JSON.stringify(sigs(scanDefects([regreet]), 'regreet1')));
+// (The old 'thanks for calling' re-greeting fixture lived here. Production
+// showed that phrase is the agent's GOODBYE; the signOff / realRegreet pair
+// below replaced it.)
 
-// ── an agent turn cut off mid-sentence ──
-const truncated = {
-  ...healthy, id: 'trunc001',
-  transcript: [
-    { speaker: 'agent', text: "You're through to Test Garage, how can I help?" },
-    { speaker: 'caller', text: 'Can you do a service on Thursday?' },
-    { speaker: 'agent', text: 'Let me check that for you and' },
-  ],
-};
-check('an agent turn ending mid-sentence is flagged',
-      sigs(scanDefects([truncated]), 'trunc001').includes('truncated-turn'),
-      JSON.stringify(sigs(scanDefects([truncated]), 'trunc001')));
+// (The old 'truncated final turn' fixture lived here. Production showed a
+// truncated last turn is the caller hanging up during the goodbye, so the
+// pair below — cut off mid-call vs hung up on the goodbye — replaced it.)
 
 // A turn ending on a full stop is not truncated, and a question is not either.
 const endsWell = {
@@ -162,6 +144,97 @@ const endsWell = {
 };
 check('a turn that ends properly is not called truncated',
       !sigs(scanDefects([endsWell]), 'endswell').includes('truncated-turn'));
+
+// ── what the production run taught, 21 Oct: three signatures were mostly noise ──
+
+// "Thanks for calling" is how the agent says GOODBYE. 29 of 218 calls were
+// flagged as re-greetings and nearly all were sign-offs like this one.
+const signOff = {
+  ...healthy, id: 'signoff1',
+  transcript: [
+    { speaker: 'agent', text: "You're through to Test Garage, how can I help?" },
+    { speaker: 'caller', text: 'Thursday please' },
+    { speaker: 'agent', text: 'Thanks for calling, Susan. Goodbye!' },
+  ],
+};
+check('a goodbye that thanks the caller is not a re-greeting',
+      !sigs(scanDefects([signOff]), 'signoff1').includes('mid-call-regreeting'),
+      JSON.stringify(sigs(scanDefects([signOff]), 'signoff1')));
+
+// This one is real: the agent restarted the call at the caller.
+const realRegreet = {
+  ...healthy, id: 'regreet2',
+  transcript: [
+    { speaker: 'agent', text: "You're through to Test Garage, how can I help?" },
+    { speaker: 'caller', text: 'I need an MOT' },
+    { speaker: 'agent', text: "You're through to Test Garage already—how can I help today?" },
+  ],
+};
+check('starting the call over mid-call is still flagged',
+      sigs(scanDefects([realRegreet]), 'regreet2').includes('mid-call-regreeting'),
+      JSON.stringify(sigs(scanDefects([realRegreet]), 'regreet2')));
+
+// A caller hanging up during the agent's goodbye truncates the transcript. The
+// agent did nothing wrong and the caller heard what they needed.
+const hungUpOnGoodbye = {
+  ...healthy, id: 'hungup01',
+  transcript: [
+    { speaker: 'agent', text: "You're through to Test Garage, how can I help?" },
+    { speaker: 'caller', text: 'Thursday please' },
+    { speaker: 'agent', text: "You're welcome Sian, have a" },
+  ],
+};
+check('a caller hanging up during the goodbye is not a truncation fault',
+      !sigs(scanDefects([hungUpOnGoodbye]), 'hungup01').includes('truncated-turn'),
+      JSON.stringify(sigs(scanDefects([hungUpOnGoodbye]), 'hungup01')));
+
+// Cut off mid-call, with the caller still talking afterwards: the caller heard
+// a broken sentence and had to carry on regardless.
+const cutMidCall = {
+  ...healthy, id: 'cutmid01',
+  transcript: [
+    { speaker: 'agent', text: "You're through to Test Garage, how can I help?" },
+    { speaker: 'agent', text: 'Let me check that for you and' },
+    { speaker: 'caller', text: 'Sorry, what was that?' },
+    { speaker: 'agent', text: 'Thursday at nine is free.' },
+  ],
+};
+check('an agent cut off mid-call is flagged',
+      sigs(scanDefects([cutMidCall]), 'cutmid01').includes('truncated-turn'),
+      JSON.stringify(sigs(scanDefects([cutMidCall]), 'cutmid01')));
+
+// Caller recognition supplying the plate is NORMAL — it is the feature working,
+// and it fired on 41 of 218 calls. What is NOT normal is an unverified plate
+// being written into a message or a booking, which is how another customer's
+// vehicle ended up on a message.
+const recognisedButUnused = {
+  ...healthy, id: 'recog001',
+  registrationNumber: 'XY11ABC',
+  metrics: {
+    ...healthy.metrics,
+    capture: { registration_rounds: 0, registration_captured: true },
+    tool_call_history: [],
+  },
+};
+check('a recognised plate the agent never acted on is not a finding',
+      !sigs(scanDefects([recognisedButUnused]), 'recog001').includes('reg-not-from-caller'),
+      JSON.stringify(sigs(scanDefects([recognisedButUnused]), 'recog001')));
+
+const recognisedAndUsed = {
+  ...healthy, id: 'recog002',
+  registrationNumber: 'XY11ABC',
+  metrics: {
+    ...healthy.metrics,
+    capture: { registration_rounds: 0, registration_captured: true },
+    tool_call_history: [
+      { tool: 'take_message', status: 'STATUS: OK',
+        args: { vehicle_registration: 'XY11ABC', reason: 'Is the car ready' } },
+    ],
+  },
+};
+check('an unverified plate written into a message is flagged',
+      sigs(scanDefects([recognisedAndUsed]), 'recog002').includes('reg-not-from-caller'),
+      JSON.stringify(sigs(scanDefects([recognisedAndUsed]), 'recog002')));
 
 // ── negative feedback is a finding in its own right, whatever the metrics say ──
 const withFeedback = scanDefects([healthy], {
@@ -184,7 +257,7 @@ check('a garage with no diary raises nothing on its own', scanDefects([noDiary])
       JSON.stringify(sigs(scanDefects([noDiary]), 'nodiary1')));
 
 // ── shape contract: every finding must be renderable and traceable ──
-const all = scanDefects([regFromRecognition, silent, falseClaim, regreet, truncated]);
+const all = scanDefects([regFromRecognition, silent, falseClaim, realRegreet, cutMidCall]);
 check('every finding carries callId, signature, severity and a human detail',
       all.length > 0 && all.every((f) => f.callId && f.signature && f.severity && f.detail),
       JSON.stringify(all[0]));

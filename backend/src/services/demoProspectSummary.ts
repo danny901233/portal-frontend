@@ -89,6 +89,8 @@ export type DemoProspectForSummary = {
   spokenName: string;
   email: string | null;
   summaryEmailedAt: Date | null;
+  /** HighLevel contact, so the same call can raise the Hot opportunity. */
+  contactId?: string | null;
 };
 
 const mmss = (seconds: number): string => {

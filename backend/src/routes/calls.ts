@@ -368,7 +368,7 @@ router.post('/calls', async (req: Request, res: Response) => {
     try {
       const prospect = await prisma.demoProspect.findUnique({
         where: { agentId: payload.garageId },
-        select: { id: true, spokenName: true, email: true, summaryEmailedAt: true },
+        select: { id: true, spokenName: true, email: true, summaryEmailedAt: true, contactId: true },
       });
       if (prospect) {
         prospectForMetrics = prospect;
@@ -606,6 +606,36 @@ router.post('/calls', async (req: Request, res: Response) => {
         confirmedBooking,
         transcriptTurns: Array.isArray(payload.transcript) ? payload.transcript.length : 0,
       });
+    }
+
+    // Same moment, the CRM side: a cold prospect who has just talked to their own receptionist is
+    // the hottest lead this pipeline gets, and it should not depend on anyone reading a log.
+    //
+    // createOpportunity is an UPSERT, which is the whole reason this is safe to call on every
+    // demo call: it looks for an open opportunity on the contact and advances that one instead of
+    // adding a second, and stageRank only ever moves a contact FORWARD — so a garage already on a
+    // free trial who rings their demo line again cannot be dragged back to Hot.
+    //
+    // Needs a contactId: these prospects came out of the CRM, so one exists for all but the
+    // scratch test row.
+    if (prospectForMetrics?.contactId) {
+      const { contactId, spokenName } = prospectForMetrics;
+      void (async () => {
+        try {
+          const { createOpportunity } = await import('../services/highlevel.js');
+          const { id } = await createOpportunity({
+            contactId,
+            name: spokenName,
+            kind: 'hot',
+            // The Assist monthly, so the pipeline carries a value rather than a blank.
+            monetaryValueGbp: 200,
+            packageName: 'Assist',
+          });
+          console.log(`[CALL] ${spokenName} → HighLevel opportunity ${id ?? 'not created'} (Hot)`);
+        } catch (err) {
+          console.error('[CALL] could not raise the Hot opportunity', err);
+        }
+      })();
     }
 
     // Stage 2 — automatic AI call diagnosis (gpt-4o-mini). Fire-and-forget so it never

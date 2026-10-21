@@ -42,6 +42,8 @@ export const HL_INVITED_STAGE_ID = process.env.GHL_INVITED_STAGE_ID ?? '';
 // contract is exactly the event sales want reflected in the CRM, so the send endpoint moves it
 // directly rather than pretending we changed stage.
 export const HL_CONTRACT_SENT_STAGE_ID = process.env.GHL_CONTRACT_SENT_STAGE_ID ?? '';
+/** "Hot" — a cold prospect who has actually talked to their own demo agent. */
+export const HL_HOT_STAGE_ID = process.env.GHL_HOT_STAGE_ID ?? '';
 
 const HEADERS = {
   Authorization: `Bearer ${GHL_PIT}`,
@@ -151,7 +153,7 @@ export async function updateContact(
   }
 }
 
-export type OpportunityKind = 'signup' | 'lead' | 'trial' | 'abandoned';
+export type OpportunityKind = 'signup' | 'lead' | 'trial' | 'abandoned' | 'hot';
 
 export interface CreateOpportunityArgs {
   contactId: string;
@@ -169,6 +171,7 @@ export interface CreateOpportunityArgs {
 function stageRank(stageId: string): number {
   const order = [
     LEAD_STAGE_ID,                     // Enquiry received
+    HL_HOT_STAGE_ID,                   // Hot — has talked to their own demo agent
     ABANDONED_STAGE_ID,                // Abandoned checkout
     HL_CONTRACT_SENT_STAGE_ID,         // Contract sent
     HL_AWAITING_CREDENTIALS_STAGE_ID,
@@ -223,6 +226,8 @@ export async function createOpportunity(args: CreateOpportunityArgs): Promise<{ 
     args.kind === 'signup'    ? SIGNUP_STAGE_ID :
     args.kind === 'trial'     ? (TRIAL_STAGE_ID || SIGNUP_STAGE_ID) :
     args.kind === 'abandoned' ? (ABANDONED_STAGE_ID || LEAD_STAGE_ID) :
+    // Unset GHL_HOT_STAGE_ID degrades to the lead stage rather than losing the opportunity.
+    args.kind === 'hot'       ? (HL_HOT_STAGE_ID || LEAD_STAGE_ID) :
     LEAD_STAGE_ID;
 
   // Upsert, not create. If this contact already has an open opportunity, advance that one

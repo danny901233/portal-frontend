@@ -47,7 +47,7 @@ export interface CallDiagnosis {
 }
 
 // Render the agent's tool-call history into a compact, readable timeline.
-function buildToolTimeline(metrics: unknown): string {
+export function buildToolTimeline(metrics: unknown): string {
   const hist = (metrics as { tool_call_history?: unknown })?.tool_call_history;
   if (!Array.isArray(hist) || hist.length === 0) return '(no tool calls recorded)';
   return hist
@@ -61,7 +61,7 @@ function buildToolTimeline(metrics: unknown): string {
     .join('\n');
 }
 
-function buildTranscript(transcript: unknown): string {
+export function buildTranscript(transcript: unknown): string {
   if (!Array.isArray(transcript)) return '';
   return transcript
     // Only spoken lines — tool calls are covered separately by the TOOL TIMELINE.
@@ -118,7 +118,7 @@ function silenceBreakdown(transcript: unknown): { maxAll: number | null; maxOffR
 }
 
 // Render the per-call timing summary so the model can judge whether the call was slow/silent.
-function buildTiming(metrics: unknown, transcript: unknown): string {
+export function buildTiming(metrics: unknown, transcript: unknown): string {
   const lat = (metrics as { latency?: Record<string, unknown> })?.latency ?? {};
   // Compute both numbers deterministically from the transcript: the longest gap overall, and the
   // longest gap that is NOT the intentional reg/postcode read-back pause. The dead-air judgement
@@ -140,7 +140,7 @@ function buildTiming(metrics: unknown, transcript: unknown): string {
 }
 
 // Render how hard the agent had to work to capture the registration / postcode.
-function buildCapture(metrics: unknown): string {
+export function buildCapture(metrics: unknown): string {
   const cap = (metrics as { capture?: Record<string, unknown> })?.capture;
   if (!cap || typeof cap !== 'object') return '(not captured)';
   const parts: string[] = [];
@@ -238,6 +238,66 @@ const SYSTEM_PROMPT =
   '"callerName":"<name or empty string>","callerIntent":"<a few plain words>",' +
   '"intentMet":"yes"|"no"|"partial","intentFailReason":"<one sentence, or empty string>",' +
   '"failedBy":"agent"|"diary"|"garage"|"caller"|"none"}.';
+
+/**
+ * Was the caller's request one the agent could not possibly have served?
+ *
+ * Dan, 2026-10-20, on call 35204772 (Elite Autocare — a caller asking to drop his car off
+ * earlier than his 3pm service): "elite autocare shouldnt of been flagged … its not possible
+ * for us to see if he can drop it off earlier". Four of that morning's ten flagged calls were
+ * the same shape, and each one's own suggested fix said no agent-level fix was needed.
+ *
+ * The prompt already carried that rule and the capability list was in the context. The model was
+ * told, had the data, and blamed the agent anyway — so the rule moves into code, the same lesson
+ * as the garage rules in rule_gate.py: an instruction the model may ignore is not a rule.
+ *
+ * Returns the capability that was missing, 'no_data_source' for a question no integration can
+ * answer at all, or null when the agent genuinely could have done it.
+ */
+// Questions no integration can answer, whatever the garage has enabled. Workshop capacity and
+// whether a car is physically finished live in someone's head, not in an API.
+const NO_DATA_SOURCE_INTENTS: RegExp[] = [
+  /drop[\s-]*off.*\b(earlier|sooner|before)\b/i,
+  /\b(earlier|sooner)\b.*drop[\s-]*off/i,
+  /\b(is|if|whether)\b.*\b(car|vehicle|it)\b.*\bready\b/i,
+  /\bready\b.*\b(collect|collection|pick\s*up)\b/i,
+  /\bhow long\b.*\b(take|be)\b/i,
+];
+
+// The capability each kind of request needs. Order matters: a request to add work to an existing
+// job sheet needs to look the booking up, and must not fall through to plain "bookings".
+const INTENT_CAPABILITY: [RegExp, string][] = [
+  [/\bcancel/i, 'cancel'],
+  [/\breschedul|\bmove\b.*\bbooking|\bchange\b.*\b(booking|appointment)/i, 'reschedule'],
+  [/\bjob\s*sheet\b|\badd\b.*\b(service|work)\b.*\b(job|booking|appointment)\b/i, 'retrieve_booking'],
+  [/\b(check|status|confirm|chase)\b.*\b(appointment|booking)\b|\bexisting\b.*\bbooking\b/i, 'retrieve_booking'],
+  [/\bbook\b|\bappointment\b|\bslot\b/i, 'bookings'],
+];
+
+export function impossibleForAgent(
+  intent: string | undefined,
+  capabilities: Record<string, boolean> | undefined,
+  hasDiary: boolean,
+): string | null {
+  const text = String(intent || '').trim();
+  if (!text) return null;
+
+  // Checked before the capability map on purpose: enabling every tool in the diary still does
+  // not tell anyone whether the workshop can take a car two hours early.
+  if (NO_DATA_SOURCE_INTENTS.some((re) => re.test(text))) return 'no_data_source';
+
+  for (const [re, cap] of INTENT_CAPABILITY) {
+    if (!re.test(text)) continue;
+    if (capabilities && capabilities[cap] === true) return null;
+    if (capabilities && capabilities[cap] === false) return cap;
+    // The key is absent. With no diary there is nothing it could have used, so the agent is
+    // excused; with a diary we cannot prove the tool was unavailable, so we do not guess.
+    // An empty capability map on a garage with no diary is exactly the shape that let call
+    // 39878023 stay blamed on the agent: a missing key reads as undefined, not false.
+    return hasDiary ? null : cap;
+  }
+  return null;
+}
 
 export async function analyzeCall(input: {
   transcript: unknown;
@@ -425,7 +485,7 @@ export async function analyzeCall(input: {
  *
  * Capabilities come from the agent, not a copy kept here, so they cannot drift from the adapter.
  */
-function buildAgentContext(metrics: unknown): string {
+export function buildAgentContext(metrics: unknown): string {
   const m = (metrics ?? {}) as Record<string, unknown>;
   const script = String(m.agent_script ?? '') || '(not recorded)';
   const diary = String(m.diary ?? '') || '(none)';
@@ -454,7 +514,7 @@ function buildAgentContext(metrics: unknown): string {
   return lines.join('\n');
 }
 
-function buildGhTrace(metrics: unknown): string {
+export function buildGhTrace(metrics: unknown): string {
   const tr = (metrics as { gh_trace?: unknown })?.gh_trace;
   if (!Array.isArray(tr) || tr.length === 0) return '(no GarageHive API calls on this call)';
   return tr
@@ -466,7 +526,7 @@ function buildGhTrace(metrics: unknown): string {
 
 // The longest customer->agent waits, with the surrounding turns, so the deep-dive can pinpoint
 // WHERE a silence happened (not just that the max gap was N seconds).
-function buildTurnGaps(transcript: unknown): string {
+export function buildTurnGaps(transcript: unknown): string {
   if (!Array.isArray(transcript)) return '(n/a)';
   const msgs = transcript
     .filter((m: Record<string, unknown>) => (m.type ?? 'message') === 'message' && (m.text ?? m.content))

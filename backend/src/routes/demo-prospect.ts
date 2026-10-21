@@ -290,45 +290,61 @@ router.post('/public/demo-prospect/:slug', async (req: Request, res: Response) =
   const spokenName = prospect.spokenName || toSpokenName(prospect.businessName);
   const websiteUrl = prospect.websiteUrl ? `https://${prospect.websiteUrl.replace(/^https?:\/\//, '')}` : null;
 
-  // Their real hours if resolve-demo-hours.ts found them on their own site, otherwise null.
+  // Address, phone and OPENING HOURS from Google, fetched once on first click and cached on the
+  // row. One lookup, three facts, and only for prospects who actually click.
   //
-  // The distinction matters more than it looks. The fallback week still has to be permissive, or
-  // `opening_hours_text` tells the agent the garage is never open and TRANSFER_HOURS_GATE blocks
-  // transfers around the clock. But a permissive fallback must never be SPOKEN: Binley Woods
-  // Service Centre's first build had its own receptionist saying "we are open Monday to Friday
-  // from 08:00 to 17:30" when their site says 08:30. So an unknown-hours agent runs on the
-  // fallback and is built not to state hours at all — vague is recoverable, wrong is not.
-  const knownHours = (prospect.weeklyOpeningHours as WeeklyOpeningHours | null) ?? null;
-  const hours = knownHours ?? FALLBACK_HOURS;
-
-  // Their address and phone number, from Google, fetched once and cached on the row.
+  // Hours used to be parsed from each garage's own website ahead of time, which is why they had to
+  // be reviewed in a spreadsheet: Checkpoint publishes its SALES desk hours on Sunday, and A J K
+  // Thompson's site contradicts itself. Google's hours are authoritative and uniformly shaped, so
+  // taking them here removes that review entirely — and bills a Places lookup per CLICK rather
+  // than per prospect, which is roughly 150 rather than 500.
   //
-  // The agent is handed "- address: …" in its prompt and had nothing to put there, so a prospect
-  // asking where they were based got an offer to take a message — on a demo meant to prove the
-  // thing knows them. Their website is not a fallback: the scrape found no address at all on
-  // Protech's site, and the phone numbers it did find included "30 - 18" lifted from an hours
-  // line. Google is the authority for both.
+  // A hand-reviewed week already on the row still wins: if someone has checked a garage's hours,
+  // that judgement outranks Google.
   let branchAddress = prospect.branchAddress ?? '';
   let phoneNumber = prospect.phoneNumber ?? '';
-  if (prospect.placeId && !branchAddress) {
+  let placeHours: WeeklyOpeningHours | null = null;
+  const storedHours = (prospect.weeklyOpeningHours as WeeklyOpeningHours | null) ?? null;
+  const needsLookup = Boolean(prospect.placeId) && (!branchAddress || !storedHours);
+  if (needsLookup) {
     try {
-      const details = await fetchPlaceDetails(prospect.placeId);
+      const details = await fetchPlaceDetails(prospect.placeId as string);
       if (details?.address) branchAddress = details.address;
       if (details?.phone) phoneNumber = details.phone;
-      if (branchAddress || phoneNumber) {
+      // Only if Google actually gives an open week. A listing with no hours, or one marked closed
+      // outright, must not become a spoken week — that is the trap the fallback exists for.
+      if (details?.weeklyOpeningHours && hasAnOpenDay(details.weeklyOpeningHours)) {
+        placeHours = details.weeklyOpeningHours;
+      }
+      if (branchAddress || phoneNumber || placeHours) {
         // Cached so this is billed once per prospect rather than once per build, and so a wrong
-        // address is reviewable in the table afterwards instead of only ever being heard.
+        // address or week is reviewable in the table afterwards instead of only ever being heard.
         await prisma.demoProspect.update({
           where: { id: prospect.id },
-          data: { branchAddress: branchAddress || null, phoneNumber: phoneNumber || null },
+          data: {
+            branchAddress: branchAddress || null,
+            phoneNumber: phoneNumber || null,
+            ...(placeHours && !storedHours
+              ? { weeklyOpeningHours: placeHours as unknown as object, hoursSource: 'google' }
+              : {}),
+          },
         });
-        console.log(`[DEMO_PROSPECT] ${spokenName}: address/phone from Google`);
+        console.log(`[DEMO_PROSPECT] ${spokenName}: Google gave address=${Boolean(branchAddress)} phone=${Boolean(phoneNumber)} hours=${Boolean(placeHours)}`);
       }
     } catch (err) {
       // Never fatal: an agent with no address is worse than one with, but far better than none.
       console.warn(`[DEMO_PROSPECT] place lookup failed for ${spokenName}`, err);
     }
   }
+
+  // What the agent may STATE as fact. Null means we genuinely do not know, and the agent is then
+  // built not to claim: the fallback week below still has to be permissive, or opening_hours_text
+  // tells the agent the garage is never open and TRANSFER_HOURS_GATE blocks transfers around the
+  // clock — but a permissive fallback must never be SPOKEN. Binley Woods' first build had its own
+  // receptionist saying "open Monday to Friday from 08:00" when they open at 08:30. Vague is
+  // recoverable, wrong is not.
+  const knownHours = storedHours ?? placeHours;
+  const hours = knownHours ?? FALLBACK_HOURS;
 
   // Start from exactly the defaults a real garage gets and override only what makes this THEIR
   // agent. Building the object by hand is what silently dropped ten fields last time.

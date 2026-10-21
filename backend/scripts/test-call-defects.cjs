@@ -239,6 +239,58 @@ check('reading a registration back twice is not an agent repeat',
       !sigs(scanDefects([plateReadback]), 'asked004').includes('agent-repeating'),
       JSON.stringify(sigs(scanDefects([plateReadback]), 'asked004')));
 
+// A plate read back in the phonetic alphabet is still a plate read-back. Call
+// 35204772 read "Delta Lima, six four, Whiskey Victor Bravo, is that right?"
+// twice, and the plate pattern does not match spelled-out letters.
+const phoneticReadback = {
+  ...healthy, id: 'asked005',
+  metrics: { ...healthy.metrics, tool_call_history: [] },
+  transcript: [
+    { speaker: 'agent', text: "You're through to Test Garage, how can I help?" },
+    { speaker: 'caller', text: 'DL64 WVB' },
+    { speaker: 'agent', text: 'Delta Lima, six four, Whiskey Victor Bravo, is that right?' },
+    { speaker: 'caller', text: 'Sorry, say again?' },
+    { speaker: 'agent', text: 'Delta Lima, six four, Whiskey Victor Bravo, is that right?' },
+  ],
+};
+check('a phonetic registration read-back twice is not an agent repeat',
+      !sigs(scanDefects([phoneticReadback]), 'asked005').includes('agent-repeating'),
+      JSON.stringify(sigs(scanDefects([phoneticReadback]), 'asked005')));
+
+// But a real question that merely mentions one phonetic-sounding word is not
+// a read-back and must still be caught.
+const oneGolf = {
+  ...healthy, id: 'asked006',
+  metrics: { ...healthy.metrics, tool_call_history: [] },
+  transcript: [
+    { speaker: 'agent', text: "You're through to Test Garage, how can I help?" },
+    { speaker: 'caller', text: 'My Golf needs a service' },
+    { speaker: 'agent', text: 'What day suits you for the Golf service?' },
+    { speaker: 'caller', text: 'Um' },
+    { speaker: 'agent', text: 'Which day would suit you for the Golf service?' },
+  ],
+};
+check('a question that happens to mention a Golf is still checked for repeats',
+      sigs(scanDefects([oneGolf]), 'asked006').includes('agent-repeating'),
+      JSON.stringify(sigs(scanDefects([oneGolf]), 'asked006')));
+
+// The silent-call detail must name the real provider error, not print an object.
+const silentWithErrors = {
+  ...silent, id: 'silerr01',
+  metrics: {
+    ...silent.metrics,
+    provider_errors: [
+      { exc: 'APIError', kind: 'tts_error', provider: 'ElevenLabs',
+        detail: 'no audio frames were pushed for text: Good afternoon, Tom speaking' },
+    ],
+  },
+};
+const se = scanDefects([silentWithErrors]).find((f) => f.signature === 'silent-call');
+check('the silent-call finding quotes the real provider error',
+      Boolean(se) && /no audio frames/.test(se.detail), se ? se.detail : 'no finding');
+check('the silent-call finding never prints [object Object]',
+      Boolean(se) && !/\[object Object\]/.test(se.detail), se ? se.detail : 'no finding');
+
 // ── the caller having to repeat themselves ──
 const callerRepeats = {
   ...healthy, id: 'callrep1',

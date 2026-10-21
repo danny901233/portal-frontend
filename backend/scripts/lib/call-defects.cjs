@@ -90,12 +90,31 @@ function contentWords(text) {
 // report the same struggle twice.
 const PLATE_RE = /\b[A-Z]{2}\s?\d{2}\s?[A-Z]{3}\b|\b[A-Z]\d{1,3}\s?[A-Z]{3}\b/i;
 
+// The agent spells plates out when the caller struggles, so a read-back often
+// contains no plate-shaped token at all — call 35204772 read "Delta Lima, six
+// four, Whiskey Victor Bravo, is that right?" twice and was flagged a repeat.
+// Two or more of these words together is a spelled read-back; one on its own
+// is a car ("my Golf"), a place or a name.
+const PHONETIC = new Set([
+  'alpha', 'bravo', 'charlie', 'delta', 'echo', 'foxtrot', 'golf', 'hotel', 'india',
+  'juliet', 'juliett', 'kilo', 'lima', 'mike', 'november', 'oscar', 'papa', 'quebec',
+  'romeo', 'sierra', 'tango', 'uniform', 'victor', 'whiskey', 'whisky', 'xray', 'yankee',
+  'zulu',
+]);
+
+function isSpelledReadback(text) {
+  const words = String(text || '').toLowerCase().replace(/[^a-z\s]/g, ' ').split(/\s+/);
+  let n = 0;
+  for (const w of words) if (PHONETIC.has(w)) n += 1;
+  return n >= 2;
+}
+
 /** The question sentences in a turn, so a long preamble cannot hide the repeat. */
 function questionsIn(text) {
   return String(text || '')
     .split(/(?<=[.!?])\s+/)
     .map((part) => part.trim())
-    .filter((part) => part.endsWith('?') && !PLATE_RE.test(part));
+    .filter((part) => part.endsWith('?') && !PLATE_RE.test(part) && !isSpelledReadback(part));
 }
 
 /**
@@ -178,7 +197,14 @@ function scanOne(call, feedbackFor) {
   //    the real outage hide among them.
   const spoke = turns.some((t) => isCaller(t) && textOf(t));
   if (spoke && !ttsRan(m.usage)) {
-    const errs = (m.provider_errors || []).map((e) => String((e && (e.error || e.message)) || e)).filter(Boolean);
+    // These entries look like { exc, kind, provider, detail, model } — `detail`
+    // carries the useful text ("no audio frames were pushed for ..."), and
+    // stringifying the object itself prints [object Object].
+    const errs = (m.provider_errors || [])
+      .map((e) => (e && typeof e === 'object'
+        ? String(e.detail || e.error || e.message || e.kind || '')
+        : String(e || '')))
+      .filter(Boolean);
     add('silent-call', SEVERITY.high,
         `Caller spoke but no speech was ever generated — they heard silence.`
         + (errs.length ? ` Provider errors: ${[...new Set(errs)].slice(0, 3).join('; ')}` : ''));

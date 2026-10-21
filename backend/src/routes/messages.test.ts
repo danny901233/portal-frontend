@@ -1,0 +1,102 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+
+import { deliverStaffReply } from './messages.js';
+
+// ---------------------------------------------------------------------------
+// A staff reply is recorded only once it has actually gone out
+//
+// 21 Oct 2026, 19:54:25. Dan typed "Or alternatively I can help?" to Mark Kettle at EAC Telford.
+// The row was written, the thread showed it, and the send then failed — EAC's WABA had been
+// blocked by Meta since 20 Oct 07:15. He believed he had replied; Mark had received nothing.
+// Six customers and eight replies went the same way over 38 hours, every one of them displayed
+// to staff as sent.
+//
+// The route wrote the ChatMessage row BEFORE calling sendMessage, so a failed send left a
+// perfect-looking record of a message that never left the building. The order is the fix: send
+// first, record only on success, and flag the conversation so an undelivered reply surfaces
+// instead of looking answered.
+//
+// Widget and livechat threads are the exception and must not be reordered — they have no
+// external connection and the row IS the delivery, which the browser picks up.
+// ---------------------------------------------------------------------------
+
+function deps(overrides: Partial<Parameters<typeof deliverStaffReply>[3]> = {}) {
+  const calls: string[] = [];
+  return {
+    calls,
+    d: {
+      send: async () => { calls.push('send'); },
+      record: async () => { calls.push('record'); return { id: 'msg-1' }; },
+      touchConversation: async () => { calls.push('touch'); },
+      flagUndelivered: async () => { calls.push('flag'); },
+      ...overrides,
+    },
+  };
+}
+
+test('a WhatsApp reply that fails to send is never recorded', async () => {
+  const { calls, d } = deps({
+    send: async () => { throw new Error('An unknown error has occurred.'); },
+  });
+  const res = await deliverStaffReply('whatsapp', 'hello', true, d);
+
+  assert.equal(res.ok, false);
+  assert.ok(!calls.includes('record'), 'the row must not exist for a message that never went out');
+  assert.ok(calls.includes('flag'), 'an undelivered reply has to surface somewhere');
+});
+
+test('a WhatsApp reply that sends is recorded afterwards, in that order', async () => {
+  const { calls, d } = deps();
+  const res = await deliverStaffReply('whatsapp', 'hello', true, d);
+
+  assert.equal(res.ok, true);
+  assert.deepEqual(calls, ['send', 'record', 'touch'],
+    'send must come first — recording first is what made a failure invisible');
+});
+
+test('no connection for a Meta platform is a failure, not a silent no-op', async () => {
+  // The old code wrote the row and simply skipped the send when no connection was found.
+  const { calls, d } = deps();
+  const res = await deliverStaffReply('whatsapp', 'hello', false, d);
+
+  assert.equal(res.ok, false);
+  assert.ok(!calls.includes('send'));
+  assert.ok(!calls.includes('record'));
+  assert.ok(calls.includes('flag'));
+});
+
+test('a widget reply is recorded without any external send', async () => {
+  const { calls, d } = deps();
+  const res = await deliverStaffReply('widget', 'hello', false, d);
+
+  assert.equal(res.ok, true);
+  assert.deepEqual(calls, ['record', 'touch'], 'the row is the delivery for a widget thread');
+});
+
+test('an expired 24-hour window still answers 400, not 502', async () => {
+  // Preserved from the original handler: this one is the customer going quiet for a day, which
+  // the garage can understand and act on, not an outage.
+  const { d } = deps({
+    send: async () => { throw new Error('Cannot send message: 24-hour messaging window has expired.'); },
+  });
+  const res = await deliverStaffReply('whatsapp', 'hello', true, d);
+
+  assert.equal(res.ok, false);
+  if (res.ok === false) {
+    assert.equal(res.status, 400);
+    assert.match(res.error, /24-hour messaging window/);
+  }
+});
+
+test('a genuine send failure answers 502 and says the reply did not go out', async () => {
+  const { d } = deps({ send: async () => { throw new Error('An unknown error has occurred.'); } });
+  const res = await deliverStaffReply('whatsapp', 'hello', true, d);
+
+  assert.equal(res.ok, false);
+  if (res.ok === false) {
+    assert.equal(res.status, 502);
+    assert.match(res.error, /not.*sent|could not|failed/i,
+      'the staff member must be told plainly that it did not go');
+  }
+});

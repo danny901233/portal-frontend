@@ -9,6 +9,7 @@ import { notifyUser } from '../utils/push.js';
 import { sendEmail } from '../utils/email.js';
 import { sendDiscordNotification, DISCORD_COLORS } from '../utils/discord.js';
 import { chatFeedbackSchema } from '../utils/validators.js';
+import { whatsappToken } from '../utils/whatsappToken.js';
 
 const router = Router();
 
@@ -616,7 +617,11 @@ async function sendReplyToChannel(
       },
       {
         headers: {
-          Authorization: `Bearer ${connection.accessToken}`,
+          // whatsappToken, not the stored credential: the stored one is an Embedded Signup
+          // token that expires 60 days after the garage signed up. Only this WhatsApp branch —
+          // the facebook/instagram/livechat branches below need the stored PAGE token, which
+          // the shared WhatsApp system user has no authority over.
+          Authorization: `Bearer ${whatsappToken(connection.accessToken)}`,
           'Content-Type': 'application/json',
         },
         timeout: 15000,

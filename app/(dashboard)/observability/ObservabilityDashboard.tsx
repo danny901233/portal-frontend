@@ -121,6 +121,36 @@ interface GarageStat {
   capturedRevenue: number;
 }
 
+// Faults found by the call defect scanner (from /api/staff/call-defects). The
+// scanner runs on a cron on the box, so this tile shows what it last wrote —
+// nothing is computed on page load.
+interface CallDefect {
+  id: string;
+  callId: string;
+  garageId: string;
+  garageName: string | null;
+  signature: string;
+  severity: 'high' | 'medium' | 'low' | string;
+  detail: string;
+  callAt: string;
+}
+interface CallDefects {
+  bySignature: { signature: string; severity: string; count: number }[];
+  recent: CallDefect[];
+  lastScanAt: string | null;
+}
+
+// What each signature means, in the words of the fault rather than the field
+// name, so the tile does not need a key to read it.
+const DEFECT_LABELS: Record<string, string> = {
+  'silent-call': 'Caller heard nothing back',
+  'reg-not-from-caller': 'Plate never spoken by the caller',
+  'tool-never-completed': 'Message or booking never finished',
+  'false-booking-claim': 'Booking claimed but not made',
+  'mid-call-regreeting': 'Agent greeted the caller twice',
+  'negative-feedback': 'Garage marked the call down',
+};
+
 // Chat-agent tool-call health for the staff observability tile (from /api/staff/chat-tool-stats).
 interface ChatToolStats {
   overall: { total: number; success: number; failed: number; successRate: number };
@@ -255,6 +285,7 @@ export function ObservabilityDashboard() {
   const [expandedAbandonmentReason, setExpandedAbandonmentReason] = useState<'noTimeslots' | 'cost' | 'noMatchingService' | 'humanRequest' | 'other' | null>(null);
   const [garageStats, setGarageStats] = useState<GarageStat[]>([]);
   const [chatToolStats, setChatToolStats] = useState<ChatToolStats | null>(null);
+  const [callDefects, setCallDefects] = useState<CallDefects | null>(null);
   const [garageStatMetric, setGarageStatMetric] = useState<'callCount' | 'bookingCount' | 'totalDurationSeconds' | 'capturedRevenue'>('callCount');
   // Failure-type filter for the AI-flagged worklist (null = show all).
   const [flaggedCategoryFilter, setFlaggedCategoryFilter] = useState<string | null>(null);
@@ -359,6 +390,19 @@ export function ObservabilityDashboard() {
         }
       } catch (ctErr) {
         console.error('Error fetching chat tool stats:', ctErr);
+      }
+
+      // Staff call-fault scanner output — the faults a call summary does not show.
+      try {
+        if (isReceptionMateStaff()) {
+          const cdRes = await fetch(
+            `/api/staff/call-defects?startDate=${startDate.toISOString()}&endDate=${now.toISOString()}`,
+            { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
+          );
+          if (cdRes.ok) setCallDefects(await cdRes.json());
+        }
+      } catch (cdErr) {
+        console.error('Error fetching call defects:', cdErr);
       }
     } catch (error) {
       console.error('Error fetching observability data:', error);
@@ -1091,6 +1135,99 @@ export function ObservabilityDashboard() {
                     </ul>
                   )}
                 </div>
+              </div>
+            </div>
+          )}
+        </div>
+      ) : null}
+
+      {_isStaff && callDefects ? (
+        <div className="rounded-xl border border-rose-200 bg-rose-50/40 p-5">
+          <h2 className="flex items-center gap-2 text-lg font-semibold text-slate-900">
+            Call faults
+            <span className="text-[11px] font-normal uppercase tracking-wide text-slate-400">staff only</span>
+          </h2>
+          <p className="text-xs text-slate-500">
+            Found by scanning every call for faults a summary does not show — a caller who heard
+            nothing, a plate the caller never said, a message that gathered everything and recorded
+            nothing. Runs on the box every 15 minutes.
+          </p>
+          {/* An empty panel and a stopped scanner look identical, so say which it is. */}
+          <p className="mt-1 text-[11px] text-slate-400">
+            {callDefects.lastScanAt
+              ? `Scanner last wrote at ${new Date(callDefects.lastScanAt).toLocaleString('en-GB')}`
+              : 'The scanner has never written anything — it may not be running.'}
+          </p>
+
+          {callDefects.bySignature.length === 0 ? (
+            <p className="mt-3 text-sm text-slate-500">No faults found in this period.</p>
+          ) : (
+            <div className="mt-4 space-y-5">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {callDefects.bySignature.map((sig) => (
+                  <div
+                    key={`${sig.signature}-${sig.severity}`}
+                    className="rounded-lg border border-slate-200 bg-white p-3"
+                  >
+                    <div className="flex items-baseline justify-between gap-2">
+                      <p className="text-2xl font-bold text-slate-900">{sig.count}</p>
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${
+                          sig.severity === 'high'
+                            ? 'bg-rose-100 text-rose-700'
+                            : sig.severity === 'medium'
+                              ? 'bg-amber-100 text-amber-700'
+                              : 'bg-slate-100 text-slate-600'
+                        }`}
+                      >
+                        {sig.severity}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-xs font-medium text-slate-700">
+                      {DEFECT_LABELS[sig.signature] || sig.signature}
+                    </p>
+                    <p className="text-[10px] text-slate-400">{sig.signature}</p>
+                  </div>
+                ))}
+              </div>
+
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Most recent
+                </p>
+                <ul className="mt-2 divide-y divide-slate-200 overflow-hidden rounded-lg border border-slate-200 bg-white">
+                  {callDefects.recent.slice(0, 25).map((d) => (
+                    <li key={d.id} className="px-3 py-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${
+                            d.severity === 'high'
+                              ? 'bg-rose-100 text-rose-700'
+                              : d.severity === 'medium'
+                                ? 'bg-amber-100 text-amber-700'
+                                : 'bg-slate-100 text-slate-600'
+                          }`}
+                        >
+                          {DEFECT_LABELS[d.signature] || d.signature}
+                        </span>
+                        {/* New tab, like the worklist above, so you keep your place. */}
+                        <a
+                          href={`/calls/${d.callId}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-xs font-medium text-indigo-600 hover:underline"
+                        >
+                          {d.callId}
+                        </a>
+                        <span className="text-xs text-slate-500">{d.garageName || d.garageId}</span>
+                        <span className="text-[11px] text-slate-400">
+                          {new Date(d.callAt).toLocaleString('en-GB')}
+                        </span>
+                      </div>
+                      <p className="mt-0.5 text-xs text-slate-600">{d.detail}</p>
+                    </li>
+                  ))}
+                </ul>
               </div>
             </div>
           )}

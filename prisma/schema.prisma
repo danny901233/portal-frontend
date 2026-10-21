@@ -952,6 +952,30 @@ model ChatToolCall {
   @@index([toolName, success])
 }
 
+// A fault found in a call by the defect scanner (backend/scripts/call-defect-scan.cjs),
+// which runs on a pm2 cron and writes what it finds here for /observability to
+// read. Derived data: safe to delete and rebuild by rescanning.
+//
+// Deliberately NOT alerting. The watchdog owns outages and pages; these are
+// quality faults that belong on a page someone reads, not in an SMS. Each row
+// is one signature on one call, so the unique constraint makes a rescan
+// idempotent and the scan window can overlap freely.
+model CallDefect {
+  id        String   @id @default(cuid())
+  callId    String
+  garageId  String
+  signature String // silent-call | reg-not-from-caller | tool-never-completed | ...
+  severity  String // high | medium | low
+  detail    String // written for a human reading the page, not for parsing
+  callAt    DateTime // when the CALL happened, which is what the page filters on
+  createdAt DateTime @default(now()) // when the scanner noticed
+
+  @@unique([callId, signature])
+  @@index([callAt])
+  @@index([garageId, callAt])
+  @@index([signature, callAt])
+}
+
 // Garage-side rating of an AI conversation. Mirrors CallFeedback exactly so
 // the weekly negative-feedback audit process (Monday SOP) can classify calls
 // and messages with the same buckets. One row per conversation — upsert on

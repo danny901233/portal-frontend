@@ -1,0 +1,150 @@
+/**
+ * Call defect scanner — finds the faults a call summary does not show, and
+ * writes them to CallDefect for /observability to read.
+ *
+ * Scheduled by pm2 cron-restart. It does NOT alert: the watchdog owns outages
+ * and pages a human; these are quality faults that belong on a page someone
+ * reads. Exits after each run.
+ *
+ *   node scripts/call-defect-scan.cjs            scan and write
+ *   node scripts/call-defect-scan.cjs --dry      scan and print, write nothing
+ *   node scripts/call-defect-scan.cjs --hours=36 widen the window (backfill)
+ *
+ * Two traps this file is written around, both learned the hard way on this box:
+ *
+ *   1. Load the env file beside THIS script, not the one in the cwd. pm2 may
+ *      launch us from the repo root, whose .env holds only DATABASE_URL —
+ *      and because Prisma loads that itself, everything would appear to work.
+ *   2. Never gate the run on `require.main === module`. pm2 fork mode requires
+ *      the script from its own wrapper, so that condition is never true and the
+ *      process exits 0 having done nothing, looking perfectly healthy. The
+ *      default here is to RUN; a test opts out with DEFECT_SCAN_NO_AUTORUN=1.
+ */
+require('dotenv').config();
+require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
+
+const { PrismaClient } = require('@prisma/client');
+const { scanDefects } = require('./lib/call-defects.cjs');
+
+const prisma = new PrismaClient();
+
+// Three hours of calls per run, every 15 minutes. Call has no index on
+// createdAt, so every one of these is a sequential scan of a ~300MB table —
+// keep the window small and let overlapping runs rely on idempotency.
+const WINDOW_HOURS = Number(process.env.DEFECT_SCAN_HOURS || 3);
+
+/**
+ * Which calls this run should look at.
+ *
+ * The window alone is not enough: a garage rates a call hours or days after it
+ * happened, so feedback given this afternoon on Monday's call would never be
+ * picked up by a rolling three-hour window. Any call with fresh feedback is
+ * pulled in regardless of its age.
+ */
+function callIdsToScan({ windowCallIds, feedbackCallIds }) {
+  return [...new Set([...(windowCallIds || []), ...(feedbackCallIds || [])])].filter(Boolean);
+}
+
+async function run({ dry = false, hours = WINDOW_HOURS } = {}) {
+  const since = new Date(Date.now() - hours * 3600 * 1000);
+
+  const windowCalls = await prisma.call.findMany({
+    where: { createdAt: { gte: since }, garage: { isTestAccount: false, archivedAt: null } },
+    select: { id: true },
+  });
+  // Feedback is keyed on the call's short id, and the row may be older than the
+  // window, so this is a separate lookup rather than a join on the window.
+  const freshFeedback = await prisma.callFeedback.findMany({
+    where: { createdAt: { gte: since } },
+    select: { callId: true, rating: true, reasons: true, notes: true },
+  });
+
+  const ids = callIdsToScan({
+    windowCallIds: windowCalls.map((c) => c.id),
+    feedbackCallIds: freshFeedback.map((f) => f.callId),
+  });
+  if (!ids.length) {
+    console.log(`[defects] ${new Date().toISOString()} nothing in window (${hours}h)`);
+    return { scanned: 0, found: 0 };
+  }
+
+  const calls = await prisma.call.findMany({
+    where: { id: { in: ids } },
+    select: {
+      id: true, garageId: true, createdAt: true, durationSeconds: true,
+      registrationNumber: true, confirmedBooking: true, metrics: true, transcript: true,
+      garage: { select: { name: true, isTestAccount: true, archivedAt: true } },
+    },
+  });
+  const live = calls
+    .filter((c) => c.garage && !c.garage.isTestAccount && !c.garage.archivedAt)
+    .map((c) => ({ ...c, garageName: c.garage.name }));
+
+  const findings = scanDefects(live, { feedback: freshFeedback });
+
+  if (dry) {
+    const bySig = {};
+    for (const f of findings) bySig[f.signature] = (bySig[f.signature] || 0) + 1;
+    console.log(`[defects] DRY scanned=${live.length} found=${findings.length} ${JSON.stringify(bySig)}`);
+    for (const f of findings.slice(0, 15)) {
+      console.log(`  ${f.severity.padEnd(6)} ${f.signature.padEnd(22)} ${f.callId} ${f.garageName || ''}`);
+    }
+    return { scanned: live.length, found: findings.length };
+  }
+
+  // Rewrite each scanned call's findings rather than upserting them one by one:
+  // a finding can legitimately DISAPPEAR on a rescan (a garage changes a rating
+  // from down to up), and an upsert-only pass would leave the stale row behind.
+  const byCall = new Map();
+  for (const f of findings) {
+    if (!byCall.has(f.callId)) byCall.set(f.callId, []);
+    byCall.get(f.callId).push(f);
+  }
+  let written = 0;
+  for (const call of live) {
+    const mine = byCall.get(call.id) || [];
+    await prisma.$transaction([
+      prisma.callDefect.deleteMany({ where: { callId: call.id } }),
+      ...(mine.length
+        ? [prisma.callDefect.createMany({
+            data: mine.map((f) => ({
+              callId: f.callId,
+              garageId: f.garageId || call.garageId,
+              signature: f.signature,
+              severity: f.severity,
+              detail: String(f.detail).slice(0, 2000),
+              callAt: call.createdAt,
+            })),
+            skipDuplicates: true,
+          })]
+        : []),
+    ]);
+    written += mine.length;
+  }
+
+  const bySig = {};
+  for (const f of findings) bySig[f.signature] = (bySig[f.signature] || 0) + 1;
+  console.log(`[defects] ${new Date().toISOString()} scanned=${live.length} written=${written} ${JSON.stringify(bySig)}`);
+  return { scanned: live.length, found: written };
+}
+
+async function main() {
+  const dry = process.argv.includes('--dry');
+  const hoursArg = process.argv.find((a) => a.startsWith('--hours='));
+  const hours = hoursArg ? Number(hoursArg.split('=')[1]) : WINDOW_HOURS;
+  try {
+    await run({ dry, hours });
+  } catch (err) {
+    // A monitor must fail loud. Print and exit non-zero so pm2's log shows it.
+    console.error('[defects] run failed:', err && err.message);
+    process.exitCode = 1;
+  } finally {
+    await prisma.$disconnect().catch(() => {});
+  }
+}
+
+if (!process.env.DEFECT_SCAN_NO_AUTORUN) {
+  main();
+}
+
+module.exports = { run, callIdsToScan, WINDOW_HOURS };

@@ -1106,6 +1106,70 @@ router.get(
 
 // Staff-only chat-agent observability: tool-call success rates per tool & per agent type,
 // recent failures, and overall volume. Aggregated in SQL (groupBy) — never hydrates every row.
+// Faults found by the defect scanner (backend/scripts/call-defect-scan.cjs), for the
+// /observability panel. Reads the derived CallDefect table rather than scanning
+// calls on request: the scan needs the `metrics` column, which is the expensive
+// one (it is what made the calls list time out), so it runs on a cron instead.
+router.get('/staff/call-defects', authenticate, async (req: Request, res: Response) => {
+  try {
+    if (req.user?.role !== 'RECEPTIONMATE_STAFF') {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const { startDate, endDate, signature } = req.query;
+    if ((startDate && Array.isArray(startDate)) || (endDate && Array.isArray(endDate))) {
+      return res.status(400).json({ error: 'Invalid query parameters' });
+    }
+    const callAt: Prisma.DateTimeFilter = {};
+    if (typeof startDate === 'string' && startDate.trim()) {
+      const d = new Date(startDate);
+      if (Number.isNaN(d.getTime())) return res.status(400).json({ error: 'Invalid startDate parameter' });
+      callAt.gte = d;
+    }
+    if (typeof endDate === 'string' && endDate.trim()) {
+      const d = new Date(endDate);
+      if (Number.isNaN(d.getTime())) return res.status(400).json({ error: 'Invalid endDate parameter' });
+      callAt.lte = d;
+    }
+    const where: Prisma.CallDefectWhereInput = {};
+    if (Object.keys(callAt).length > 0) where.callAt = callAt;
+    if (typeof signature === 'string' && signature.trim()) where.signature = signature.trim();
+
+    const [bySignature, recent, lastScan] = await Promise.all([
+      prisma.callDefect.groupBy({ by: ['signature', 'severity'], where, _count: { _all: true } }),
+      prisma.callDefect.findMany({
+        where,
+        orderBy: [{ callAt: 'desc' }],
+        take: 100,
+        select: {
+          id: true, callId: true, garageId: true, signature: true,
+          severity: true, detail: true, callAt: true,
+        },
+      }),
+      // When the scanner last wrote anything, so the page can say outright that
+      // it has gone quiet rather than showing an empty panel that looks healthy.
+      prisma.callDefect.findFirst({ orderBy: { createdAt: 'desc' }, select: { createdAt: true } }),
+    ]);
+
+    const garageIds = [...new Set(recent.map((r) => r.garageId).filter(Boolean))];
+    const garages = garageIds.length
+      ? await prisma.garage.findMany({ where: { id: { in: garageIds } }, select: { id: true, name: true } })
+      : [];
+    const nameById = new Map(garages.map((g) => [g.id, g.name]));
+
+    return res.json({
+      bySignature: bySignature
+        .map((r) => ({ signature: r.signature, severity: r.severity, count: r._count._all }))
+        .sort((a, b) => b.count - a.count),
+      recent: recent.map((r) => ({ ...r, garageName: nameById.get(r.garageId) || null })),
+      lastScanAt: lastScan?.createdAt ?? null,
+    });
+  } catch (error) {
+    console.error('[CALLS] GET /staff/call-defects error:', error);
+    return res.status(500).json({ error: 'Failed to load call defects' });
+  }
+});
+
 router.get('/staff/chat-tool-stats', authenticate, async (req: Request, res: Response) => {
   try {
     if (req.user?.role !== 'RECEPTIONMATE_STAFF') {

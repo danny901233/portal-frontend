@@ -13,9 +13,16 @@
  * Alerts go out ONCE per issue (email + SMS), with a "recovered" message when it clears, using a
  * small state file so we don't spam. Scheduled by pm2 cron-restart every 5 minutes.
  *
- * Run from the backend dir so @prisma/client + dotenv resolve. Exits after each run.
+ * Exits after each run.
  */
+// Load the env file next to THIS script, not the one in whatever directory pm2
+// launched us from. pm2 ran us with cwd=<repo root> on 21 Oct 2026, whose .env
+// holds only DATABASE_URL — and because Prisma loads that variable itself, every
+// DB check kept working while Mailgun, Twilio and DynamoDB silently went missing.
+// The watchdog found a real issue at 07:00 and could not tell anyone.
+// cwd first so a deliberate local override still wins (dotenv never overwrites).
 require('dotenv').config();
+require('dotenv').config({ path: require('path').join(__dirname, '.env') });
 const fs = require('fs');
 const https = require('https');
 const { PrismaClient } = require('@prisma/client');

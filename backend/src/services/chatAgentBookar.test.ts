@@ -7,6 +7,9 @@ import {
   normaliseTime,
   looksLikeVrm,
   isSlotInFuture,
+  describeAppointment,
+  nextBookingAttemptAllowed,
+  dropOffDirective,
 } from './chatAgentBookar.js';
 
 // ---------------------------------------------------------------------------
@@ -107,4 +110,103 @@ test('words with no digits, and digits with no letters, are not plates', () => {
   assert.equal(looksLikeVrm('service'), false);
   assert.equal(looksLikeVrm('07428245673'), false);
   assert.equal(looksLikeVrm(''), false);
+});
+
+// ---------------------------------------------------------------------------
+// Drop-off slots ARE bookable (fault A)
+//
+// The write guard assumed a drop-off token was "a guaranteed 400" on
+// POST /v1/bookings and bailed before sending, so EVERY booking on a
+// drop-off-only service died at the last step — after we had the customer's
+// name, plate, email and an explicit yes.
+//
+// Measured against the live Partner API on 2026-10-21, EAC Telford, Full
+// Service (120), Mon 2 Nov: posting {"date":"2026-11-02","time":"AM_DROP_OFF"}
+// was ACCEPTED and came back reference 8pOZ81y3qn, status scheduled, with
+// Bookar resolving the token itself into appointment 08:00:00 → 09:15:00.
+// Bookar wants the token exactly as availability gave it. The guard was wrong.
+//
+// Heidi Musgrave's conversation on 21 Oct is the one this was reconstructed
+// from: two failed create attempts, then "You're all set for the Major Service
+// on Monday, the 2nd of November" — a booking that did not exist.
+// ---------------------------------------------------------------------------
+
+test('a resolved drop-off reads back as a real time, not as a token', () => {
+  // Bookar turns the token into a clock time on the way in. The customer must
+  // hear that time — "that morning" is what we said to Heidi, and it left her
+  // asking twice whether the car would be there all day.
+  assert.equal(
+    describeAppointment(
+      { date: '2026-11-02', time: 'AM_DROP_OFF' },
+      { date: '2026-11-02', time: '08:00:00', start: '2026-11-02T08:00:00+00:00', end: '2026-11-02T09:15:00+00:00' },
+    ),
+    '2026-11-02, drop off from 08:00 (ready by 09:15)',
+  );
+});
+
+test('a drop-off with no resolved time never invents one', () => {
+  assert.equal(
+    describeAppointment({ date: '2026-11-02', time: 'AM_DROP_OFF' }, undefined),
+    '2026-11-02, drop off that morning',
+  );
+});
+
+test('an ordinary timed slot is unchanged', () => {
+  assert.equal(
+    describeAppointment({ date: '2026-11-02', time: '14:30:00' }, { date: '2026-11-02', time: '14:30:00' }),
+    '2026-11-02 at 14:30',
+  );
+});
+
+// ---------------------------------------------------------------------------
+// A failed booking is not retryable and not silent (fault B)
+//
+// The agent called bk_create_booking, got dropoff_slot_not_bookable, was told
+// "Do NOT retry bk_create_booking" in the result itself — and retried 15
+// seconds later. Then it told the customer she was all set. needsAttention
+// stayed false, so nothing was flagged to the garage either.
+//
+// A directive the model can read is a directive the model can ignore. The
+// second attempt has to be refused in code.
+// ---------------------------------------------------------------------------
+
+test('a second create attempt is refused after the API rejected the first', () => {
+  assert.equal(nextBookingAttemptAllowed({ bookingFailed: true, bookingConfirmed: false }), false);
+});
+
+test('a first attempt, and an untouched session, are allowed', () => {
+  assert.equal(nextBookingAttemptAllowed({ bookingConfirmed: false }), true);
+  assert.equal(nextBookingAttemptAllowed({ bookingFailed: false, bookingConfirmed: false }), true);
+});
+
+test('a booking that succeeded blocks another create too', () => {
+  // Already guarded by a prompt line; make it structural so one conversation
+  // cannot produce two bookings for the same customer.
+  assert.equal(nextBookingAttemptAllowed({ bookingConfirmed: true }), false);
+});
+
+// ---------------------------------------------------------------------------
+// The heading is named on drop-off days too (fault C)
+//
+// bk_list_availability's normal return carries `booking_for` plus "that is the
+// heading this booking will carry ... Never read back a service you have not
+// actually checked availability for". The drop-off branch returned early and
+// carried NEITHER.
+//
+// So when Heidi asked for a "major service", the agent matched it to Full
+// Service (120) silently and quoted £306.17 as though that were her job.
+// ---------------------------------------------------------------------------
+
+test('the drop-off directive still names the heading being booked', () => {
+  const d = dropOffDirective('AM_DROP_OFF', 'Full Service');
+  assert.match(d, /Full Service/);
+  assert.match(d, /drop-off/i);
+  // The token must never be read back as a clock time.
+  assert.match(d, /never/i);
+});
+
+test('the drop-off directive holds up with no heading resolved', () => {
+  const d = dropOffDirective('AM_DROP_OFF', '');
+  assert.match(d, /drop-off/i);
+  assert.doesNotMatch(d, /undefined/);
 });

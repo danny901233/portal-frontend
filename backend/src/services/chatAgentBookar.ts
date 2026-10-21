@@ -98,6 +98,10 @@ interface BookarSessionState {
   bookingConfirmed: boolean;
   bookingReference?: string;
   bookingDetails?: string;                        // human-readable summary, e.g. "MOT on 2026-08-04 at 10:00"
+  // A create attempt reached Bookar and was rejected. Blocks a second attempt in code, because
+  // on 21 Oct the agent retried 15 seconds after a result that said "Do NOT retry" — then told
+  // the customer she was booked. See nextBookingAttemptAllowed().
+  bookingFailed?: boolean;
 
   // Manage-existing flow (caller quoted a reference)
   existingBookingRef?: string;
@@ -300,6 +304,69 @@ export function toWireTime(t: string): string {
   if (!isClockTime(raw)) return raw;
   const [h, m, s] = raw.split(':');
   return `${h.padStart(2, '0')}:${m}:${s ?? '00'}`;
+}
+
+// How a booked slot reads back to the customer and in the portal.
+//
+// A drop-off token is not a time, but Bookar resolves it into one on the write and returns it
+// in `appointment` — "AM_DROP_OFF" on 2 Nov came back 08:00:00 → 09:15:00. That resolved time
+// is the only reason the customer can be told anything useful: we told Heidi Musgrave "that
+// morning", and she asked twice whether the car would be there all day because of it.
+//
+// Falls back to the vaguer wording when Bookar returns no appointment, rather than inventing a
+// clock time of our own.
+export function describeAppointment(
+  slot: { date: string; time: string },
+  appointment?: { date?: string; time?: string; start?: string; end?: string },
+): string {
+  const date = appointment?.date || slot.date;
+  if (isClockTime(slot.time)) return `${date} at ${normaliseTime(slot.time)}`;
+
+  const from = appointment?.time && isClockTime(appointment.time)
+    ? normaliseTime(appointment.time)
+    : '';
+  if (!from) return `${date}, drop off that morning`;
+
+  // The end time is what actually answers "will it be there all day?".
+  const readyBy = appointment?.end?.slice(11, 16) || '';
+  return readyBy
+    ? `${date}, drop off from ${from} (ready by ${readyBy})`
+    : `${date}, drop off from ${from}`;
+}
+
+// May this conversation call bk_create_booking?
+//
+// The prompt has said "NEVER call bk_create_booking twice" since the agent was written, and on
+// 21 Oct the agent called it twice anyway — 15 seconds after a result that said, in those words,
+// "Do NOT retry bk_create_booking". A directive the model can read is a directive it can ignore,
+// so the refusal has to live here.
+export function nextBookingAttemptAllowed(
+  session: { bookingFailed?: boolean; bookingConfirmed?: boolean },
+): boolean {
+  if (session.bookingConfirmed) return false;
+  if (session.bookingFailed) return false;
+  return true;
+}
+
+// What to tell the model when availability came back as drop-off days.
+//
+// This used to return early carrying ONLY the drop-off wording, dropping the `booking_for`
+// heading sentence the timed branch has always sent. That is why the agent quoted Heidi
+// £306.17 for a "major service" without ever saying it had matched her to "Full Service":
+// on a drop-off garage it was never told to name the heading.
+export function dropOffDirective(token: string, heading: string): string {
+  const base =
+    `Slots shown as "${token}" are DROP-OFF days, not appointment times: the customer leaves ` +
+    'the vehicle with us that morning. Offer the DATE only and say they can drop it in that ' +
+    'morning. NEVER read one of these back as a clock time, and never pass a time of your own ' +
+    'to bk_confirm_slot — pass the token exactly as it appears here.';
+  if (!heading) return base;
+  return (
+    `${base} These days are for "${heading}" — that is the heading this booking will carry, and ` +
+    'you must say that name to the customer before they agree to it. If it is not the heading ' +
+    'you told them about, say the right one now or call bk_list_availability again with the ' +
+    'correct id. Never read back a service you have not actually checked availability for.'
+  );
 }
 
 // Money format for logs/summaries — the LLM has its own natural-language rule
@@ -816,6 +883,48 @@ function bookingForNames(session: BookarSessionState, serviceIds: number[]): str
   return names.join(' + ');
 }
 
+// A booking attempt that reached Bookar and failed is the one case where the customer has given
+// us everything and still has nothing. Flag it so it surfaces in the Messages inbox and in the
+// push/email alerts, exactly as bk_take_message does.
+//
+// Deliberately NOT agentPaused, unlike take_message: there is no human in the loop yet and the
+// agent still has to close the conversation politely. Pausing it mid-turn would leave the
+// customer mid-sentence on top of having no booking.
+async function flagFailedBooking(
+  conversationId: string,
+  session: BookarSessionState,
+  garageId: string,
+): Promise<void> {
+  if (!conversationId) return;
+  try {
+    await prisma.chatConversation.updateMany({
+      where: { id: conversationId },
+      data: {
+        needsAttention: true,
+        ...(session.customerName  ? { customerName:  session.customerName }  : {}),
+        ...(session.customerPhone ? { customerPhone: session.customerPhone } : {}),
+      },
+    });
+    void notifyFlaggedConversation(conversationId);
+    void notifyMessaging({ conversationId, event: 'escalated' });
+    console.error(
+      `[BOOKAR_AGENT] [BOOKING FAILED] ${JSON.stringify({
+        timestamp: new Date().toUTCString(),
+        conversationId,
+        garageId,
+        customer: session.customerName,
+        phone: session.customerPhone,
+        vrm: session.vrm,
+        services: session.selectedServiceIds,
+        slot: session.selectedSlot,
+      })}`,
+    );
+  } catch (e: any) {
+    // Never let the flagging failure mask the booking failure we were reporting.
+    console.error(`[BOOKAR_AGENT] Failed to flag failed booking:`, e?.message);
+  }
+}
+
 async function executeTool(
   name: string,
   args: any,
@@ -1188,12 +1297,13 @@ async function executeTool(
             count: flat.length,
             next_slots: flat,
             searched: { from: dateFrom, to: dateTo, service_ids: serviceIds },
-            directive:
-              `Slots shown as "${dropOffDays[0].time}" are DROP-OFF days, not appointment ` +
-              'times: the customer leaves the vehicle with us that morning. Offer the DATE ' +
-              'only and say they can drop it in that morning. NEVER read one of these back ' +
-              'as a clock time, and never pass a time of your own to bk_confirm_slot — pass ' +
-              'the token exactly as it appears here.',
+            // booking_for travels on this branch too. It used to return early with the
+            // drop-off wording ALONE, dropping the heading sentence the timed branch below
+            // has always carried — so on a drop-off garage the agent was never told to name
+            // the service it had matched. That is how "major service" was quoted £306.17 as
+            // Full Service without the customer ever hearing the words "Full Service".
+            booking_for: bookingForNames(session, serviceIds),
+            directive: dropOffDirective(dropOffDays[0].time, bookingForNames(session, serviceIds)),
           };
         }
         return {
@@ -1276,6 +1386,34 @@ async function executeTool(
 
       case 'bk_create_booking': {
         if (!client) return { error: 'Bookar API not configured for this garage' };
+        // Refused in code, not in a directive. The prompt has said "NEVER call
+        // bk_create_booking twice" from the start and the result of the first failure said
+        // "Do NOT retry bk_create_booking" in those words; the agent retried anyway, 15
+        // seconds later, and then told the customer she was booked.
+        if (!nextBookingAttemptAllowed(session)) {
+          const already = session.bookingConfirmed && session.bookingReference;
+          return {
+            error: already ? 'booking_already_created' : 'booking_already_failed',
+            ...(already
+              ? {
+                  reference: session.bookingReference,
+                  directive:
+                    `This conversation already has booking ${session.bookingReference} ` +
+                    `(${session.bookingDetails || ''}). Do not create another. If the customer ` +
+                    'wants a different slot, call bk_reschedule_booking with that reference.',
+                }
+              : {
+                  directive:
+                    'A booking attempt has ALREADY been made in this conversation and the ' +
+                    'booking system rejected it. There is no booking. You must not try again, ' +
+                    'and you must not tell the customer they are booked, booked in, all set, ' +
+                    'confirmed or anything to that effect — that would be untrue. Tell them ' +
+                    'plainly that you could not complete it on the system, that the team has ' +
+                    'been alerted and will contact them to confirm, and ' +
+                    handoverDirective(messagingHandoff),
+                }),
+          };
+        }
         return await bookarCreateBooking(
           session, conversationId, garageId, client, messagingHandoff,
           String(args.job_description || '').trim().slice(0, 300),
@@ -1419,29 +1557,14 @@ async function bookarCreateBooking(
   if (!session.selectedSlot) {
     return { error: 'no_slot', directive: 'Call bk_list_availability, offer slots, and call bk_confirm_slot once the customer picks one.' };
   }
-  // A drop-off token is not a time Bookar will accept on a write: POST /v1/bookings
-  // validates app_time as a clock time, so sending "AM_DR" is a guaranteed 400 and
-  // burns the booking at the very last step, after the customer has given us
-  // everything. Stop here instead and hand over while we still have them.
+  // A drop-off token IS writable. This used to stop here, on the theory that POST /v1/bookings
+  // validates app_time as a clock time and would 400 on "AM_DROP_OFF" — so every booking on a
+  // drop-off-only service died at the last step, after the customer had given us everything.
   //
-  // This is a whole category, not an edge case — EAC Telford's services 2 and 6
-  // offer nothing BUT drop-off days, so every booking attempt on them ends here
-  // until we know how Bookar wants a drop-off written.
-  if (!isClockTime(session.selectedSlot.time)) {
-    console.error(
-      `[BOOKAR_AGENT] Drop-off slot cannot be written to Bookar: ` +
-        `${session.selectedSlot.date} "${session.selectedSlot.time}" ` +
-        `(garage=${garageId}, services=${session.selectedServiceIds.join(',')})`,
-    );
-    return {
-      error: 'dropoff_slot_not_bookable',
-      directive:
-        'That day is a drop-off rather than a timed appointment, and the booking system ' +
-        'will not take it directly. Do NOT retry bk_create_booking, and do NOT invent a ' +
-        'clock time for it. Tell the customer we can take the vehicle in that morning, ' +
-        `then ${handoverDirective(messagingHandoff)}`,
-    };
-  }
+  // Measured against the live Partner API on 2026-10-21 (EAC Telford, Full Service 120, Mon
+  // 2 Nov): posting the token exactly as availability gave it was ACCEPTED, and Bookar resolved
+  // it itself into appointment 08:00:00 → 09:15:00. toWireTime already leaves a token whole, so
+  // the body was correct all along; only this guard was wrong. Pass it straight through.
   if (!session.customerName)  return { error: 'no_name',  directive: 'Ask for the customer name and call bk_save_customer_details.' };
   if (!session.customerPhone) return { error: 'no_phone', directive: 'Confirm the phone number and call bk_save_customer_details.' };
   if (!session.customerEmail) return { error: 'no_email', directive: "Ask for an email address (required for Bookar's confirmation) and call bk_save_customer_details." };
@@ -1480,6 +1603,15 @@ async function bookarCreateBooking(
   try {
     booking = await client.createBooking(body, idempotencyKey);
   } catch (e: any) {
+    // The attempt reached Bookar and lost. Two things must happen before we return, whatever
+    // the status was: the conversation is barred from trying again (the model has ignored
+    // "do NOT retry" in plain words), and the garage is told. Heidi Musgrave's booking failed
+    // twice on 21 Oct with needsAttention still false, so the only trace was a summary email
+    // saying no booking — nobody knew a customer had been told she was booked.
+    session.bookingFailed = true;
+    await saveSession(conversationId, session);
+    await flagFailedBooking(conversationId, session, garageId);
+
     if (e instanceof BookarError) {
       console.error(`[BOOKAR_AGENT] createBooking failed (status=${e.status}):`, e.body);
       // A 400 is a validation failure on what WE sent, not something the customer can
@@ -1521,7 +1653,9 @@ async function bookarCreateBooking(
   // per-conversation summary email.
   const heading = chosen.length ? chosen.map((s) => s.name).join(', ') : 'Booking';
   const job = jobDescription ? ` — ${jobDescription}` : '';
-  const summary = `${heading}${job} on ${session.selectedSlot.date} at ${normaliseTime(session.selectedSlot.time)}`;
+  // Read the time back off Bookar's own response, not off the token we sent: a drop-off day
+  // otherwise records as "at AM_DROP_OFF" in the portal and in the garage's summary email.
+  const summary = `${heading}${job} on ${describeAppointment(session.selectedSlot, booking.appointment)}`;
 
   // Sum of quoted service prices for capturedRevenue. Bookar returns per-service
   // totals so this is trivially deterministic — no LLM arithmetic.
@@ -1545,6 +1679,12 @@ async function bookarCreateBooking(
         // The reference lived on the session only, so the portal's own field sat empty on every
         // Bookar booking — and it is what the garage quotes back when a customer rings up.
         bookingReference: booking.reference || null,
+        // The resolved appointment instant, so a drop-off booking is queryable on the
+        // [garageId, bookingAt] index like any other. Only Bookar knows what a token resolves
+        // to, so this stays null rather than guessing when it tells us nothing.
+        ...(booking.appointment?.start
+          ? { bookingAt: new Date(booking.appointment.start) }
+          : {}),
         capturedRevenue: totalRevenue > 0 ? totalRevenue : null,
       },
     });
@@ -1569,6 +1709,7 @@ async function bookarCreateBooking(
       services: chosen.map((s) => `${s.name} (${fmtMoney(s.price?.total ?? 0)})`).join(', '),
       date: session.selectedSlot.date,
       time: normaliseTime(session.selectedSlot.time),
+      appointment: summary,
       revenue: fmtMoney(totalRevenue),
       garageId,
     })}`,
@@ -1583,8 +1724,19 @@ async function bookarCreateBooking(
     reference: booking.reference,
     status: booking.status,
     appointment: booking.appointment,
+    // Already-worded, because the model kept turning a drop-off into either a clock time it
+    // invented or a vague "that morning". Bookar has told us the real window — say it.
+    appointment_summary: summary,
     services: chosen.map((s) => s.name),
     total: fmtMoney(totalRevenue),
+    ...(isClockTime(session.selectedSlot.time)
+      ? {}
+      : {
+          directive:
+            `This is a drop-off: tell the customer "${summary}" in your own words, including ` +
+            'when they can drop it in and when it should be ready. Do NOT describe it as a ' +
+            'timed appointment, and do NOT say only "that morning" — the time is known now.',
+        }),
   };
 }
 
@@ -1820,6 +1972,12 @@ function buildSystemPrompt(
       }
       if (session.bookingConfirmed && session.bookingReference) {
         prompt += `- Booking already confirmed: ${session.bookingReference} (${session.bookingDetails || ''}) — do NOT call bk_create_booking again\n`;
+      }
+      // Carried on EVERY later turn, not just the turn that failed. The agent got this right
+      // immediately after the failure ("the team will confirm") and then contradicted itself
+      // one turn later with "you're all set" — by then the failure was out of its sight.
+      if (session.bookingFailed && !session.bookingConfirmed) {
+        prompt += `- BOOKING FAILED: a booking attempt was rejected by the booking system and THERE IS NO BOOKING. Never tell the customer they are booked, booked in, all set or confirmed. Say the team has been alerted and will contact them to confirm, and do NOT call bk_create_booking again\n`;
       }
       prompt += `\n`;
     }

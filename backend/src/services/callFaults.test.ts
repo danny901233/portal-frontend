@@ -129,11 +129,14 @@ test('a complaint about the summary\'s wording is dropped', () => {
   // exactly that, and 41254105 as carrying a wrong registration and date when
   // every detail matched. A summary is lossy by design; comparing it to a
   // transcript generates endless near-misses.
-  const out = normalizeFindings(
-    [{ category: 'summary_wrong', severity: 'medium', headline: 'Summary misstates intent',
-       detail: 'The summary describes the caller as asking about a service when they asked about an MOT.' }],
-    ctx,
-  );
+  // `summary_wrong` is deliberately no longer in the vocabulary, so the literal
+  // is passed as unknown — exactly how a model that keeps using the old name
+  // would deliver it.
+  const stale: unknown[] = [{
+    category: 'summary_wrong', severity: 'medium', headline: 'Summary misstates intent',
+    detail: 'The summary describes the caller as asking about a service when they asked about an MOT.',
+  }];
+  const out = normalizeFindings(stale, ctx);
   assert.equal(out.length, 0);
 });
 
@@ -169,6 +172,9 @@ test('the high-severity findings survive the cap', () => {
 test('the vocabulary is a closed set the page can group by', () => {
   assert.ok(FAULT_CATEGORIES.includes('dead_air'));
   assert.ok(FAULT_CATEGORIES.includes('other'));
-  assert.ok(!FAULT_CATEGORIES.includes('summary_wrong'), 'summary prose review was dropped');
+  // Widened to string[] because the literal is intentionally NOT a member —
+  // that absence is what this line is asserting.
+  assert.ok(!(FAULT_CATEGORIES as readonly string[]).includes('summary_wrong'),
+            'summary prose review was dropped');
   assert.ok(FAULT_CATEGORIES.every((c) => /^[a-z_]+$/.test(c)));
 });

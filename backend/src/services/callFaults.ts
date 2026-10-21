@@ -130,6 +130,34 @@ export function normalizeFindings(
   return out.slice(0, MAX_FINDINGS);
 }
 
+/**
+ * The FINAL outcome of each tool, which is the only one that counts.
+ *
+ * The raw timeline lists every call, and tools legitimately return an
+ * intermediate status before succeeding — `confirm_booking` asks the caller to
+ * confirm their number (CONFIRM_NUMBER) and then places the booking (OK). On
+ * call 44318520 the analyst read that first status as a failure and reported
+ * the summary as claiming a booking that had in fact been placed. Stating the
+ * last status per tool removes the guess.
+ */
+function buildToolOutcomes(metrics: unknown): string {
+  const m = (metrics ?? {}) as Record<string, unknown>;
+  const history = Array.isArray(m.tool_call_history) ? m.tool_call_history : [];
+  if (!history.length) return '(no tools were called)';
+  const last = new Map<string, { status: string; calls: number }>();
+  for (const h of history as Record<string, unknown>[]) {
+    const tool = String(h?.tool ?? '').trim();
+    if (!tool) continue;
+    const status = String(h?.status ?? '').replace(/^\s*STATUS:\s*/i, '').split('—')[0].trim();
+    const prev = last.get(tool);
+    last.set(tool, { status, calls: (prev?.calls ?? 0) + 1 });
+  }
+  return [...last.entries()]
+    .map(([tool, v]) => `${tool}: ended ${v.status || '(no status)'}`
+      + `${v.calls > 1 ? ` (called ${v.calls}x; earlier statuses were steps along the way, not failures)` : ''}`)
+    .join('\n');
+}
+
 const SYSTEM_PROMPT = [
   'You review completed calls handled by an AI receptionist for a UK garage, the way an engineer',
   'who owns that agent would: you are looking for what went WRONG, so it can be fixed.',
@@ -152,7 +180,9 @@ const SYSTEM_PROMPT = [
   '  caller actually said about their car — make, model, anything)',
   '- the agent saying something untrue, invented, or against its brief, including prices',
   '- the agent promising an email, a callback, a booking or a transfer that the tools never did',
-  '- a tool that errored, or gathered everything and never completed',
+  '- a tool that errored, or gathered everything and never completed. Judge this ONLY on how the',
+  '  tool ENDED: a status part-way through a flow is a step, not a failure, and a tool called',
+  '  several times is judged on its last result alone.',
   '- a summary that does not match what happened on the call',
   '- the caller not getting what they rang for, where the agent or the diary caused it',
   '- the agent asking for a NAME or other details BEFORE helping with what the caller rang about.',
@@ -239,6 +269,9 @@ export async function findCallFaults(input: {
     + `Summary the garage was sent: ${input.summary || '(none)'}\n\n`
     + `THIS GARAGE'S AGENT (what it was and was not given):\n${buildAgentContext(input.metrics)}\n\n`
     + `TOOL TIMELINE (arguments and results):\n${buildToolTimeline(input.metrics)}\n\n`
+    // The timeline alone made it read a mid-flow status as a failure.
+    + `HOW EACH TOOL ACTUALLY ENDED (judge success or failure ONLY on these):\n`
+    + `${buildToolOutcomes(input.metrics)}\n\n`
     // Registration lookups. Built weeks ago and never wired into the per-call
     // review, so no per-call pass has ever seen what the lookups returned.
     + `VEHICLE / DIARY LOOKUPS:\n${buildGhTrace(input.metrics)}\n\n`

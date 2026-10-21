@@ -407,6 +407,70 @@ const HARD_DOWN_MAX_SECONDS = 5;
 
 const onlyDigits = (s) => String(s || '').replace(/[^0-9]/g, '').replace(/^0/, '44');
 
+// ── Mute fleet: the agent answers, thinks, replies — and no AUDIO comes out ──────────────
+//
+// 21 Oct 2026, 11:44-11:53. The ElevenLabs character quota ran out mid-morning and seven
+// callers across six garages heard nothing at all. Every call recorded sixteen tts_errors in
+// metrics.provider_errors; nothing read them. A garage told us twenty minutes later, in
+// feedback: "agent just keeps typing and taking no details or replying to customer".
+//
+// None of the existing checks could see it. Heartbeat saw normal volume, because the calls
+// connected and logged. checkResponseHealth saw healthy responses, because the LLM ran and
+// produced turns — it judges whether the agent REPLIED, and the agent did; only the voice was
+// missing. So this check asks the one question the others do not: did audio reach the caller?
+//
+// Judged on MISSING AUDIO, never on error count. Call 06267466 the same morning logged 31
+// tts_errors and played fine — the plugin retried and recovered. Paging on errors would have
+// alerted about a call the caller heard perfectly.
+//
+// Not business-hours gated, unlike heartbeat. This fires on evidence (calls that happened),
+// not on absence, so it cannot produce a false overnight page: with no calls there is nothing
+// to judge and it returns nothing.
+const TTS_WINDOW_MIN = 15;
+const TTS_MIN_SILENT = 2;   // one silent call is a transient; two in a quarter hour is the fleet
+
+function ttsIssues(calls, now = new Date()) {
+  const since = now.getTime() - TTS_WINDOW_MIN * 60000;
+  const silent = (calls || []).filter((c) =>
+    new Date(c.createdAt).getTime() >= since && c.hasAudio === false);
+  if (silent.length < TTS_MIN_SILENT) return [];
+  const garages = [...new Set(silent.map((c) => c.garage))];
+  const names = garages.slice(0, 4).join(', ') + (garages.length > 4 ? ` +${garages.length - 4} more` : '');
+  return [{
+    key: 'tts:fleet',
+    msg: `NO AUDIO reaching callers: ${silent.length} call(s) in the last ${TTS_WINDOW_MIN} min `
+       + `across ${garages.length} garage(s) (${names}) produced no speech at all. `
+       + `The agent is answering and replying but callers hear silence. `
+       + `Check the ElevenLabs credit balance and status first.`,
+  }];
+}
+
+async function checkTts() {
+  const since = new Date(Date.now() - TTS_WINDOW_MIN * 60000);
+  const calls = await prisma.call.findMany({
+    where: { createdAt: { gte: since } },
+    select: { id: true, createdAt: true, garageId: true, metrics: true },
+  });
+  if (!calls.length) return [];
+  const garages = await prisma.garage.findMany({ select: { id: true, name: true, isTestAccount: true } });
+  const byId = new Map(garages.map((g) => [g.id, g]));
+  const rows = calls
+    .filter((c) => !(byId.get(c.garageId) || {}).isTestAccount)
+    .map((c) => {
+      const m = c.metrics || {};
+      const usage = Array.isArray(m.usage) ? m.usage : [];
+      const errs = Array.isArray(m.provider_errors) ? m.provider_errors : [];
+      return {
+        id: c.id,
+        garage: (byId.get(c.garageId) || {}).name || c.garageId,
+        createdAt: c.createdAt,
+        hasAudio: usage.some((u) => u && u.provider === 'ElevenLabs'),
+        ttsErrors: errs.filter((e) => e && e.kind === 'tts_error').length,
+      };
+    });
+  return ttsIssues(rows);
+}
+
 async function checkUnanswered() {
   const issues = [];
   if (!process.env.TWILIO_ACCOUNT_SID || !process.env.TWILIO_AUTH_TOKEN) return issues;
@@ -956,8 +1020,11 @@ async function main() {
       .map(([key, msg]) => ({ key, msg }));
   }
 
+  // Evidence-driven, so it runs whenever calls exist — including out of hours.
+  const tts = await checkTts();
+
   const current = {};
-  [...heartbeat, ...responseHealth, ...unanswered, ...routing, ...unifiedRouting, ...configSync, ...waTokens, ...metaPages,
+  [...tts, ...heartbeat, ...responseHealth, ...unanswered, ...routing, ...unifiedRouting, ...configSync, ...waTokens, ...metaPages,
     ...(rateIssue ? [rateIssue] : [])]
     .forEach((i) => { current[i.key] = i.msg; });
 
@@ -1012,7 +1079,8 @@ async function main() {
 
 // Exported so a test can exercise the helpers without a real run against the production
 // database and the real alert channels.
-module.exports = { runCadence, pingDeadMan, MIN_RUN_GAP_MS, FAST_RUNS_BEFORE_ALERT, RATE_KEY };
+module.exports = { runCadence, pingDeadMan, MIN_RUN_GAP_MS, FAST_RUNS_BEFORE_ALERT, RATE_KEY,
+                   ttsIssues, checkTts, TTS_MIN_SILENT, TTS_WINDOW_MIN };
 
 // The default is to RUN. A test opts out explicitly by setting WATCHDOG_NO_AUTORUN before
 // requiring this file.

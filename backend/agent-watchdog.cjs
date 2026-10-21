@@ -676,6 +676,57 @@ function saveState(map) {
  */
 const WA_EXPIRY_WARN_DAYS = [14, 7];
 
+const OUR_META_APP_ID = '1600229954436428';
+
+/**
+ * Can this number actually SEND? Nothing else below answers that.
+ *
+ * EAC Telford, 20 Oct 2026 07:15 → 21 Oct 21:00: every reply failed for 38 hours and no alert
+ * fired. Six customers got silence, and eight replies were written into the portal and shown to
+ * staff as sent. The checks below all passed, correctly — the token was valid, debug_token listed
+ * the right WABA, GET /{phone_number_id} returned +44 1952 585511, quality_rating GREEN, status
+ * CONNECTED, platform CLOUD_API. Every proxy for health was healthy. The send returned only
+ * `500 {"code":1,"message":"An unknown error has occurred."}`, identically on v18, v21 and v23.
+ *
+ * `?fields=health_status` was the one endpoint that said anything true: can_send_message BLOCKED,
+ * error 141008 "The WABA status is not active", because EAC's WABA fell back on their own
+ * unverified business when they took full control of their Facebook account. So ASK, rather than
+ * inferring send capability from a token that validates and a number that reads fine.
+ *
+ * Only BLOCKED alerts. LIMITED means reduced throughput or an unapproved display name and still
+ * delivers — half the estate sits at LIMITED, so paging on it would train everyone to ignore this.
+ */
+function waHealthIssues(garageName, garageId, health) {
+  if (!health || health.can_send_message !== 'BLOCKED') return [];
+
+  const entities = Array.isArray(health.entities) ? health.entities : [];
+  const blocked = entities.filter((e) => e && e.can_send_message === 'BLOCKED');
+
+  // Whose problem it is decides who gets chased. Our app blocked is an estate-wide emergency;
+  // a blocked WABA or business is the garage's own Meta account and only they can fix it.
+  const oursBlocked = blocked.some((e) => e.entity_type === 'APP' || e.id === OUR_META_APP_ID);
+
+  const why = blocked
+    .flatMap((e) => (Array.isArray(e.errors) ? e.errors : []).map(
+      (err) => `${e.entity_type} ${err.error_code}: ${String(err.error_description || '').trim().replace(/\.$/, '')}`))
+    .join('; ') || blocked.map((e) => `${e.entity_type} blocked, no reason given`).join('; ')
+    || 'no entity detail returned';
+
+  // Name the BLOCKED entity and nothing else. A LIMITED business alongside it is a red herring:
+  // EAC's business sat unverified and LIMITED for three months and sent fine throughout, so
+  // pointing at verification sends someone chasing the wrong fix.
+  const blame = oursBlocked
+    ? 'This is OUR app — every garage on it is affected, not just this one.'
+    : "This is the garage's own Meta account and only they can clear it, with Meta directly. "
+      + 'A token swap on our side will NOT fix it.';
+
+  return [{
+    key: `wa-health:${garageId}`,
+    msg: `${garageName}: WhatsApp cannot send — Meta reports can_send_message BLOCKED. ${why}. `
+       + `${blame} Replies are still being written into the portal and shown to staff as sent.`,
+  }];
+}
+
 function graphGet(path) {
   return new Promise((resolve) => {
     https.get(`https://graph.facebook.com/v21.0${path}`, (res) => {
@@ -733,6 +784,15 @@ async function checkWhatsAppTokens({ force = false } = {}) {
       });
       continue;
     }
+    // The one question the probe above cannot answer. Asked per connection, because a WABA can
+    // go inactive while the token, the number and the quality rating all still read healthy.
+    const health = await graphGet(
+      `/${c.whatsappPhoneNumberId}?fields=health_status&access_token=${encodeURIComponent(token)}`,
+    );
+    if (!health.error) {
+      issues.push(...waHealthIssues(g.name, c.garageId, health.health_status));
+    }
+
     if (probe.quality_rating && ['RED', 'YELLOW'].includes(probe.quality_rating)) {
       issues.push({
         key: `wa-quality:${c.garageId}`,
@@ -1117,7 +1177,8 @@ async function main() {
 // Exported so a test can exercise the helpers without a real run against the production
 // database and the real alert channels.
 module.exports = { runCadence, pingDeadMan, MIN_RUN_GAP_MS, FAST_RUNS_BEFORE_ALERT, RATE_KEY,
-                   ttsIssues, checkTts, TTS_MIN_SILENT, TTS_WINDOW_MIN };
+                   ttsIssues, checkTts, TTS_MIN_SILENT, TTS_WINDOW_MIN,
+                   waHealthIssues, checkWhatsAppTokens };
 
 // The default is to RUN. A test opts out explicitly by setting WATCHDOG_NO_AUTORUN before
 // requiring this file.

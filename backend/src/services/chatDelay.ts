@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { prisma } from '../db.js';
 import { routeChatMessage } from './chatAgentRouter.js';
+import { deliverReply } from './replyDelivery.js';
 
 // Human-like WhatsApp reply delay.
 //
@@ -238,19 +239,37 @@ async function sendDelayedReply(p: HumanReplyParams): Promise<void> {
     await markSeen(p, true);
     await new Promise((r) => setTimeout(r, i === 0 ? rand(2_500, 5_000) : rand(1_200, 2_800)));
 
-    await prisma.chatMessage.create({
-      data: { conversationId: p.conversationId, role: 'assistant', content: chunks[i] },
+    // Send FIRST, record second — see deliverReply. This path wrote the row before sending, so
+    // a reply the customer never received still appeared in the thread looking answered. It is
+    // the path that handles most replies, so it mattered more than the staff route.
+    const delivered = await deliverReply('whatsapp', chunks[i], true, {
+      send: async (text) => {
+        const res = await axios.post(
+          `https://graph.facebook.com/v21.0/${p.phoneNumberId}/messages`,
+          { messaging_product: 'whatsapp', to: p.customerPhone, type: 'text', text: { body: text } },
+          { headers: { Authorization: `Bearer ${p.accessToken}`, 'Content-Type': 'application/json' } },
+        );
+        return { providerMessageId: res.data?.messages?.[0]?.id ?? null };
+      },
+      record: (text, providerMessageId) => prisma.chatMessage.create({
+        data: {
+          conversationId: p.conversationId, role: 'assistant', content: text,
+          // The wamid, so the delivered/read/failed webhook can find this row later.
+          metaMid: providerMessageId,
+        },
+      }),
+      // The agent's own reply is not a staff reply: lastMessageAt is maintained elsewhere on
+      // this path and pausing the agent here would gag it mid-conversation.
+      touchConversation: async () => {},
+      flagUndelivered: async (reason) => {
+        console.error(`[chat-delay] SEND FAILED to ${p.customerPhone}: ${reason}`);
+        await prisma.chatConversation.updateMany({
+          where: { id: p.conversationId },
+          data: { needsAttention: true },
+        });
+      },
     });
-    try {
-      await axios.post(
-        `https://graph.facebook.com/v21.0/${p.phoneNumberId}/messages`,
-        { messaging_product: 'whatsapp', to: p.customerPhone, type: 'text', text: { body: chunks[i] } },
-        { headers: { Authorization: `Bearer ${p.accessToken}`, 'Content-Type': 'application/json' } },
-      );
-    } catch (e: any) {
-      console.error(`[chat-delay] SEND FAILED to ${p.customerPhone}:`, JSON.stringify(e?.response?.data ?? e?.message));
-      return;   // don't send part 2 if part 1 never landed
-    }
+    if (!delivered.ok) return;   // don't send part 2 if part 1 never landed
   }
   console.log(`[chat-delay] sent delayed reply to ${p.customerPhone} in ${chunks.length} message(s)`);
 }

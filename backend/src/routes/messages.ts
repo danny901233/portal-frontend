@@ -12,6 +12,7 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { randomUUID } from 'crypto';
 import multer from 'multer';
 import { whatsappToken } from '../utils/whatsappToken.js';
+import { deliverReply } from '../services/replyDelivery.js';
 
 const router = Router();
 
@@ -659,15 +660,17 @@ router.post(
         (c) => c.platform === conversation.platform
       );
 
-      // Send FIRST, record second. See deliverStaffReply for why — a row written before the
+      // Send FIRST, record second. See deliverReply for why — a row written before the
       // send is a reply the garage believes it has made.
-      const delivery = await deliverStaffReply(conversation.platform, outbound, !!connection, {
+      const delivery = await deliverReply(conversation.platform, outbound, !!connection, {
         send: (text) => sendMessage(conversation, text, connection),
-        record: (text) => prisma.chatMessage.create({
+        record: (text, providerMessageId) => prisma.chatMessage.create({
           data: {
             conversationId,
             role: 'assistant',
             content: text,
+            // Meta's wamid, so a later delivered/read/failed webhook can find this row.
+            metaMid: providerMessageId,
             translatedContent: typedEnglish,
             translatedFrom: typedEnglish ? 'English' : null,
             staffUserId: req.user?.userId ?? null,
@@ -1166,78 +1169,11 @@ function isWithinMessagingWindow(lastMessageAt: Date): boolean {
 }
 
 // Helper function to send message via platform API
-/**
- * Order of operations for a staff reply: send it, THEN record it.
- *
- * It used to be the other way round, and that is how a garage came to believe it had answered a
- * customer it had not. 21 Oct 2026 19:54:25: Dan typed "Or alternatively I can help?" to Mark
- * Kettle at EAC Telford, the row was written, the thread showed it, and the send then failed —
- * Meta had blocked EAC's WABA since 20 Oct 07:15. Over 38 hours six customers and eight replies
- * went the same way, every one displayed to staff as sent. A reply recorded before it is sent is
- * a claim we have not earned.
- *
- * Widget and livechat threads are deliberately NOT reordered: they have no external connection
- * and the row IS the delivery, which the customer's browser picks up. Reordering those would
- * break the one case that works by writing to the database.
- *
- * Injected rather than reaching for prisma directly, so the ordering itself is testable — it is
- * the ordering, not the sending, that was the bug.
- */
-const EXTERNAL_SEND_PLATFORMS = ['whatsapp', 'facebook', 'instagram'];
-
-export interface StaffReplyDeps {
-  send: (content: string) => Promise<void>;
-  record: (content: string) => Promise<{ id: string }>;
-  touchConversation: () => Promise<void>;
-  flagUndelivered: (reason: string) => Promise<void>;
-}
-
-export type StaffReplyResult =
-  | { ok: true; message: { id: string } }
-  | { ok: false; status: number; error: string };
-
-export async function deliverStaffReply(
-  platform: string,
-  content: string,
-  hasConnection: boolean,
-  deps: StaffReplyDeps,
-): Promise<StaffReplyResult> {
-  if (EXTERNAL_SEND_PLATFORMS.includes(platform)) {
-    if (!hasConnection) {
-      // This used to write the row and skip the send without a word, which reads to the garage
-      // as a delivered reply on a channel we are not even connected to.
-      const error = `This ${platform} conversation has no active connection, so the reply was not sent.`;
-      await deps.flagUndelivered(error);
-      return { ok: false, status: 502, error };
-    }
-    try {
-      await deps.send(content);
-    } catch (e: any) {
-      const raw = String(e?.message || 'unknown error');
-      await deps.flagUndelivered(raw);
-      // An expired window is the customer having gone quiet for a day — the garage can act on
-      // that. Anything else is ours or Meta's, and must not be dressed up as the customer's doing.
-      if (raw.includes('24-hour messaging window')) {
-        return { ok: false, status: 400, error: raw };
-      }
-      return {
-        ok: false,
-        status: 502,
-        error: `Your reply could not be sent and has NOT reached the customer — ${raw}`,
-      };
-    }
-  }
-
-  const message = await deps.record(content);
-  await deps.touchConversation();
-  return { ok: true, message };
-}
-
 async function sendMessage(
   conversation: any,
   content: string,
   connection: any
-): Promise<void> {
+): Promise<{ providerMessageId: string | null }> {
   const axios = (await import('axios')).default;
 
   // Check 24-hour messaging window for Meta platforms
@@ -1248,7 +1184,7 @@ async function sendMessage(
   }
 
   if (conversation.platform === 'whatsapp') {
-    await axios.post(
+    const res = await axios.post(
       `https://graph.facebook.com/v18.0/${connection.whatsappPhoneNumberId}/messages`,
       {
         messaging_product: 'whatsapp',
@@ -1264,6 +1200,9 @@ async function sendMessage(
         headers: { Authorization: `Bearer ${whatsappToken(connection.accessToken)}` },
       }
     );
+    // The wamid. Without it a delivered/read/failed status webhook has nothing to match on,
+    // and a `failed` arriving after this 200 OK would be invisible.
+    return { providerMessageId: res.data?.messages?.[0]?.id ?? null };
   } else if (conversation.platform === 'facebook') {
     await axios.post(
       `https://graph.facebook.com/v18.0/${connection.pageId}/messages`,
@@ -1289,6 +1228,9 @@ async function sendMessage(
       }
     );
   }
+  // Facebook and Instagram answer with a message_id of their own, but the status webhook we
+  // join on is WhatsApp's. Null rather than their id, so nothing claims a receipt it cannot get.
+  return { providerMessageId: null };
 }
 
 // Helper function to send image via platform API

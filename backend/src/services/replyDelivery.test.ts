@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { deliverStaffReply } from './messages.js';
+import { deliverReply } from './replyDelivery.js';
 
 // ---------------------------------------------------------------------------
 // A staff reply is recorded only once it has actually gone out
@@ -21,7 +21,7 @@ import { deliverStaffReply } from './messages.js';
 // external connection and the row IS the delivery, which the browser picks up.
 // ---------------------------------------------------------------------------
 
-function deps(overrides: Partial<Parameters<typeof deliverStaffReply>[3]> = {}) {
+function deps(overrides: Partial<Parameters<typeof deliverReply>[3]> = {}) {
   const calls: string[] = [];
   return {
     calls,
@@ -39,7 +39,7 @@ test('a WhatsApp reply that fails to send is never recorded', async () => {
   const { calls, d } = deps({
     send: async () => { throw new Error('An unknown error has occurred.'); },
   });
-  const res = await deliverStaffReply('whatsapp', 'hello', true, d);
+  const res = await deliverReply('whatsapp', 'hello', true, d);
 
   assert.equal(res.ok, false);
   assert.ok(!calls.includes('record'), 'the row must not exist for a message that never went out');
@@ -48,7 +48,7 @@ test('a WhatsApp reply that fails to send is never recorded', async () => {
 
 test('a WhatsApp reply that sends is recorded afterwards, in that order', async () => {
   const { calls, d } = deps();
-  const res = await deliverStaffReply('whatsapp', 'hello', true, d);
+  const res = await deliverReply('whatsapp', 'hello', true, d);
 
   assert.equal(res.ok, true);
   assert.deepEqual(calls, ['send', 'record', 'touch'],
@@ -58,7 +58,7 @@ test('a WhatsApp reply that sends is recorded afterwards, in that order', async 
 test('no connection for a Meta platform is a failure, not a silent no-op', async () => {
   // The old code wrote the row and simply skipped the send when no connection was found.
   const { calls, d } = deps();
-  const res = await deliverStaffReply('whatsapp', 'hello', false, d);
+  const res = await deliverReply('whatsapp', 'hello', false, d);
 
   assert.equal(res.ok, false);
   assert.ok(!calls.includes('send'));
@@ -68,7 +68,7 @@ test('no connection for a Meta platform is a failure, not a silent no-op', async
 
 test('a widget reply is recorded without any external send', async () => {
   const { calls, d } = deps();
-  const res = await deliverStaffReply('widget', 'hello', false, d);
+  const res = await deliverReply('widget', 'hello', false, d);
 
   assert.equal(res.ok, true);
   assert.deepEqual(calls, ['record', 'touch'], 'the row is the delivery for a widget thread');
@@ -80,7 +80,7 @@ test('an expired 24-hour window still answers 400, not 502', async () => {
   const { d } = deps({
     send: async () => { throw new Error('Cannot send message: 24-hour messaging window has expired.'); },
   });
-  const res = await deliverStaffReply('whatsapp', 'hello', true, d);
+  const res = await deliverReply('whatsapp', 'hello', true, d);
 
   assert.equal(res.ok, false);
   if (res.ok === false) {
@@ -91,7 +91,7 @@ test('an expired 24-hour window still answers 400, not 502', async () => {
 
 test('a genuine send failure answers 502 and says the reply did not go out', async () => {
   const { d } = deps({ send: async () => { throw new Error('An unknown error has occurred.'); } });
-  const res = await deliverStaffReply('whatsapp', 'hello', true, d);
+  const res = await deliverReply('whatsapp', 'hello', true, d);
 
   assert.equal(res.ok, false);
   if (res.ok === false) {
@@ -99,4 +99,48 @@ test('a genuine send failure answers 502 and says the reply did not go out', asy
     assert.match(res.error, /not.*sent|could not|failed/i,
       'the staff member must be told plainly that it did not go');
   }
+});
+
+// ---------------------------------------------------------------------------
+// The provider's message id must survive the send
+//
+// Meta returns messages[0].id (a wamid) on every accepted send, and that id is the only handle a
+// later delivered/read/failed status webhook has to find the message again. Every send path threw
+// the response away, so the status handler — which has existed all along for campaigns — had
+// nothing to join conversation replies to.
+//
+// It matters beyond reporting: a `failed` status can arrive AFTER Meta has returned 200 OK, which
+// is a class of failure the send/record ordering above cannot see at all.
+// ---------------------------------------------------------------------------
+
+test('the wamid from an accepted send is handed to record()', async () => {
+  const seen: Array<string | null> = [];
+  const res = await deliverReply('whatsapp', 'hello', true, {
+    send: async () => ({ providerMessageId: 'wamid.ABC123' }),
+    record: async (_c, id) => { seen.push(id); return { id: 'msg-1' }; },
+    touchConversation: async () => {},
+    flagUndelivered: async () => {},
+  });
+  assert.equal(res.ok, true);
+  assert.deepEqual(seen, ['wamid.ABC123']);
+});
+
+test('a send that returns no id records null rather than undefined', async () => {
+  // Facebook and Instagram do not answer in the same shape, and a widget reply never sends at
+  // all. metaMid is a nullable unique column — undefined would be a Prisma type error, and more
+  // than one row holding undefined would collide.
+  const seen: Array<string | null> = [];
+  await deliverReply('facebook', 'hello', true, {
+    send: async () => {},
+    record: async (_c, id) => { seen.push(id); return { id: 'msg-1' }; },
+    touchConversation: async () => {},
+    flagUndelivered: async () => {},
+  });
+  await deliverReply('widget', 'hello', false, {
+    send: async () => { throw new Error('must not be called'); },
+    record: async (_c, id) => { seen.push(id); return { id: 'msg-2' }; },
+    touchConversation: async () => {},
+    flagUndelivered: async () => {},
+  });
+  assert.deepEqual(seen, [null, null]);
 });

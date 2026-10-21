@@ -2,6 +2,7 @@ import type { Request, Response } from 'express';
 import { Router } from 'express';
 import axios from 'axios';
 import { prisma } from '../../db.js';
+import { statusUpdate } from '../../services/messageStatus.js';
 import { whatsappToken } from '../../utils/whatsappToken.js';
 import { notifyMessaging } from '../../services/messagingNotifications.js';
 import { routeChatMessage, invalidateSessionCache } from '../../services/chatAgentRouter.js';
@@ -90,6 +91,41 @@ router.post('/meta-whatsapp', async (req: Request, res: Response) => {
                 data: { status: contactStatus, ...(errorReason ? { errorReason } : {}) },
               });
               console.log(`[WhatsApp] Delivery status ${metaStatus} for ${messageSid} → ${contactStatus}`);
+            }
+
+            // The same receipt, applied to a CONVERSATION reply. This half was missing: these
+            // statuses have always been parsed here, but only campaigns kept the id Meta hands
+            // back, so every receipt for a chat reply was read and discarded — and a reply that
+            // Meta accepted and then failed to deliver looked answered in the portal forever.
+            try {
+              const msg = await prisma.chatMessage.findUnique({
+                where: { metaMid: messageSid },
+                select: { id: true, conversationId: true, deliveryStatus: true },
+              });
+              if (msg) {
+                const at = status.timestamp
+                  ? new Date(Number(status.timestamp) * 1000)
+                  : new Date();
+                const update = statusUpdate(msg.deliveryStatus, metaStatus, at, status.errors);
+                if (update) {
+                  await prisma.chatMessage.update({ where: { id: msg.id }, data: update });
+                  // A reply the customer never got is the case staff must not have to go
+                  // looking for, so it surfaces the same way a flagged conversation does.
+                  if (update.deliveryStatus === 'failed') {
+                    await prisma.chatConversation.updateMany({
+                      where: { id: msg.conversationId },
+                      data: { needsAttention: true },
+                    });
+                    console.error(
+                      `[WhatsApp] Reply UNDELIVERED on conversation ${msg.conversationId}: `
+                      + `${update.failedReason}`,
+                    );
+                  }
+                }
+              }
+            } catch (e: any) {
+              // Never let a receipt failure cost us the rest of the webhook batch.
+              console.error('[WhatsApp] chat message status update failed:', e?.message);
             }
           }
         }

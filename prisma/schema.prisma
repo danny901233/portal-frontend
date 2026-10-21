@@ -879,9 +879,28 @@ model ChatMessage {
   // English they actually typed. Generated once, lazily, then reused.
   translatedContent String?
   translatedFrom    String?
+  // Meta delivery receipts for an outbound reply, driven by the `statuses` webhook and joined on
+  // metaMid. Null on inbound messages and on any channel that is not WhatsApp.
+  //
+  // These exist because a reply recorded in the portal was not evidence it had been received: a
+  // garage's WABA was blocked for 38 hours and eight replies sat in threads looking answered. The
+  // send/record ordering catches a refusal at send time; only a receipt catches a message Meta
+  // accepted with 200 OK and then failed to deliver.
+  //
+  // deliveryStatus is app-level: sent | delivered | read | failed. It only ever moves forward —
+  // see statusUpdate(), because Meta does not promise ordering and retries.
+  deliveryStatus    String?
+  deliveredAt       DateTime?
+  // Null while deliveryStatus is 'delivered' is normal and not a fault: read receipts are the
+  // customer's setting, so a recipient with them switched off never produces one.
+  readAt            DateTime?
+  failedReason      String?
   createdAt      DateTime         @default(now())
 
   @@index([conversationId, createdAt])
+  // For the undelivered report. Narrow because the question is always "what failed", never
+  // "list everything that was read".
+  @@index([deliveryStatus])
 }
 
 // Observability for the web-chat agents: one row per tool call the agent makes.

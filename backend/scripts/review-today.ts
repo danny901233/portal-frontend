@@ -13,8 +13,11 @@ import { PrismaClient } from '@prisma/client';
 
 import { findCallFaults } from '../src/services/callFaults.js';
 
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const { scanDefects } = require('./lib/call-defects.cjs');
+// backend/package.json is "type": "module", so the CommonJS scanner is loaded
+// through createRequire rather than a bare require.
+import { createRequire } from 'node:module';
+
+const { scanDefects } = createRequire(import.meta.url)('./lib/call-defects.cjs');
 
 const prisma = new PrismaClient();
 

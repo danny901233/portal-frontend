@@ -117,6 +117,56 @@ const nobodySpoke = { ...silent, id: 'nospeech', transcript: [], metrics: { ...s
 check('a call where the caller never spoke is not called silent',
       !sigs(scanDefects([nobodySpoke]), 'nospeech').includes('silent-call'));
 
+// ── one-way audio: the agent is talking and the caller cannot hear it ──
+// Call 34580340 (VRS Midlands, thumbs-down). The agent spoke, so TTS ran and
+// the silent-call check cannot see this. The caller said "Hello?" four times.
+const oneWay = {
+  ...healthy, id: 'oneway01',
+  metrics: { ...healthy.metrics, tool_call_history: [] },
+  transcript: [
+    { speaker: 'caller', text: 'Hello?' },
+    { speaker: 'caller', text: 'Hello?' },
+    { speaker: 'caller', text: 'Hello?' },
+    { speaker: 'agent', text: "Hi there, you're through to Test Garage. What can we do for you today?" },
+    { speaker: 'caller', text: 'Hello?' },
+    { speaker: 'caller', text: 'Anybody there?' },
+  ],
+};
+check('a caller asking "hello?" over and over while the agent talks is flagged',
+      sigs(scanDefects([oneWay]), 'oneway01').includes('one-way-audio'),
+      JSON.stringify(sigs(scanDefects([oneWay]), 'oneway01')));
+
+check('the one-way finding is high severity — the caller got nothing',
+      scanDefects([oneWay]).some((f) => f.signature === 'one-way-audio' && f.severity === 'high'));
+
+// A single "hello?" is how people answer a phone. Only a caller who keeps
+// asking into silence is evidence of a fault.
+const normalHello = {
+  ...healthy, id: 'hello001',
+  transcript: [
+    { speaker: 'agent', text: "You're through to Test Garage, how can I help?" },
+    { speaker: 'caller', text: 'Hello? Yes, I need an MOT please' },
+    { speaker: 'agent', text: 'Of course. Thursday at nine is free.' },
+  ],
+};
+check('answering the phone with "hello" is not a fault',
+      !sigs(scanDefects([normalHello]), 'hello001').includes('one-way-audio'),
+      JSON.stringify(sigs(scanDefects([normalHello]), 'hello001')));
+
+// If the agent never spoke at all, that is silent-call, not one-way audio —
+// the two must not both fire and double-report the same event.
+const neverSpoke = {
+  ...healthy, id: 'nevspk01',
+  metrics: { ...healthy.metrics, usage: [{ model: 'nova-3', provider: 'Deepgram' }], tool_call_history: [] },
+  transcript: [
+    { speaker: 'caller', text: 'Hello?' },
+    { speaker: 'caller', text: 'Hello? Can you hear me?' },
+  ],
+};
+const nsf = sigs(scanDefects([neverSpoke]), 'nevspk01');
+check('a call where the agent never spoke is silent-call, not one-way audio',
+      nsf.includes('silent-call') && !nsf.includes('one-way-audio'), JSON.stringify(nsf));
+
 // ── a booking the agent claimed but never made ──
 const falseClaim = {
   ...healthy, id: 'falsecl1',

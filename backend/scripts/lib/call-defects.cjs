@@ -62,6 +62,22 @@ function ttsRan(usage) {
   });
 }
 
+// A caller who cannot hear the agent says one of these, and keeps saying it.
+// A single "hello?" is just how people answer a phone, so the signature is the
+// REPETITION while the agent is talking back.
+const CANT_HEAR_RE = [
+  /^\s*hello\s*[?.!]*\s*$/i,
+  /\banybody there\b/i,
+  /\banyone there\b/i,
+  /\bcan you hear me\b/i,
+  /\bare you there\b/i,
+  /\bis anyone there\b/i,
+];
+
+function cantHearTurns(turns) {
+  return turns.filter((t) => isCaller(t) && CANT_HEAR_RE.some((re) => re.test(textOf(t))));
+}
+
 /**
  * Did this plate actually get written into a message or a booking? A plate that
  * recognition supplied and the agent never acted on carries no risk — and
@@ -102,6 +118,19 @@ function scanOne(call, feedbackFor) {
     add('silent-call', SEVERITY.high,
         `Caller spoke but no speech was ever generated — they heard silence.`
         + (errs.length ? ` Provider errors: ${[...new Set(errs)].slice(0, 3).join('; ')}` : ''));
+  }
+
+  // 1b. The agent IS talking and the caller cannot hear a word of it. TTS ran,
+  //     so the silent-call check above is blind to this: it is one-way audio,
+  //     not no audio. Call 34580340 — the caller said "Hello?" four times while
+  //     the agent introduced itself, and the garage marked the call down.
+  const agentSpoke = turns.some((t) => isAgent(t) && textOf(t));
+  const deaf = cantHearTurns(turns);
+  if (agentSpoke && ttsRan(m.usage) && deaf.length >= 2) {
+    add('one-way-audio', SEVERITY.high,
+        `The agent was speaking and the caller could not hear it — they asked `
+        + `${deaf.length}x: "${deaf.map((t) => textOf(t)).slice(0, 3).join('" / "')}". `
+        + `Audio reached our side only.`);
   }
 
   // 2. A plate that arrived without the caller ever saying it. registration_rounds

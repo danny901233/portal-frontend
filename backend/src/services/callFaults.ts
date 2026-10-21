@@ -155,6 +155,10 @@ const SYSTEM_PROMPT = [
   '- a tool that errored, or gathered everything and never completed',
   '- a summary that does not match what happened on the call',
   '- the caller not getting what they rang for, where the agent or the diary caused it',
+  '- the agent asking for a NAME or other details BEFORE helping with what the caller rang about.',
+  '  Callers hang up on that: it is the single biggest cause of calls dying under 30 seconds.',
+  '  If the caller stated their business and the agent\'s next move was to collect details',
+  '  instead of addressing it, that is an agent fault even if the caller then went quiet.',
   '',
   'NOT FAULTS. Do not report these, however tempting:',
   '- NO BOOKING on its own. Many callers only want information, or decide not to book.',
@@ -167,7 +171,9 @@ const SYSTEM_PROMPT = [
   '- the ~5 second pause while the agent reads a registration or postcode back. Deliberate.',
   '- the CALLER interrupting the agent. That is the barge-in handling working correctly.',
   '- the caller never saying what they wanted, staying silent, or hanging up, where the agent',
-  '  prompted properly.',
+  '  prompted properly. This excuses the agent ONLY when the caller gave it nothing to work with.',
+  '  A caller who said what they wanted and then went quiet while being asked for details is NOT',
+  '  this case — look at what the agent asked them for.',
   '- no availability, where the agent offered the next alternative.',
   '- caller recognition supplying the vehicle. That is normal; only flag it if the vehicle looks',
   '  WRONG for what the caller said.',
@@ -194,6 +200,16 @@ export async function findCallFaults(input: {
   callType?: string;
   confirmedBooking?: boolean;
   model?: string;
+  /**
+   * What the deterministic scan already established about this call.
+   *
+   * Call 16056346 is why this exists. The plate the agent acted on was never
+   * spoken by the caller — but nothing in the context SAID so. The capture line
+   * read "registration: captured after 0 restart(s)", which looks like success,
+   * and the model duly read past it exactly as I had. Facts the field data
+   * proves are stated here rather than left to be re-derived from a counter.
+   */
+  knownSignals?: string[];
 }): Promise<{ findings: CallFault[]; model: string } | null> {
   const oa = getClient();
   if (!oa) {
@@ -208,8 +224,13 @@ export async function findCallFaults(input: {
   const capabilities = (m.diary_capabilities ?? undefined) as Record<string, boolean> | undefined;
   const hasDiary = Boolean(m.diary) || Boolean(capabilities && Object.keys(capabilities).length);
 
+  const known = (input.knownSignals || []).filter(Boolean);
   const userMsg =
-    `Call type: ${input.callType || 'unknown'} | Booking confirmed: ${input.confirmedBooking ? 'yes' : 'no'}\n`
+    (known.length
+      ? `ALREADY ESTABLISHED FROM THE CALL DATA (treat as fact, say what it MEANS for the caller, `
+        + `and look for anything it does not cover):\n${known.map((k) => `- ${k}`).join('\n')}\n\n`
+      : '')
+    + `Call type: ${input.callType || 'unknown'} | Booking confirmed: ${input.confirmedBooking ? 'yes' : 'no'}\n`
     + `Summary the garage was sent: ${input.summary || '(none)'}\n\n`
     + `THIS GARAGE'S AGENT (what it was and was not given):\n${buildAgentContext(input.metrics)}\n\n`
     + `TOOL TIMELINE (arguments and results):\n${buildToolTimeline(input.metrics)}\n\n`

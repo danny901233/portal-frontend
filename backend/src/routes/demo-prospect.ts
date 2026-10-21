@@ -101,6 +101,31 @@ const SPEAK_AS_LETTERS = new Set([
 // Lower-case in the middle of a name; "Underwoods Of Clacton" reads like a database row.
 const SMALL_WORDS = new Set(['of', 'and', 'the', 'on', 'at', 'in', 'for', 'to', 'a']);
 
+/**
+ * Short words with no vowel that are NOT initialisms, and must keep their spelling.
+ *
+ * "St Christophers Garage" is Saint, not S-T. These are the only ones in the shortlist, and the
+ * list has to be explicit because the vowel rule below cannot tell them apart.
+ */
+const NEVER_LETTERS = new Set(['ST', 'MR', 'MRS', 'DR', 'JR', 'SR', 'LTD']);
+
+/**
+ * True for a token that should be SPOKEN AS LETTERS although it is on no acronym list.
+ *
+ * The CRM lowercased every name on import, so "MDP" arrived as "mdp" and there is no casing left
+ * to go on. A 2-3 letter token with NO VOWEL is an initialism with near-certainty, because an
+ * English word that short essentially always carries one — which is what makes this safe where a
+ * word list is not: "Bar", "Hi", "We", "Any" and "Jag" all keep their vowel and are left alone.
+ *
+ * Without this the voice says "Em-dip Landrovers" and "Sipper Vehicle Services" — the prospect's
+ * own business name, mangled, in the opening three words of the demo.
+ */
+const isInitialism = (bare: string): boolean =>
+  bare.length >= 2 && bare.length <= 3
+  && !/[AEIOU]/i.test(bare)
+  && !/\d/.test(bare)
+  && !NEVER_LETTERS.has(bare.toUpperCase());
+
 /** Case a business name the way it should be SPOKEN, not the way a CSV happens to store it. */
 const titleCaseForSpeech = (input: string): string =>
   input
@@ -110,8 +135,11 @@ const titleCaseForSpeech = (input: string): string =>
       const bare = word.replace(/[^A-Za-z0-9]/g, '');
       if (!bare) return word;
       if (SPEAK_AS_LETTERS.has(bare.toUpperCase())) return word.toUpperCase();
+      if (isInitialism(bare)) return word.toUpperCase();
       // Initials — "J P Autotechnics", "G Crook and Sons".
       if (bare.length === 1) return word.toUpperCase();
+      // Ordinals: title-casing "4th" gives "4Th", which is read as a separate syllable.
+      if (/^\d+(st|nd|rd|th)$/i.test(bare)) return word.toLowerCase();
       if (i > 0 && SMALL_WORDS.has(bare.toLowerCase())) return word.toLowerCase();
       // Capitalise the first LETTER, not the first character — a third of these names are
       // parenthesised ("racecourse garage (totnes) ltd") and `charAt(0)` is the bracket.
@@ -128,7 +156,12 @@ const titleCaseForSpeech = (input: string): string =>
 export const toSpokenName = (raw: string): string => {
   let s = (raw || '').trim();
   s = s.split(/\s+[-–]\s+|,/)[0];                       // drop trailing strap / town
-  s = s.replace(/\s*\b(ltd|limited|llp|plc)\b\.?\s*$/i, '');
+  // "Fergus Monk T/a Port Glasgow Motor Co" — the owner's name, then "trading as", then the name
+  // the public actually knows them by. The trading name is what belongs in a greeting.
+  const tradingAs = s.match(/\bt\/?a\b\.?\s+(.+)$/i);
+  if (tradingAs?.[1]) s = tradingAs[1];
+  // 'cyf' is the Welsh 'ltd' and reads as a word when spoken — "Garej Arwyn Cyf".
+  s = s.replace(/\s*\b(ltd|limited|llp|plc|cyf|cyfyngedig)\b\.?\s*$/i, '');
   s = s.replace(/&/g, ' and ').replace(/\s+/g, ' ').trim();
   return titleCaseForSpeech(s) || raw;
 };

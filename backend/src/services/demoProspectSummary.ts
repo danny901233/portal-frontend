@@ -91,6 +91,8 @@ export type DemoProspectForSummary = {
   summaryEmailedAt: Date | null;
   /** HighLevel contact, so the same call can raise the Hot opportunity. */
   contactId?: string | null;
+  /** Their demo URL, so the CRM note can link straight back to it. */
+  slug?: string;
 };
 
 const mmss = (seconds: number): string => {

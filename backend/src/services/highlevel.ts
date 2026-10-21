@@ -153,6 +153,35 @@ export async function updateContact(
   }
 }
 
+/**
+ * Add a timeline note to a contact.
+ *
+ * Appends — HighLevel keeps notes as a list, so this cannot overwrite anything already on the
+ * record. That matters here because these contacts have been through other workflows and whatever
+ * is on their timeline was put there by someone else.
+ *
+ * Best-effort and never thrown: a note is useful, and losing one must not cost us the opportunity
+ * or the call record it describes.
+ */
+export async function addContactNote(contactId: string, body: string): Promise<boolean> {
+  if (!highlevelConfigured() || !contactId || !body.trim()) return false;
+  try {
+    const res = await fetch(`${GHL_BASE_URL}/contacts/${contactId}/notes`, {
+      method: 'POST',
+      headers: HEADERS,
+      body: JSON.stringify({ body: body.slice(0, 5000) }),
+    });
+    if (!res.ok) {
+      console.error(`[HL] note failed ${res.status}:`, (await res.text()).slice(0, 200));
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.error('[HL] note threw:', err);
+    return false;
+  }
+}
+
 export type OpportunityKind = 'signup' | 'lead' | 'trial' | 'abandoned' | 'hot';
 
 export interface CreateOpportunityArgs {

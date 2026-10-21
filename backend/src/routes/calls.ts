@@ -368,7 +368,7 @@ router.post('/calls', async (req: Request, res: Response) => {
     try {
       const prospect = await prisma.demoProspect.findUnique({
         where: { agentId: payload.garageId },
-        select: { id: true, spokenName: true, email: true, summaryEmailedAt: true, contactId: true },
+        select: { id: true, spokenName: true, email: true, summaryEmailedAt: true, contactId: true, slug: true },
       });
       if (prospect) {
         prospectForMetrics = prospect;
@@ -620,9 +620,18 @@ router.post('/calls', async (req: Request, res: Response) => {
     // scratch test row.
     if (prospectForMetrics?.contactId) {
       const { contactId, spokenName } = prospectForMetrics;
+      const callFacts = {
+        durationSeconds: actualDuration,
+        summary: payload.summary,
+        customerName: payload.customerName,
+        registrationNumber: payload.registrationNumber,
+        bookingDetails: payload.bookingDetails,
+        confirmedBooking,
+        slug: prospectForMetrics.slug,
+      };
       void (async () => {
         try {
-          const { createOpportunity } = await import('../services/highlevel.js');
+          const { createOpportunity, addContactNote } = await import('../services/highlevel.js');
           const { id } = await createOpportunity({
             contactId,
             name: spokenName,
@@ -632,8 +641,26 @@ router.post('/calls', async (req: Request, res: Response) => {
             packageName: 'Assist',
           });
           console.log(`[CALL] ${spokenName} → HighLevel opportunity ${id ?? 'not created'} (Hot)`);
+
+          // The note is what makes the lead workable. A stage change says someone is interested;
+          // this says what they asked for, so whoever rings them back opens with "I see you booked
+          // an MOT for the 29th" rather than "I see you clicked something".
+          const mins = Math.floor(callFacts.durationSeconds / 60);
+          const secs = callFacts.durationSeconds % 60;
+          const lines = [
+            `Tried their demo receptionist — call lasted ${mins ? `${mins}m ${secs}s` : `${secs}s`}.`,
+          ];
+          if (callFacts.confirmedBooking) {
+            lines.push(`BOOKED: ${callFacts.bookingDetails || 'a job, details not captured'}`);
+          }
+          if (callFacts.customerName) lines.push(`Gave the name: ${callFacts.customerName}`);
+          if (callFacts.registrationNumber) lines.push(`Registration: ${callFacts.registrationNumber}`);
+          if (callFacts.summary) lines.push('', callFacts.summary);
+          lines.push('', `Their demo: ${process.env.PORTAL_URL || 'https://portal.receptionmate.co.uk'}/try/${callFacts.slug}`);
+          const noted = await addContactNote(contactId, lines.join('\n'));
+          console.log(`[CALL] ${spokenName} → HighLevel note ${noted ? 'added' : 'FAILED'}`);
         } catch (err) {
-          console.error('[CALL] could not raise the Hot opportunity', err);
+          console.error('[CALL] could not raise the Hot opportunity or note', err);
         }
       })();
     }

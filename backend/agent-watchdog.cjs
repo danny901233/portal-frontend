@@ -976,12 +976,35 @@ async function main() {
   // Reachable. DB_DOWN_KEY is deliberately NOT written into `current`, so if it is sitting in
   // `prev` the ordinary resolved-issue path below sends its recovery note like any other fault.
 
-  const routing = await checkRouting();
+  const carry = (prefixes) => Object.entries(prev)
+    .filter(([k]) => prefixes.some((pre) => k.startsWith(pre)))
+    .map(([key, msg]) => ({ key, msg }));
+
+
+  let routing;
+  try {
+    routing = await checkRouting();
+  } catch (e) {
+    console.error('[watchdog] checkRouting threw:', e.message);
+    routing = carry(['route:']);
+  }
   // Routing for unified garages, which checkRouting deliberately skips. Judged around the clock
   // like the other routing checks: a missing trunk is a fact about configuration, not about how
   // busy the phones are, and finding it at 6am is better than finding it at 9.
-  const unifiedRouting = await checkUnifiedRouting();
-  const configSync = await checkConfigSync();
+  let unifiedRouting;
+  try {
+    unifiedRouting = await checkUnifiedRouting();
+  } catch (e) {
+    console.error('[watchdog] checkUnifiedRouting threw:', e.message);
+    unifiedRouting = carry(['unified-route:']);
+  }
+  let configSync;
+  try {
+    configSync = await checkConfigSync();
+  } catch (e) {
+    console.error('[watchdog] checkConfigSync threw:', e.message);
+    configSync = carry(['config-drift:']);
+  }
   // Credential health is a fact about configuration too — judged around the clock, and a dead
   // token found at 6am is a dead token fixed before the first customer writes in.
   // Credential checks run once an hour, not every 5 minutes. On the other eleven runs they must
@@ -990,9 +1013,7 @@ async function main() {
   // Hourly flapping, for exactly the faults that are least likely to fix themselves. Same trap the
   // heartbeat checks above avoid by carrying prior state outside business hours.
   const credentialHour = Number(londonParts().minute) < 5;
-  const carry = (prefixes) => Object.entries(prev)
-    .filter(([k]) => prefixes.some((pre) => k.startsWith(pre)))
-    .map(([key, msg]) => ({ key, msg }));
+
 
   const waTokens = credentialHour
     ? await checkWhatsAppTokens()
@@ -1005,9 +1026,18 @@ async function main() {
   // so we don't fire false "down"/"recovered" pings overnight.
   let heartbeat, responseHealth, unanswered;
   if (inBusinessHours()) {
-    heartbeat = await checkHeartbeat();
-    responseHealth = await checkResponseHealth();
-    unanswered = await checkUnanswered();
+    try { heartbeat = await checkHeartbeat(); } catch (e) {
+      console.error('[watchdog] checkHeartbeat threw:', e.message);
+      heartbeat = carry(['heartbeat:']);
+    }
+    try { responseHealth = await checkResponseHealth(); } catch (e) {
+      console.error('[watchdog] checkResponseHealth threw:', e.message);
+      responseHealth = carry(['silent:']);
+    }
+    try { unanswered = await checkUnanswered(); } catch (e) {
+      console.error('[watchdog] checkUnanswered threw:', e.message);
+      unanswered = carry(['unanswered:', 'hard-down:']);
+    }
   } else {
     heartbeat = Object.entries(prev).filter(([k]) => k.startsWith('heartbeat:')).map(([key, msg]) => ({ key, msg }));
     responseHealth = Object.entries(prev).filter(([k]) => k.startsWith('silent:')).map(([key, msg]) => ({ key, msg }));

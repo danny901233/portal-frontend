@@ -149,6 +149,24 @@ const DEFECT_LABELS: Record<string, string> = {
   'false-booking-claim': 'Booking claimed but not made',
   'mid-call-regreeting': 'Agent greeted the caller twice',
   'negative-feedback': 'Garage marked the call down',
+  'one-way-audio': 'Agent talking, caller could not hear',
+  'agent-repeating': 'Agent asked the same thing twice',
+  'caller-repeating': 'Caller had to repeat themselves',
+  // `ai:` findings come from the analyst reading the call, rather than from a
+  // field in the data. Kept visibly separate so a judgement is never mistaken
+  // for a measurement.
+  'ai:misheard': 'Heard a value wrong and kept it',
+  'ai:repeated_question': 'Asked the caller the same thing again',
+  'ai:promise_not_kept': 'Promised something that never happened',
+  'ai:wrong_info': 'Told the caller something untrue',
+  'ai:unverified_vehicle': 'Acted on a vehicle not confirmed',
+  'ai:dead_air': 'Caller left waiting',
+  'ai:reg_struggle': 'Struggled to get the registration',
+  'ai:rushed_readback': 'Read a value back too fast to check',
+  'ai:tool_failure': 'A tool never completed',
+  'ai:booking_failure': 'A booking could not be completed',
+  'ai:unresolved': 'Caller did not get what they rang for',
+  'ai:other': 'Other fault found by reading the call',
 };
 
 // Chat-agent tool-call health for the staff observability tile (from /api/staff/chat-tool-stats).

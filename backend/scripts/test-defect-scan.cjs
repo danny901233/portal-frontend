@@ -27,5 +27,31 @@ check('a call in both lists is scanned once',
 check('empty input yields nothing', callIdsToScan({}).length === 0);
 check('blank ids are dropped', callIdsToScan({ windowCallIds: ['', null, 'ok'] }).join(',') === 'ok');
 
+// ── which calls are worth paying a model to read ──
+const { worthReading } = require('./call-defect-scan.cjs');
+
+check('a real conversation is read', worthReading({
+  durationSeconds: 95,
+  transcript: [{ speaker: 'caller', text: 'I need an MOT' }, { speaker: 'agent', text: 'Thursday?' }],
+}));
+
+// Under 30 seconds nothing is emailed to the garage either, and there is not
+// enough call to read. These are the bulk of the no-value rows.
+check('a very short call is not read', !worthReading({
+  durationSeconds: 12,
+  transcript: [{ speaker: 'caller', text: 'oh' }],
+}));
+
+// A call the caller never spoke on has nothing to judge the agent against.
+check('a call with no caller speech is not read', !worthReading({
+  durationSeconds: 90,
+  transcript: [{ speaker: 'agent', text: "You're through to Test Garage." }],
+}));
+
+check('a missing transcript is not read', !worthReading({ durationSeconds: 90, transcript: null }));
+check('a missing duration is not read', !worthReading({
+  transcript: [{ speaker: 'caller', text: 'hello I need an MOT' }],
+}));
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

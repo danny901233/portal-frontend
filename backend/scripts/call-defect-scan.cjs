@@ -45,6 +45,46 @@ function callIdsToScan({ windowCallIds, feedbackCallIds }) {
   return [...new Set([...(windowCallIds || []), ...(feedbackCallIds || [])])].filter(Boolean);
 }
 
+/**
+ * Is this call worth paying a model to read?
+ *
+ * The analyst costs money per call, and most of what it would read has nothing
+ * in it: a call under 30 seconds is not even emailed to the garage, and a call
+ * the caller never spoke on gives nothing to judge the agent against. Gating on
+ * these two roughly halves the spend and removes none of the findings — every
+ * fault found over 124 calls on 21 Oct was on a call that passes this.
+ */
+function worthReading(call) {
+  if (!call || Number(call.durationSeconds || 0) < 30) return false;
+  const t = Array.isArray(call.transcript) ? call.transcript
+    : (call.transcript && Array.isArray(call.transcript.turns) ? call.transcript.turns : []);
+  return t.some((turn) => {
+    const who = String((turn && (turn.speaker || turn.role || turn.type)) || '').toLowerCase();
+    const isCaller = who.includes('caller') || who.includes('user') || who.includes('customer');
+    return isCaller && String((turn && turn.text) || '').trim();
+  });
+}
+
+/**
+ * The analyst pass, loaded from the compiled backend.
+ *
+ * It lives in TypeScript under src/, so this reaches it through dist/ with a
+ * dynamic import — backend/package.json is "type": "module", so a plain require
+ * of the compiled file would fail. A missing or unbuilt dist is not an error
+ * here: the deterministic findings still get written, and the log says the
+ * analyst was skipped rather than failing the run.
+ */
+async function loadAnalyst() {
+  if (process.env.DEFECT_SCAN_AI === '0') return null;
+  try {
+    const mod = await import(`file://${require('path').join(__dirname, '..', 'dist', 'services', 'callFaults.js')}`);
+    return mod.findCallFaults || null;
+  } catch (err) {
+    console.warn('[defects] analyst unavailable (is dist built?):', err && err.message);
+    return null;
+  }
+}
+
 async function run({ dry = false, hours = WINDOW_HOURS } = {}) {
   const since = new Date(Date.now() - hours * 3600 * 1000);
 
@@ -73,6 +113,7 @@ async function run({ dry = false, hours = WINDOW_HOURS } = {}) {
     select: {
       id: true, garageId: true, createdAt: true, durationSeconds: true,
       registrationNumber: true, confirmedBooking: true, metrics: true, transcript: true,
+      summary: true, callType: true,
       garage: { select: { name: true, isTestAccount: true, archivedAt: true } },
     },
   });
@@ -82,10 +123,47 @@ async function run({ dry = false, hours = WINDOW_HOURS } = {}) {
 
   const findings = scanDefects(live, { feedback: freshFeedback });
 
+  // The analyst reads what the field data cannot show: a value misheard and not
+  // corrected, a promise the tools never kept, the agent collecting details
+  // before helping. It is given the deterministic findings as established fact
+  // so it extends them rather than restating them.
+  const analyst = await loadAnalyst();
+  let read = 0;
+  if (analyst) {
+    for (const call of live) {
+      if (!worthReading(call)) continue;
+      const known = findings.filter((f) => f.callId === call.id).map((f) => f.detail);
+      let out = null;
+      try {
+        out = await analyst({
+          transcript: call.transcript, metrics: call.metrics, summary: call.summary || undefined,
+          callType: call.callType || undefined, confirmedBooking: call.confirmedBooking || false,
+          knownSignals: known,
+        });
+      } catch (err) {
+        console.error(`[defects] analyst failed on ${call.id}:`, err && err.message);
+      }
+      read += 1;
+      for (const f of (out && out.findings) || []) {
+        if (f.severity === 'low') continue; // polish; not worth a row on the page
+        findings.push({
+          callId: call.id,
+          garageId: call.garageId,
+          garageName: call.garageName,
+          createdAt: call.createdAt,
+          // Prefixed so the page can tell a read finding from a measured one.
+          signature: `ai:${f.category}`,
+          severity: f.severity,
+          detail: f.evidence ? `${f.detail} — heard: "${f.evidence}"` : f.detail,
+        });
+      }
+    }
+  }
+
   if (dry) {
     const bySig = {};
     for (const f of findings) bySig[f.signature] = (bySig[f.signature] || 0) + 1;
-    console.log(`[defects] DRY scanned=${live.length} found=${findings.length} ${JSON.stringify(bySig)}`);
+    console.log(`[defects] DRY scanned=${live.length} read=${read} found=${findings.length} ${JSON.stringify(bySig)}`);
     for (const f of findings.slice(0, 15)) {
       console.log(`  ${f.severity.padEnd(6)} ${f.signature.padEnd(22)} ${f.callId} ${f.garageName || ''}`);
     }
@@ -124,7 +202,7 @@ async function run({ dry = false, hours = WINDOW_HOURS } = {}) {
 
   const bySig = {};
   for (const f of findings) bySig[f.signature] = (bySig[f.signature] || 0) + 1;
-  console.log(`[defects] ${new Date().toISOString()} scanned=${live.length} written=${written} ${JSON.stringify(bySig)}`);
+  console.log(`[defects] ${new Date().toISOString()} scanned=${live.length} read=${read} written=${written} ${JSON.stringify(bySig)}`);
   return { scanned: live.length, found: written };
 }
 
@@ -147,4 +225,4 @@ if (!process.env.DEFECT_SCAN_NO_AUTORUN) {
   main();
 }
 
-module.exports = { run, callIdsToScan, WINDOW_HOURS };
+module.exports = { run, callIdsToScan, worthReading, WINDOW_HOURS };

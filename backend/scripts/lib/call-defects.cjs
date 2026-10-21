@@ -28,11 +28,7 @@ const MUST_COMPLETE = ['take_message', 'confirm_booking'];
 // believes they have been cut off and put back to the beginning.
 // "Thanks for calling" is deliberately NOT here: it is how the agent says
 // goodbye, and including it flagged 29 of 218 calls, nearly all sign-offs.
-const GREETING_RE = /\b(you'?re through to|you'?ve reached|welcome to)\b/i;
-
-// A turn ending on one of these was cut off, not finished. Checking only for a
-// missing full stop flags every normal trailing-off reply, which is noise.
-const DANGLING_RE = /\b(and|but|or|to|the|a|an|of|for|with|your|our|we|i|is|are|was|that|so|if|on|at|in|it|you|can|will|would|just|about)$/i;
+const GREETING_RE = /\b(you'?re through to|you'?ve reached)\b/i;
 
 function turnsOf(call) {
   const t = call && call.transcript;
@@ -117,7 +113,9 @@ function scanOne(call, feedbackFor) {
   const unverified = capture.registration_captured === true
     && Number(capture.registration_rounds) === 0 && Boolean(plate);
   if (unverified && plateWasUsed(history, plate)) {
-    add('reg-not-from-caller', SEVERITY.high,
+    // Medium, not high: this fires on roughly a sixth of calls because
+    // recognition is usually right. It is a spot-check queue, not an alarm.
+    add('reg-not-from-caller', SEVERITY.medium,
         `Plate ${plate} was never spoken by the caller — caller recognition supplied it `
         + `(0 rounds of asking) and the agent then wrote it into a message or booking. `
         + `If recognition matched the wrong person, this is someone else's vehicle.`);
@@ -151,19 +149,13 @@ function scanOne(call, feedbackFor) {
         `The agent greeted the caller again mid-call: "${textOf(laterGreeting).slice(0, 120)}"`);
   }
 
-  // 6. An agent turn that stops mid-sentence WITH the call still going. A
-  //    truncated FINAL turn is almost always the caller hanging up during the
-  //    goodbye — the agent did nothing wrong and the caller heard what they
-  //    needed. Only a cut-off the caller had to talk over is a fault.
-  for (let i = 0; i < turns.length - 1; i += 1) {
-    if (!isAgent(turns[i])) continue;
-    const said = textOf(turns[i]);
-    if (said && !/[.!?…"')\]]$/.test(said) && DANGLING_RE.test(said)) {
-      add('truncated-turn', SEVERITY.low,
-          `The agent was cut off mid-sentence and the call carried on: "${said.slice(-80)}"`);
-      break;
-    }
-  }
+  // There is no truncation signature here, on purpose. An agent turn that stops
+  //    mid-sentence looks identical whether a bug cut the speech off or the
+  //    CALLER interrupted — and interrupting is exactly what the agent's barge-in
+  //    handling is built for, so stopping is correct behaviour. It fired on 34 of
+  //    218 calls and nothing in the transcript tells the two apart, so it would
+  //    have put normal calls on the page as faults. It needs a signal the agent
+  //    does not currently emit (whether playback was cancelled by barge-in).
 
   // 7. The garage said it was wrong. That outranks anything the metrics say.
   for (const fb of feedbackFor) {

@@ -13,12 +13,23 @@
 
 // `failed` outranks everything deliberately. A failure arriving after a read is odd but must
 // never be masked by one — an undelivered message is the thing the garage has to know about.
-export const STATUS_RANK: Record<string, number> = {
-  sent: 1,
-  delivered: 2,
-  read: 3,
-  failed: 4,
-};
+//
+// A Map, not an object literal. The status string comes off a webhook, and a plain object
+// answers for keys it does not own: STATUS_RANK['constructor'] is the Function constructor,
+// which is truthy, so an unknown-status guard written as `if (!rank) return null` let
+// "constructor" through and recorded the message as sent.
+const RANK = new Map<string, number>([
+  ['sent', 1],
+  ['delivered', 2],
+  ['read', 3],
+  ['failed', 4],
+]);
+
+/** Exposed for tests and for anything that needs to compare two statuses. */
+export const STATUS_RANK = Object.freeze(Object.fromEntries(RANK)) as Readonly<Record<string, number>>;
+
+/** The longest failure text we will store — it is Meta's words, going into a column and a page. */
+const MAX_REASON = 300;
 
 export interface MetaStatusError {
   code?: number | string;
@@ -45,19 +56,23 @@ export function statusUpdate(
   at: Date,
   errors?: MetaStatusError[],
 ): MessageStatusUpdate | null {
-  const next = STATUS_RANK[incoming];
+  const next = RANK.get(incoming);
   // An unknown status is ignored rather than thrown: this runs inside a webhook loop, and
   // throwing would lose the rest of the batch along with it. Meta adds values over time.
-  if (!next) return null;
-  if (current && STATUS_RANK[current] >= next) return null;
+  if (next === undefined) return null;
+  // A current value we do not recognise ranks as nothing, so it can never discard a real
+  // incoming status — least of all a failure.
+  const now = current === null ? 0 : (RANK.get(current) ?? 0);
+  if (now >= next) return null;
 
   if (incoming === 'failed') {
     const err = errors && errors[0];
+    const reason = err && err.title
+      ? `${err.title}${err.code != null ? ` (${err.code})` : ''}`
+      : 'Delivery failed';
     return {
       deliveryStatus: 'failed',
-      failedReason: err && err.title
-        ? `${err.title}${err.code != null ? ` (${err.code})` : ''}`
-        : 'Delivery failed',
+      failedReason: reason.slice(0, MAX_REASON),
     };
   }
   if (incoming === 'delivered') return { deliveryStatus: 'delivered', deliveredAt: at };

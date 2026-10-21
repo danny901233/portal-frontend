@@ -56,3 +56,29 @@ test('an unrecognised status is ignored rather than thrown', () => {
   assert.equal(statusUpdate('sent', 'warp-speed', AT), null);
   assert.equal(statusUpdate(null, '', AT), null);
 });
+
+// A status string arrives from a webhook, so it is attacker-shaped input, and a plain object
+// lookup answers for keys the object does not own: STATUS_RANK['constructor'] is the Function
+// constructor — truthy — so the guard above let it through and the message was written as 'sent'.
+// The "unrecognised status is ignored" test above passed only because 'warp-speed' happens not to
+// be on Object.prototype, which is false confidence rather than coverage.
+test('a prototype key is not a status', () => {
+  for (const key of ['constructor', 'toString', '__proto__', 'hasOwnProperty', 'valueOf']) {
+    assert.equal(statusUpdate(null, key, AT), null, `${key} must not be treated as a status`);
+    assert.equal(statusUpdate('sent', key, AT), null, `${key} must not advance a real status`);
+  }
+});
+
+test('a prototype key cannot mask a real failure either', () => {
+  // The reverse direction: `current` comes from our own column, but if a prototype key ever got
+  // written there, ranking against it must not silently discard a genuine incoming failure.
+  const got = statusUpdate('constructor', 'failed', AT, [{ code: 131026, title: 'Undeliverable' }]);
+  assert.deepEqual(got, { deliveryStatus: 'failed', failedReason: 'Undeliverable (131026)' });
+});
+
+// failedReason is Meta's text going into a database column and then onto a page. Cap it.
+test('an absurdly long failure reason is truncated', () => {
+  const got = statusUpdate('sent', 'failed', AT, [{ code: 1, title: 'x'.repeat(5000) }]);
+  assert.ok(got);
+  assert.ok(got!.failedReason!.length <= 300, `was ${got!.failedReason!.length}`);
+});

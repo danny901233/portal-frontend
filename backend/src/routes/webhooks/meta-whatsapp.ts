@@ -98,14 +98,19 @@ router.post('/meta-whatsapp', async (req: Request, res: Response) => {
             // back, so every receipt for a chat reply was read and discarded — and a reply that
             // Meta accepted and then failed to deliver looked answered in the portal forever.
             try {
-              const msg = await prisma.chatMessage.findUnique({
-                where: { metaMid: messageSid },
+              const msg = await prisma.chatMessage.findFirst({
+                // Outbound only. A receipt is about a message WE sent, and metaMid also holds
+                // the id of every inbound message — so without this, a status naming an
+                // inbound id would stamp a delivery state onto the customer's own message.
+                where: { metaMid: messageSid, role: { not: 'user' } },
                 select: { id: true, conversationId: true, deliveryStatus: true },
               });
               if (msg) {
-                const at = status.timestamp
-                  ? new Date(Number(status.timestamp) * 1000)
-                  : new Date();
+                // Meta's timestamp is seconds-as-string. Anything unparseable becomes now
+                // rather than an Invalid Date, which Prisma rejects and which would cost us
+                // the receipt entirely.
+                const ts = Number(status.timestamp);
+                const at = Number.isFinite(ts) && ts > 0 ? new Date(ts * 1000) : new Date();
                 const update = statusUpdate(msg.deliveryStatus, metaStatus, at, status.errors);
                 if (update) {
                   await prisma.chatMessage.update({ where: { id: msg.id }, data: update });

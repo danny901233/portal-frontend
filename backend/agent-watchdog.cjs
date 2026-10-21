@@ -696,7 +696,7 @@ const OUR_META_APP_ID = '1600229954436428';
  * Only BLOCKED alerts. LIMITED means reduced throughput or an unapproved display name and still
  * delivers — half the estate sits at LIMITED, so paging on it would train everyone to ignore this.
  */
-function waHealthIssues(garageName, garageId, health) {
+function waHealthIssues(garageName, garageId, health, phoneNumberId = '') {
   if (!health || health.can_send_message !== 'BLOCKED') return [];
 
   const entities = Array.isArray(health.entities) ? health.entities : [];
@@ -721,9 +721,15 @@ function waHealthIssues(garageName, garageId, health) {
       + 'A token swap on our side will NOT fix it.';
 
   return [{
-    key: `wa-health:${garageId}`,
-    msg: `${garageName}: WhatsApp cannot send — Meta reports can_send_message BLOCKED. ${why}. `
-       + `${blame} Replies are still being written into the portal and shown to staff as sent.`,
+    // Keyed per NUMBER, not per garage: MMH holds three WhatsApp connections and a garage-only
+    // key fired three identical alerts for one fault.
+    key: `wa-health:${garageId}:${phoneNumberId}`,
+    // "Sending BLOCKED" rather than "cannot send", because Meta's own reason carries the scope
+    // and they differ: 141008/141014 stop everything, 141006 stops only business-initiated
+    // conversations and still lets a reply inside the 24h window through. Quote it, don't gloss it.
+    msg: `${garageName}${phoneNumberId ? ` (${phoneNumberId})` : ''}: Meta reports WhatsApp `
+       + `sending BLOCKED — ${why}. ${blame} Replies are still being written into the portal `
+       + 'and shown to staff as sent.',
   }];
 }
 
@@ -790,7 +796,7 @@ async function checkWhatsAppTokens({ force = false } = {}) {
       `/${c.whatsappPhoneNumberId}?fields=health_status&access_token=${encodeURIComponent(token)}`,
     );
     if (!health.error) {
-      issues.push(...waHealthIssues(g.name, c.garageId, health.health_status));
+      issues.push(...waHealthIssues(g.name, c.garageId, health.health_status, c.whatsappPhoneNumberId));
     }
 
     if (probe.quality_rating && ['RED', 'YELLOW'].includes(probe.quality_rating)) {

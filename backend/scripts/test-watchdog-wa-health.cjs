@@ -61,11 +61,14 @@ const HEALTHY = {
 
 // 1. The outage this check exists for must be caught, and say what is wrong and whose it is.
 {
-  const got = waHealthIssues('EAC Telford', 'gid-eac', EAC_BLOCKED);
+  const got = waHealthIssues('EAC Telford', 'gid-eac', EAC_BLOCKED, '1240009952520643');
   assert.equal(got.length, 1, 'one issue per connection, not one per entity');
-  assert.equal(got[0].key, 'wa-health:gid-eac');
+  // Keyed per NUMBER: MMH has three WhatsApp connections and a garage-only key fired three
+  // identical alerts for the single fault when this was first run against the live estate.
+  assert.equal(got[0].key, 'wa-health:gid-eac:1240009952520643');
+  assert.match(got[0].msg, /1240009952520643/, 'the number is what you triage with');
   assert.match(got[0].msg, /EAC Telford/);
-  assert.match(got[0].msg, /cannot send/i);
+  assert.match(got[0].msg, /sending BLOCKED/);
   assert.match(got[0].msg, /141008/, 'the Meta error code is what makes this searchable');
   assert.match(got[0].msg, /not active/i);
   // Whose problem it is decides who gets chased, so it has to be in the alert.

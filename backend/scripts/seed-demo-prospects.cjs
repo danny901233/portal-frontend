@@ -173,6 +173,20 @@ const main = async () => {
   }
   console.log(`\ncreated ${created}`);
 
+  // The phone leg needs every prospect's SIP destination on the inbound trunk, because LiveKit
+  // matches a trunk on the called number. Miss this and the tel: link silently lands the caller on
+  // the GENERIC demo — the failure that wasted three test calls. Written out here so it is part of
+  // seeding rather than something a person has to remember; `lk` holds the project credentials, so
+  // the command itself has to be run from a machine that has them.
+  const trunkPath = path.join(path.dirname(CSV), 'trunk-numbers.txt');
+  const everyProspect = await prisma.demoProspect.findMany({
+    select: { agentId: true }, orderBy: { agentId: 'asc' },
+  });
+  fs.writeFileSync(trunkPath, everyProspect.map((p) => `garage-${p.agentId}`).join(','));
+  console.log(`\nSIP trunk — run this or the phone links go to the generic demo:`);
+  console.log(`  lk sip inbound update --id ST_Dos84B2iZYgt --numbers "$(cat ${trunkPath})"`);
+  console.log(`  (${everyProspect.length} destinations)`);
+
   const outPath = path.join(path.dirname(CSV), 'demo-links.csv');
   fs.writeFileSync(outPath, 'contactId,email,name,code,url\n' + plan
     .map((p) => [p.contactId, p.email, '"' + p.spokenName + '"', p.code,

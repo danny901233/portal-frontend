@@ -122,6 +122,33 @@ test('a caller interrupting is never a fault', () => {
   assert.equal(out.length, 0);
 });
 
+test('a complaint about the summary\'s wording is dropped', () => {
+  // Reviewing a prose summary against a transcript produced 39 findings on 124
+  // calls, and the two I checked by hand were both wrong: 44742279 reported the
+  // summary as falsely claiming no service history when the agent had said
+  // exactly that, and 41254105 as carrying a wrong registration and date when
+  // every detail matched. A summary is lossy by design; comparing it to a
+  // transcript generates endless near-misses.
+  const out = normalizeFindings(
+    [{ category: 'summary_wrong', severity: 'medium', headline: 'Summary misstates intent',
+       detail: 'The summary describes the caller as asking about a service when they asked about an MOT.' }],
+    ctx,
+  );
+  assert.equal(out.length, 0);
+});
+
+test('a promise the tools never kept IS kept — that is the checkable version', () => {
+  // Call 39952808: the garage was told a message had been taken for the team to
+  // call Simon back, and take_message never completed.
+  const out = normalizeFindings(
+    [{ category: 'promise_not_kept', severity: 'high', headline: 'Garage told a message was taken',
+       detail: 'The summary says a message was taken for the team to call back, but take_message ended at CONFIRM_NUMBER and no message was recorded.' }],
+    ctx,
+  );
+  assert.equal(out.length, 1);
+  assert.equal(out[0].category, 'promise_not_kept');
+});
+
 test('findings are capped so one call cannot flood the page', () => {
   const many = Array.from({ length: 20 }, (_, i) => ({
     category: 'other', severity: 'low', headline: `h${i}`, detail: `detail ${i}`,
@@ -142,5 +169,6 @@ test('the high-severity findings survive the cap', () => {
 test('the vocabulary is a closed set the page can group by', () => {
   assert.ok(FAULT_CATEGORIES.includes('dead_air'));
   assert.ok(FAULT_CATEGORIES.includes('other'));
+  assert.ok(!FAULT_CATEGORIES.includes('summary_wrong'), 'summary prose review was dropped');
   assert.ok(FAULT_CATEGORIES.every((c) => /^[a-z_]+$/.test(c)));
 });

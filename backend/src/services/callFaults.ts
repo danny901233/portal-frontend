@@ -44,7 +44,6 @@ export const FAULT_CATEGORIES = [
   'booking_failure',     // a booking could not be completed
   'unverified_vehicle',  // acted on a vehicle the caller never confirmed
   'rushed_readback',     // read a value back too fast to check
-  'summary_wrong',       // the call summary does not match the call
   'unresolved',          // the caller did not get what they rang for, and it was ours
   'other',
 ] as const;
@@ -93,6 +92,15 @@ export function normalizeFindings(
 
     // The caller interrupting the agent is the barge-in handling working.
     if (/\binterrupt/i.test(detail)) continue;
+
+    // Reviewing the summary's prose produced 39 findings on 124 calls and the
+    // two checked by hand were both wrong (44742279, 41254105): every detail
+    // matched the transcript. A summary is lossy by design. The checkable
+    // version of this fault — the garage told an action happened that the tool
+    // outcomes show did not — is reported as promise_not_kept instead, and
+    // `summary_wrong` is no longer in the vocabulary, so this catches a model
+    // that keeps using the old name.
+    if (String(r.category) === 'summary_wrong') continue;
 
     // The ~5s mute while the agent reads a registration or postcode back is
     // deliberate. It is the single most-reported non-fault.
@@ -183,7 +191,11 @@ const SYSTEM_PROMPT = [
   '- a tool that errored, or gathered everything and never completed. Judge this ONLY on how the',
   '  tool ENDED: a status part-way through a flow is a step, not a failure, and a tool called',
   '  several times is judged on its last result alone.',
-  '- a summary that does not match what happened on the call',
+  '- the garage being TOLD, in the summary, that something was done which the tool outcomes show',
+  '  was not done — a booking placed, a message taken, a confirmation text sent. Report that as',
+  '  promise_not_kept and cite the tool. Do NOT review the summary\'s wording, and do not report',
+  '  it for leaving things out or for phrasing you would have written differently: a summary is',
+  '  shorter than the call on purpose.',
   '- the caller not getting what they rang for, where the agent or the diary caused it',
   '- the agent asking for a NAME or other details BEFORE helping with what the caller rang about.',
   '  Callers hang up on that: it is the single biggest cause of calls dying under 30 seconds.',

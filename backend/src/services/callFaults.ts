@@ -227,8 +227,13 @@ export async function findCallFaults(input: {
   const known = (input.knownSignals || []).filter(Boolean);
   const userMsg =
     (known.length
-      ? `ALREADY ESTABLISHED FROM THE CALL DATA (treat as fact, say what it MEANS for the caller, `
-        + `and look for anything it does not cover):\n${known.map((k) => `- ${k}`).join('\n')}\n\n`
+      // Without the "do not repeat" instruction it dutifully restated each one:
+      // over 124 calls the analyst returned 19 unverified-vehicle findings
+      // against the data checks' 19, which doubles the page and adds nothing.
+      ? `ALREADY FOUND BY THE DATA CHECKS AND ALREADY ON THE RECORD. Do NOT report any of these `
+        + `again. Treat them as established fact, and report only faults they do NOT cover — for `
+        + `instance what the agent went on to tell the caller, or what the garage was told in the `
+        + `summary, about the thing below:\n${known.map((k) => `- ${k}`).join('\n')}\n\n`
       : '')
     + `Call type: ${input.callType || 'unknown'} | Booking confirmed: ${input.confirmedBooking ? 'yes' : 'no'}\n`
     + `Summary the garage was sent: ${input.summary || '(none)'}\n\n`

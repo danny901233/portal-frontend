@@ -134,6 +134,36 @@ function sameRequest(a, b) {
   return shared / Math.min(wa.size, wb.size) >= 0.7;
 }
 
+// An agent that tells the caller it did not hear them and asks again is
+// recovering, which is correct. The caller gave it nothing to work with.
+const RECOVERY_RE = /did(?:n'?t| not) (?:quite )?(?:catch|hear|get)|say that again|repeat that|come again/i;
+
+/**
+ * Agent questions paired with where they sit in the conversation, so a repeat
+ * can be judged on ADJACENCY.
+ *
+ * Over 124 real calls, matching any two equal questions anywhere in a call
+ * flagged 35 of them and the samples were mostly correct behaviour — "Is there
+ * anything else I can help with?" at two natural points is not making the
+ * caller answer twice. A repeat only counts when the second ask follows the
+ * first with at most one caller turn in between: either straight after itself,
+ * or straight after the caller answered it and was ignored.
+ */
+function agentQuestionsWithPosition(turns) {
+  const out = [];
+  turns.forEach((t, i) => {
+    if (!isAgent(t)) return;
+    for (const q of questionsIn(textOf(t))) out.push({ q, at: i, turn: textOf(t) });
+  });
+  return out;
+}
+
+function callerTurnsBetween(turns, from, to) {
+  let n = 0;
+  for (let i = from + 1; i < to; i += 1) if (isCaller(turns[i]) && textOf(turns[i])) n += 1;
+  return n;
+}
+
 /** Groups of utterances that are the same request, largest group first. */
 function repeatedGroups(texts, minSize) {
   const groups = [];
@@ -226,13 +256,21 @@ function scanOne(call, feedbackFor) {
   // 1c. The agent asking the same thing twice. The caller already answered, or
   //     was never heard — either way they are being made to do it again, and it
   //     is the shape of call 21440820, which the garage marked down.
-  const askedGroups = repeatedGroups(
-    turns.filter(isAgent).flatMap((t) => questionsIn(textOf(t))), 2,
-  );
-  if (askedGroups.length) {
-    const worst = askedGroups[0];
-    add('agent-repeating', worst.length >= 3 ? SEVERITY.high : SEVERITY.medium,
-        `The agent asked the same thing ${worst.length} times: "${worst[0].slice(0, 120)}"`);
+  const asked = agentQuestionsWithPosition(turns);
+  let repeat = null;
+  for (let i = 0; i < asked.length && !repeat; i += 1) {
+    for (let j = i + 1; j < asked.length; j += 1) {
+      if (!sameRequest(asked[i].q, asked[j].q)) continue;
+      // Said again with the caller given no chance, or given one and ignored.
+      if (callerTurnsBetween(turns, asked[i].at, asked[j].at) > 1) continue;
+      if (RECOVERY_RE.test(asked[j].turn)) continue;
+      repeat = asked[i].q;
+      break;
+    }
+  }
+  if (repeat) {
+    add('agent-repeating', SEVERITY.medium,
+        `The agent asked the same thing twice with nothing resolved in between: "${repeat.slice(0, 120)}"`);
   }
 
   // 1d. The caller having to say the same thing over and over. Three times is

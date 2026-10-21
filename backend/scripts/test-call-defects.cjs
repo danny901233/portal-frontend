@@ -291,6 +291,66 @@ check('the silent-call finding quotes the real provider error',
 check('the silent-call finding never prints [object Object]',
       Boolean(se) && !/\[object Object\]/.test(se.detail), se ? se.detail : 'no finding');
 
+// Running this over 124 real calls flagged 35 of them, and the samples were
+// mostly the agent behaving correctly. Two shapes had to come out.
+
+// "Is there anything else I can help with?" at two natural points in a long
+// call is not a repeat — the caller was not made to answer the same thing
+// twice. A repeat only counts when the two asks are next to each other.
+const askedFarApart = {
+  ...healthy, id: 'asked007',
+  metrics: { ...healthy.metrics, tool_call_history: [] },
+  transcript: [
+    { speaker: 'agent', text: "You're through to Test Garage, how can I help?" },
+    { speaker: 'caller', text: 'I need an MOT and a service' },
+    { speaker: 'agent', text: 'Is there anything else I can help with while I check?' },
+    { speaker: 'caller', text: 'No that is all' },
+    { speaker: 'agent', text: 'What day would suit you?' },
+    { speaker: 'caller', text: 'Thursday' },
+    { speaker: 'agent', text: 'And can I take your surname?' },
+    { speaker: 'caller', text: 'Smith' },
+    { speaker: 'agent', text: 'Booked for Thursday at nine.' },
+    { speaker: 'caller', text: 'Lovely' },
+    { speaker: 'agent', text: 'Is there anything else I can help with while you are on the line?' },
+  ],
+};
+check('the same courtesy question at two natural points is not a repeat',
+      !sigs(scanDefects([askedFarApart]), 'asked007').includes('agent-repeating'),
+      JSON.stringify(sigs(scanDefects([askedFarApart]), 'asked007')));
+
+// An agent that says it did not hear and asks again is recovering, which is
+// what it should do. The caller gave it nothing to work with.
+const didNotCatch = {
+  ...healthy, id: 'asked008',
+  metrics: { ...healthy.metrics, tool_call_history: [] },
+  transcript: [
+    { speaker: 'agent', text: "You're through to Test Garage, how can I help?" },
+    { speaker: 'caller', text: 'I need to...' },
+    { speaker: 'agent', text: 'Could I take your name, please?' },
+    { speaker: 'caller', text: 'mmm' },
+    { speaker: 'agent', text: "Sorry, I didn't quite catch that - could I take your name, please?" },
+  ],
+};
+check('an explicit "I did not catch that" re-ask is not a fault',
+      !sigs(scanDefects([didNotCatch]), 'asked008').includes('agent-repeating'),
+      JSON.stringify(sigs(scanDefects([didNotCatch]), 'asked008')));
+
+// But ignoring an answer the caller actually gave still counts.
+const ignoredAnswer = {
+  ...healthy, id: 'asked009',
+  metrics: { ...healthy.metrics, tool_call_history: [] },
+  transcript: [
+    { speaker: 'agent', text: "You're through to Test Garage, how can I help?" },
+    { speaker: 'caller', text: 'MOT please' },
+    { speaker: 'agent', text: 'Could I take your name, please?' },
+    { speaker: 'caller', text: 'It is Dave Wilson' },
+    { speaker: 'agent', text: 'Could I take your name, please?' },
+  ],
+};
+check('asking again straight after the caller answered is still flagged',
+      sigs(scanDefects([ignoredAnswer]), 'asked009').includes('agent-repeating'),
+      JSON.stringify(sigs(scanDefects([ignoredAnswer]), 'asked009')));
+
 // ── the caller having to repeat themselves ──
 const callerRepeats = {
   ...healthy, id: 'callrep1',

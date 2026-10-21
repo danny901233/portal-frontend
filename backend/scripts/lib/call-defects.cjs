@@ -62,6 +62,70 @@ function ttsRan(usage) {
   });
 }
 
+// Words that carry no meaning for deciding whether two questions are the same
+// one. Question words and politeness vary freely while the request underneath
+// stays identical ("Could I take your name, please?" / "Can I take your name?").
+const FILLER = new Set([
+  'what', 'which', 'when', 'where', 'how', 'who', 'why', 'can', 'could', 'would', 'will',
+  'shall', 'should', 'may', 'might', 'do', 'does', 'did', 'is', 'are', 'was', 'were', 'be',
+  'been', 'am', 'have', 'has', 'had', 'i', 'you', 'your', 'yours', 'we', 'us', 'our', 'me',
+  'my', 'it', 'its', 'the', 'a', 'an', 'and', 'or', 'but', 'so', 'to', 'of', 'for', 'in',
+  'on', 'at', 'with', 'that', 'this', 'there', 'then', 'just', 'please', 'sorry', 'ok',
+  'okay', 'right', 'um', 'uh', 'er', 'well', 'still', 'again', 'any', 'some', 'like',
+  'get', 'got', 'put', 'tell', 'say', 'said', 'know', 'if', 'about',
+]);
+
+function contentWords(text) {
+  return new Set(
+    String(text || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .split(/\s+/)
+      .filter((w) => w && w.length > 1 && !FILLER.has(w)),
+  );
+}
+
+// A registration in the text means this is the capture loop reading a plate
+// back, which the capture counters already measure. Flagging it here would
+// report the same struggle twice.
+const PLATE_RE = /\b[A-Z]{2}\s?\d{2}\s?[A-Z]{3}\b|\b[A-Z]\d{1,3}\s?[A-Z]{3}\b/i;
+
+/** The question sentences in a turn, so a long preamble cannot hide the repeat. */
+function questionsIn(text) {
+  return String(text || '')
+    .split(/(?<=[.!?])\s+/)
+    .map((part) => part.trim())
+    .filter((part) => part.endsWith('?') && !PLATE_RE.test(part));
+}
+
+/**
+ * Two utterances that are the same request in different words.
+ *
+ * Compared on content words only, against the SMALLER set, so "Which day would
+ * suit you best for the MOT?" matches "What day would suit you for the MOT?".
+ * Both need at least two content words: a one-word question like "how can I
+ * help?" is a greeting and would otherwise match every other short question.
+ */
+function sameRequest(a, b) {
+  const wa = contentWords(a);
+  const wb = contentWords(b);
+  if (wa.size < 2 || wb.size < 2) return false;
+  let shared = 0;
+  for (const w of wa) if (wb.has(w)) shared += 1;
+  return shared / Math.min(wa.size, wb.size) >= 0.7;
+}
+
+/** Groups of utterances that are the same request, largest group first. */
+function repeatedGroups(texts, minSize) {
+  const groups = [];
+  for (const t of texts) {
+    const hit = groups.find((g) => sameRequest(g[0], t));
+    if (hit) hit.push(t);
+    else groups.push([t]);
+  }
+  return groups.filter((g) => g.length >= minSize).sort((x, y) => y.length - x.length);
+}
+
 // A caller who cannot hear the agent says one of these, and keeps saying it.
 // A single "hello?" is just how people answer a phone, so the signature is the
 // REPETITION while the agent is talking back.
@@ -131,6 +195,30 @@ function scanOne(call, feedbackFor) {
         `The agent was speaking and the caller could not hear it — they asked `
         + `${deaf.length}x: "${deaf.map((t) => textOf(t)).slice(0, 3).join('" / "')}". `
         + `Audio reached our side only.`);
+  }
+
+  // 1c. The agent asking the same thing twice. The caller already answered, or
+  //     was never heard — either way they are being made to do it again, and it
+  //     is the shape of call 21440820, which the garage marked down.
+  const askedGroups = repeatedGroups(
+    turns.filter(isAgent).flatMap((t) => questionsIn(textOf(t))), 2,
+  );
+  if (askedGroups.length) {
+    const worst = askedGroups[0];
+    add('agent-repeating', worst.length >= 3 ? SEVERITY.high : SEVERITY.medium,
+        `The agent asked the same thing ${worst.length} times: "${worst[0].slice(0, 120)}"`);
+  }
+
+  // 1d. The caller having to say the same thing over and over. Three times is
+  //     the threshold: twice happens in ordinary conversation.
+  if (!(agentSpoke && ttsRan(m.usage) && deaf.length >= 2)) {
+    const saidAgain = repeatedGroups(turns.filter(isCaller).map(textOf).filter(Boolean), 3);
+    if (saidAgain.length) {
+      const worst = saidAgain[0];
+      add('caller-repeating', SEVERITY.medium,
+          `The caller said the same thing ${worst.length} times and was not acted on: `
+          + `"${worst[0].slice(0, 120)}"`);
+    }
   }
 
   // 2. A plate that arrived without the caller ever saying it. registration_rounds

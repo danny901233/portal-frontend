@@ -167,6 +167,100 @@ const nsf = sigs(scanDefects([neverSpoke]), 'nevspk01');
 check('a call where the agent never spoke is silent-call, not one-way audio',
       nsf.includes('silent-call') && !nsf.includes('one-way-audio'), JSON.stringify(nsf));
 
+// ── the agent asking the same thing twice ──
+// Call 21440820 (VRS Midlands, thumbs-down): the caller said "an update on my
+// car", the agent asked for a name, got nothing, and asked for the name again.
+// Nothing caught it. Dan: "if the agent asks the same question multiple times
+// it should flag".
+const askedTwice = {
+  ...healthy, id: 'asked001',
+  metrics: { ...healthy.metrics, tool_call_history: [] },
+  transcript: [
+    { speaker: 'agent', text: "Hello this is Test Garage, how can I help you today?" },
+    { speaker: 'caller', text: 'An update on my car.' },
+    { speaker: 'agent', text: 'Of course, I can get the team to give you an update. Could I take your name, please?' },
+    { speaker: 'agent', text: 'Sorry, are you still there? Could I take your name, please?' },
+  ],
+};
+check('the agent asking the same question twice is flagged',
+      sigs(scanDefects([askedTwice]), 'asked001').includes('agent-repeating'),
+      JSON.stringify(sigs(scanDefects([askedTwice]), 'asked001')));
+check('the repeat finding quotes the question that was repeated',
+      scanDefects([askedTwice]).some((f) => f.signature === 'agent-repeating' && /name/i.test(f.detail)));
+
+// Reworded, same question — the caller still had to answer it twice.
+const rewordedTwice = {
+  ...healthy, id: 'asked002',
+  metrics: { ...healthy.metrics, tool_call_history: [] },
+  transcript: [
+    { speaker: 'agent', text: "You're through to Test Garage, how can I help?" },
+    { speaker: 'caller', text: 'I need an MOT' },
+    { speaker: 'agent', text: 'What day would suit you for the MOT?' },
+    { speaker: 'caller', text: 'Whenever' },
+    { speaker: 'agent', text: 'Which day would suit you best for the MOT?' },
+  ],
+};
+check('a reworded repeat of the same question is still flagged',
+      sigs(scanDefects([rewordedTwice]), 'asked002').includes('agent-repeating'),
+      JSON.stringify(sigs(scanDefects([rewordedTwice]), 'asked002')));
+
+// Different questions in sequence are a normal conversation.
+const normalFlow = {
+  ...healthy, id: 'asked003',
+  metrics: { ...healthy.metrics, tool_call_history: [] },
+  transcript: [
+    { speaker: 'agent', text: "You're through to Test Garage, how can I help?" },
+    { speaker: 'caller', text: 'I need an MOT' },
+    { speaker: 'agent', text: 'What day would suit you?' },
+    { speaker: 'caller', text: 'Thursday' },
+    { speaker: 'agent', text: 'And can I take your surname?' },
+    { speaker: 'caller', text: 'Smith' },
+    { speaker: 'agent', text: 'What is the best number for you?' },
+  ],
+};
+check('asking a sequence of different questions is not a fault',
+      !sigs(scanDefects([normalFlow]), 'asked003').includes('agent-repeating'),
+      JSON.stringify(sigs(scanDefects([normalFlow]), 'asked003')));
+
+// Reading a plate back twice is the capture loop doing its job, and the
+// capture counters already measure that — flagging it here double-reports it.
+const plateReadback = {
+  ...healthy, id: 'asked004',
+  metrics: { ...healthy.metrics, tool_call_history: [] },
+  transcript: [
+    { speaker: 'agent', text: "You're through to Test Garage, how can I help?" },
+    { speaker: 'caller', text: 'AB12 CDE' },
+    { speaker: 'agent', text: 'Can I check that registration back — AB12CDE, is that right?' },
+    { speaker: 'caller', text: 'No, AB12 CDF' },
+    { speaker: 'agent', text: 'Can I check that registration back — AB12CDF, is that right?' },
+  ],
+};
+check('reading a registration back twice is not an agent repeat',
+      !sigs(scanDefects([plateReadback]), 'asked004').includes('agent-repeating'),
+      JSON.stringify(sigs(scanDefects([plateReadback]), 'asked004')));
+
+// ── the caller having to repeat themselves ──
+const callerRepeats = {
+  ...healthy, id: 'callrep1',
+  metrics: { ...healthy.metrics, tool_call_history: [] },
+  transcript: [
+    { speaker: 'agent', text: "You're through to Test Garage, how can I help?" },
+    { speaker: 'caller', text: 'I need a new exhaust' },
+    { speaker: 'agent', text: 'Sorry, could you say that again?' },
+    { speaker: 'caller', text: 'I need a new exhaust' },
+    { speaker: 'agent', text: 'Sorry, I missed that.' },
+    { speaker: 'caller', text: 'I need a new exhaust' },
+  ],
+};
+check('a caller saying the same thing three times is flagged',
+      sigs(scanDefects([callerRepeats]), 'callrep1').includes('caller-repeating'),
+      JSON.stringify(sigs(scanDefects([callerRepeats]), 'callrep1')));
+
+// One-way audio already describes the hello-hello case; do not report both.
+check('the hello-hello call is not also reported as caller-repeating',
+      !sigs(scanDefects([oneWay]), 'oneway01').includes('caller-repeating'),
+      JSON.stringify(sigs(scanDefects([oneWay]), 'oneway01')));
+
 // ── a booking the agent claimed but never made ──
 const falseClaim = {
   ...healthy, id: 'falsecl1',

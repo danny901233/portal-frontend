@@ -11,6 +11,7 @@ import adminRouter from './routes/admin.js';
 import adminFbConnectionRouter from './routes/admin-fb-connection.js';
 import voiceRouter from './routes/voice.js';
 import showcallRouter from './routes/showcall.js';
+import verifyCallRouter from './routes/verifyCall.js';
 import demoProspectCallRouter from './routes/demo-prospect-call.js';
 import voicePreviewRouter from './routes/voicePreview.js';
 import twilioRouter from './routes/twilio.js';
@@ -217,6 +218,7 @@ app.use('/api/webhooks', mailgunInboundWebhook);
 app.use('/webhooks', agentWebhookRouter);
 app.use('/webhooks', voiceRouter);
 app.use('/webhooks', showcallRouter);
+app.use('/webhooks', verifyCallRouter);
 app.use('/webhooks', demoProspectCallRouter);
 
 // Faults with no request behind them used to vanish silently. Install before anything starts

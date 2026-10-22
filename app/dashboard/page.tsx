@@ -215,6 +215,14 @@ export default function DashboardPage() {
       // where the agent priced and placed a booking itself. Quoting the captured-revenue total
       // here printed "quoted at £0.00", which reads as the work having been worth nothing.
       bookedInByHandHint: 'Appointment requests the AI took and passed to the team.',
+      // The funnel for a garage that books by hand: we hand over a request, they book it, they
+      // bill it. Three figures, each a subset of the one before, so it can be read straight down
+      // — and so "Bookings" is never mistaken for jobs won.
+      appointmentRequests: 'Appointment requests',
+      appointmentRequestsHint:
+        'Callers who asked to get booked in. The AI took the details and passed them to the team.',
+      bookedByGarage: 'Booked in',
+      bookedByGarageHint: 'Requests that became a job in the garage’s own diary.',
       invoicedJobCount: (count: number) =>
         `${count} of those jobs have been done and billed.`,
       stillToInvoice: 'Still to be invoiced',
@@ -274,6 +282,11 @@ export default function DashboardPage() {
       bookedIn: 'Réservations',
       bookedInHint: (quoted: string) => `Rendez-vous pris par l’IA, devisés à ${quoted}.`,
       bookedInByHandHint: 'Demandes de rendez-vous prises par l’IA et transmises à l’équipe.',
+      appointmentRequests: 'Demandes de rendez-vous',
+      appointmentRequestsHint:
+        'Appelants souhaitant un rendez-vous. L’IA a pris les détails et les a transmis à l’équipe.',
+      bookedByGarage: 'Réservés',
+      bookedByGarageHint: 'Demandes devenues un travail dans l’agenda du garage.',
       invoicedJobCount: (count: number) =>
         `${count} de ces travaux sont terminés et facturés.`,
       stillToInvoice: 'Reste à facturer',
@@ -477,6 +490,11 @@ export default function DashboardPage() {
 
     return {
       bookedCount: booked.length,
+      // How many of those requests the garage actually turned into a job in its own diary. Only
+      // meaningful where we did not place the booking ourselves: it is the second step of the
+      // funnel — we hand over a request, they book it, they bill it — and without it "Bookings"
+      // reads as jobs won when it means requests passed on.
+      bookedByGarageCount: booked.filter((cl) => Boolean(cl.diaryJobNumber)).length,
       invoicedCount: invoiced.length,
       invoicedTotal: invoiced.reduce((sum, cl) => sum + (cl.invoicedValue ?? 0), 0),
       // The remainder, so the three figures partition the same set and add up: a reader can
@@ -1034,9 +1052,9 @@ export default function DashboardPage() {
             </span>
             {' · '}
             <span className="font-semibold text-slate-700">
-              {loading ? '—' : bookingOutcome.bookedCount}
+              {loading ? '—' : bookingOutcome.bookedByGarageCount}
             </span>{' '}
-            {c.bookedIn.toLowerCase()}
+            {c.bookedByGarage.toLowerCase()}
           </>
         ) : (
           <>
@@ -1173,7 +1191,11 @@ export default function DashboardPage() {
               sat at two different heights. */}
           <div className="space-y-1 md:space-y-3 md:py-7">
             <span className="text-[10px] font-semibold uppercase tracking-[0.3em] text-brand-100 md:text-xs md:tracking-[0.35em]">
-              {showInvoiceBreakdown ? c.bookedIn : c.capturedRevenue}
+              {showInvoiceBreakdown
+                ? allBookByHand
+                  ? c.appointmentRequests
+                  : c.bookedIn
+                : c.capturedRevenue}
             </span>
             <div className="text-3xl font-semibold text-white md:text-5xl">
               {loading
@@ -1185,36 +1207,57 @@ export default function DashboardPage() {
             <p className="mt-2 hidden max-w-lg text-sm text-brand-100 md:block">
               {showInvoiceBreakdown
                 ? allBookByHand
-                  ? c.bookedInByHandHint
+                  ? c.appointmentRequestsHint
                   : c.bookedInHint(formatCurrency(bookingRevenueTotal))
                 : c.capturedRevenueHint}
             </p>
           </div>
           <div className="flex flex-row items-center justify-between gap-3 rounded-xl border border-white/15 bg-white/10 px-3.5 py-2.5 text-left backdrop-blur-sm md:flex-col md:items-start md:rounded-2xl md:px-7 md:py-7">
             <div className="text-xs font-semibold uppercase tracking-[0.25em] text-brand-100">
-              {showInvoiceBreakdown ? c.invoiced : c.confirmedBookings}
+              {showInvoiceBreakdown
+                ? allBookByHand
+                  ? c.bookedByGarage
+                  : c.invoiced
+                : c.confirmedBookings}
             </div>
             <div className="text-3xl font-semibold text-white md:text-4xl">
               {loading
                 ? '—'
                 : showInvoiceBreakdown
-                ? formatCurrency(bookingOutcome.invoicedTotal)
+                ? allBookByHand
+                  ? bookingOutcome.bookedByGarageCount
+                  : formatCurrency(bookingOutcome.invoicedTotal)
                 : callTypeCounts['confirmed booking'] ?? 0}
             </div>
             <p className="hidden max-w-sm text-sm text-brand-100/90 md:block">
               {showInvoiceBreakdown
-                ? c.invoicedJobCount(bookingOutcome.invoicedCount)
+                ? allBookByHand
+                  ? c.bookedByGarageHint
+                  : c.invoicedJobCount(bookingOutcome.invoicedCount)
                 : c.confirmedBookingsHint}
             </p>
           </div>
           {showInvoiceBreakdown && (
             <div className="flex flex-row items-center justify-between gap-3 rounded-xl border border-white/15 bg-white/10 px-3.5 py-2.5 text-left backdrop-blur-sm md:flex-col md:items-start md:rounded-2xl md:px-7 md:py-7">
-              <div className="text-xs font-semibold uppercase tracking-[0.25em] text-brand-100">{c.stillToInvoice}</div>
+              {/* For a by-hand garage this is the third step of the funnel — requests, booked,
+                  invoiced — so it carries the money. "Still to be invoiced" cannot: it is
+                  bookedCount minus invoicedCount, and most of that gap is requests with no job
+                  found at all, not booked jobs awaiting a bill. Showing it there would have
+                  claimed 50 jobs were pending invoice at Ecotest when only 13 were. */}
+              <div className="text-xs font-semibold uppercase tracking-[0.25em] text-brand-100">
+                {allBookByHand ? c.invoiced : c.stillToInvoice}
+              </div>
               <div className="text-3xl font-semibold text-white md:text-4xl">
-                {loading ? '—' : bookingOutcome.awaitingInvoiceCount}
+                {loading
+                  ? '—'
+                  : allBookByHand
+                  ? formatCurrency(bookingOutcome.invoicedTotal)
+                  : bookingOutcome.awaitingInvoiceCount}
               </div>
               <p className="hidden max-w-sm text-sm text-brand-100/90 md:block">
-                {c.stillToInvoiceHint}
+                {allBookByHand
+                  ? c.invoicedJobCount(bookingOutcome.invoicedCount)
+                  : c.stillToInvoiceHint}
               </p>
             </div>
           )}

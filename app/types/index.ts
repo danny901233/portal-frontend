@@ -56,6 +56,11 @@ export interface CallRecord {
   invoicedAt?: string | null;
   // Draft | Open | Paid | Corrective | Canceled, as the garage's system reports it.
   invoiceStatus?: string | null;
+  // Does this call's garage book its own diary BY HAND (no published availability)? Stamped on
+  // the row by the calls list, because the rule for what counts as a booking differs: for these
+  // garages only an appointment REQUEST the agent took counts, never a job that merely turned up
+  // for the registration afterwards — that work the garage would have had anyway.
+  booksByHand?: boolean;
   createdAt: string;
   // Set by the backend when the owning garage is in arrears: caller identity, summary,
   // transcript and recording have been withheld; only date + tag are populated.

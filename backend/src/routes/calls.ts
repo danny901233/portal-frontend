@@ -1059,6 +1059,22 @@ router.get(
         }
       }
 
+      // Which of these garages book their own diary BY HAND? For them a booking is the
+      // appointment REQUEST the agent took and handed over — a job that merely turned up for the
+      // registration afterwards is work the garage would have had anyway, and crediting it ran
+      // their figures to roughly double (£12,020 against £5,889 on the ecotestmsc group in
+      // October). The rule differs per garage, so the flag travels on the row rather than being
+      // guessed at in the browser. One query, same shape as the arrears gating above.
+      let booksByHand = new Set<string>();
+      if (outCalls.length > 0) {
+        const bhGids = Array.from(new Set(calls.map((c) => c.garageId)));
+        const bhConns = await prisma.garageHiveConnection.findMany({
+          where: { garageId: { in: bhGids }, attributeCallbackBookings: true },
+          select: { garageId: true },
+        });
+        booksByHand = new Set(bhConns.map((c) => c.garageId));
+      }
+
       // List-payload trim: drop the fields the /calls page never renders, so
       // this response goes from ~1.6MB → ~200KB on a busy garage. The single-
       // call detail endpoint (/garages/:garageId/calls/:callId) still returns
@@ -1077,6 +1093,7 @@ router.get(
         };
         const rest = { ...(c as Record<string, unknown>) };
         delete rest.metrics;
+        rest.booksByHand = booksByHand.has((c as { garageId: string }).garageId);
         rest.transcript = Array.isArray(src.transcript)
           ? src.transcript.map((entry) => ({
               speaker: entry.speaker ?? null,

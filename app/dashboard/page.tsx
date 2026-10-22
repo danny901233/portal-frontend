@@ -436,17 +436,26 @@ export default function DashboardPage() {
   // bookingDetails is prose and totals to nothing; these come off the booking identity the agent
   // records plus the invoice value read back nightly from the garage's own system.
   const bookingOutcome = useMemo(() => {
-    // Three ways a call counts as a booking, because there are three ways we come to know one
-    // happened:
-    //   confirmedBooking  we placed it in the diary ourselves
-    //   bookingAt         an appointment is recorded — ours, or the date the caller asked for
-    //   diaryJobNumber    we later found the job in the garage's own diary
+    // What counts as a booking depends on whether the garage publishes availability, because
+    // what the agent can actually achieve differs.
     //
-    // The third matters for the garages that publish no availability: nothing is ever flagged
-    // confirmed and no appointment is ours, so the ONLY evidence is the job that turned up
-    // afterwards. Without it their bookings are invisible here however much work they billed.
-    const booked = calls.filter(
-      (cl) => cl.confirmedBooking === true || Boolean(cl.bookingAt) || Boolean(cl.diaryJobNumber),
+    // Where we can book: any of three signals, since there are three ways we come to know a
+    // booking happened — we placed it (confirmedBooking), an appointment is recorded
+    // (bookingAt), or we later found the job in the garage's own diary (diaryJobNumber).
+    //
+    // Where the garage books BY HAND: only the appointment request the agent took and handed
+    // over. A job that turned up for that registration afterwards is work the garage would have
+    // had anyway — they run their own diary — so crediting it claimed their work as ours and ran
+    // the figures to about double (£12,020 against £5,889 on the ecotestmsc group in October).
+    // bookingAt is no good as the test either: the nightly sweep back-writes it from the job it
+    // matched, so it stops meaning "the caller asked for this date". The call tag is the only
+    // signal that comes from the agent alone, and it holds whether or not a date was named —
+    // "ring me back about getting the car in" is an appointment request too.
+    const booked = calls.filter((cl) =>
+      cl.booksByHand
+        ? cl.confirmedBooking === true
+          || (cl.callType ?? '').trim().toLowerCase() === 'booking request'
+        : cl.confirmedBooking === true || Boolean(cl.bookingAt) || Boolean(cl.diaryJobNumber),
     );
 
     // Invoiced = the garage has billed the work. Paid AND Open both count: the job is done and

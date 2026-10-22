@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { forwardTwiml, FORWARD_TO_ENV } from './verifyCall.js';
+import { forwardTwiml, rejectTwiml, logSafeNumber, FORWARD_TO_ENV } from './verifyCall.js';
 
 // ---------------------------------------------------------------------------
 // Catching a WhatsApp verification code read down the phone
@@ -50,4 +50,35 @@ test('anything that is not a dialable number is refused, not interpolated into T
 
 test('the env var name is the one the deploy sets', () => {
   assert.equal(FORWARD_TO_ENV, 'VERIFY_CALL_FORWARD_TO');
+});
+
+// ---------------------------------------------------------------------------
+// The endpoint must not publish the forward number
+//
+// Flagged by review, and demonstrated: an unauthenticated GET returned TwiML containing the
+// forward destination, which is somebody's personal mobile. TwiML cannot be abused to place a
+// call — Twilio only executes it when fetching for a real inbound call — so there is no toll
+// fraud here. The leak is the number itself, and that is enough.
+//
+// Same fromTwilio() signature check the demo line already uses, and an unsigned request gets a
+// bare <Reject/> that names nothing.
+// ---------------------------------------------------------------------------
+
+test('a rejection carries no destination and no caller id', () => {
+  const xml = rejectTwiml();
+  assert.match(xml, /<Reject/);
+  assert.doesNotMatch(xml, /<Dial/);
+  assert.doesNotMatch(xml, /\+44/, 'a rejection must not name any number at all');
+});
+
+// The values logged come off an unauthenticated request, so they are attacker-shaped: a CRLF in
+// `From` would let someone forge whole log lines, and during a verification window this log is
+// the only evidence the call arrived.
+test('logged call identifiers are stripped to something dialable-looking', () => {
+  assert.equal(logSafeNumber('+443330386043'), '+443330386043');
+  assert.equal(logSafeNumber('07976500282'), '07976500282');
+  assert.equal(logSafeNumber(''), '(none)');
+  assert.equal(logSafeNumber('+44333\r\n[VERIFY_CALL] forged line'), '(invalid)');
+  assert.equal(logSafeNumber('<script>'), '(invalid)');
+  assert.equal(logSafeNumber('anonymous'), '(invalid)');
 });

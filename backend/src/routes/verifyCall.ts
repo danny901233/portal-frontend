@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express';
 import { Router } from 'express';
+import twilio from 'twilio';
 
 /**
  * A number that forwards its calls, so a verification code read down the phone reaches a human.
@@ -23,6 +24,44 @@ const router = Router();
 
 /** Where to send the call. Set per environment rather than hard-coded to someone's mobile. */
 export const FORWARD_TO_ENV = 'VERIFY_CALL_FORWARD_TO';
+
+/**
+ * Is this really Twilio asking? Same check, and the same reasoning, as the demo line.
+ *
+ * Without it an unauthenticated GET returns TwiML naming the forward destination, which is
+ * somebody's personal mobile — demonstrated with a single curl before this was added. TwiML
+ * itself cannot be abused to place a call (Twilio only executes it when fetching for a real
+ * inbound call), so the exposure is the number, which is reason enough.
+ */
+function fromTwilio(req: Request, path: string): boolean {
+  const authToken = process.env.TWILIO_AUTH_TOKEN;
+  if (!authToken) {
+    console.error('[VERIFY_CALL] TWILIO_AUTH_TOKEN not set — refusing rather than serving an unauthenticated forward');
+    return false;
+  }
+  const signature = req.headers['x-twilio-signature'] as string | undefined;
+  if (!signature) return false;
+  const base = process.env.PORTAL_BASE_URL || `https://${req.headers.host}`;
+  return twilio.validateRequest(authToken, signature, `${base}${path}`, req.body || {});
+}
+
+/** A refusal that names nothing — not the destination, not the number that was called. */
+export function rejectTwiml(): string {
+  return '<?xml version="1.0" encoding="UTF-8"?><Response><Reject reason="rejected"/></Response>';
+}
+
+/**
+ * A call identifier, safe to put in a log line.
+ *
+ * These arrive on the request, so they are attacker-shaped: a CRLF in `From` would let someone
+ * forge whole log lines, and during a verification window this log is the only evidence the call
+ * arrived at all.
+ */
+export function logSafeNumber(raw: string): string {
+  const v = String(raw || '').trim();
+  if (!v) return '(none)';
+  return /^\+?\d{6,15}$/.test(v) ? v : '(invalid)';
+}
 
 /** UK national or E.164, normalised to E.164. Anything else is not dialable. */
 function toE164(raw: string): string | null {
@@ -56,12 +95,16 @@ export function forwardTwiml(forwardTo: string, calledNumber: string): string {
 /**
  * POST/GET /webhooks/verify-call — Twilio's voice webhook for a number being verified.
  */
-router.all('/verify-call', (req: Request, res: Response) => {
-  const called = String((req.body && req.body.Called) || (req.query && req.query.Called) || '');
-  const from = String((req.body && req.body.From) || (req.query && req.query.From) || '');
+router.post('/verify-call', (req: Request, res: Response) => {
+  if (!fromTwilio(req, '/webhooks/verify-call')) {
+    console.warn('[VERIFY_CALL] rejected an unsigned request');
+    return res.status(403).type('text/xml').send(rejectTwiml());
+  }
+  const called = String((req.body && req.body.Called) || '');
+  const from = String((req.body && req.body.From) || '');
   const forwardTo = process.env[FORWARD_TO_ENV] || '';
   // Logged loudly: during a verification window this line is the only evidence the call arrived.
-  console.log(`[VERIFY_CALL] inbound to ${called || '(unknown)'} from ${from || '(withheld)'} `
+  console.log(`[VERIFY_CALL] inbound to ${logSafeNumber(called)} from ${logSafeNumber(from)} `
     + `— forwarding to ${toE164(forwardTo) || 'NOBODY (not configured)'}`);
   res.type('text/xml').send(forwardTwiml(forwardTo, called));
 });

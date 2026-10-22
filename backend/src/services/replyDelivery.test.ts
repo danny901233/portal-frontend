@@ -144,3 +144,68 @@ test('a send that returns no id records null rather than undefined', async () =>
   });
   assert.deepEqual(seen, [null, null]);
 });
+
+// ---------------------------------------------------------------------------
+// The reason has to be the provider's, not axios's
+//
+// First live failure after this shipped logged "Request failed with status code 500" — axios's
+// generic message. The code it replaced logged e.response.data, which carried Meta's actual
+// error: code 1, OAuthException, and an fbtrace_id you can quote at support. Losing that made
+// the log strictly worse than what was there before, on the one path whose whole purpose is
+// making failures visible.
+// ---------------------------------------------------------------------------
+
+function axiosLikeError(status: number, body: unknown) {
+  const e: any = new Error(`Request failed with status code ${status}`);
+  e.response = { status, data: body };
+  return e;
+}
+
+test('a Graph error body is preferred over the axios message', async () => {
+  const reasons: string[] = [];
+  const res = await deliverReply('whatsapp', 'hello', true, {
+    send: async () => {
+      throw axiosLikeError(500, {
+        error: { message: 'An unknown error has occurred.', code: 1, type: 'OAuthException', fbtrace_id: 'AJhL' },
+      });
+    },
+    record: async () => { throw new Error('must not record'); },
+    touchConversation: async () => {},
+    flagUndelivered: async (r) => { reasons.push(r); },
+  });
+
+  assert.equal(res.ok, false);
+  const reason = reasons[0];
+  assert.match(reason, /An unknown error has occurred/);
+  assert.match(reason, /\b1\b/, 'the Meta error code is what makes it searchable');
+  assert.match(reason, /AJhL/, 'the fbtrace_id is what Meta support asks for');
+  assert.doesNotMatch(reason, /Request failed with status code/, 'axios noise, not the cause');
+});
+
+test('an error with no provider body still reports something useful', async () => {
+  const reasons: string[] = [];
+  await deliverReply('whatsapp', 'hello', true, {
+    send: async () => { throw new Error('socket hang up'); },
+    record: async () => { throw new Error('must not record'); },
+    touchConversation: async () => {},
+    flagUndelivered: async (r) => { reasons.push(r); },
+  });
+  assert.match(reasons[0], /socket hang up/);
+});
+
+test('the 24-hour window is still detected when it arrives in a provider body', async () => {
+  // Meta reports this as error 131047 rather than the string our own pre-check throws, so the
+  // classification must survive reading the body instead of the message.
+  const res = await deliverReply('whatsapp', 'hello', true, {
+    send: async () => {
+      throw axiosLikeError(400, {
+        error: { message: 'Message failed to send because more than 24 hours have passed since the customer last replied.', code: 131047 },
+      });
+    },
+    record: async () => { throw new Error('must not record'); },
+    touchConversation: async () => {},
+    flagUndelivered: async () => {},
+  });
+  assert.equal(res.ok, false);
+  if (res.ok === false) assert.equal(res.status, 400, '131047 is the customer going quiet, not an outage');
+});

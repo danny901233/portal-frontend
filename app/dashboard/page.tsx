@@ -209,6 +209,12 @@ export default function DashboardPage() {
       // against each other: booked in = invoiced + still to be invoiced.
       bookedIn: 'Bookings',
       bookedInHint: (quoted: string) => `Appointments the AI booked, quoted at ${quoted}.`,
+      // A garage that books its own diary by hand gets different wording, because the usual
+      // line is wrong twice over for them: the AI did not book the appointment — it took the
+      // request and passed it on — and there is no quote to name, since a quote only exists
+      // where the agent priced and placed a booking itself. Quoting the captured-revenue total
+      // here printed "quoted at £0.00", which reads as the work having been worth nothing.
+      bookedInByHandHint: 'Appointment requests the AI took and passed to the team.',
       invoicedJobCount: (count: number) =>
         `${count} of those jobs have been done and billed.`,
       stillToInvoice: 'Still to be invoiced',
@@ -267,6 +273,7 @@ export default function DashboardPage() {
       invoiced: 'Facturé',
       bookedIn: 'Réservations',
       bookedInHint: (quoted: string) => `Rendez-vous pris par l’IA, devisés à ${quoted}.`,
+      bookedInByHandHint: 'Demandes de rendez-vous prises par l’IA et transmises à l’équipe.',
       invoicedJobCount: (count: number) =>
         `${count} de ces travaux sont terminés et facturés.`,
       stillToInvoice: 'Reste à facturer',
@@ -494,6 +501,12 @@ export default function DashboardPage() {
   // "0 invoiced, 14 still to invoice" is the honest and useful reading of a month in progress.
   // The figure it replaces was not a £0 — it was nothing at all.
   const showInvoiceBreakdown = bookingOutcome.bookedCount > 0;
+
+  // Does EVERY call in view come from a garage that books its own diary by hand? Only then is
+  // the captured-revenue figure meaningless — for everyone else the value comes in from their
+  // garage management system once they post the job, so it is real and must keep showing. A
+  // mixed selection therefore keeps the normal wording rather than hiding a real number.
+  const allBookByHand = calls.length > 0 && calls.every((cl) => cl.booksByHand);
 
   // "Recent activity" = recent calls + recent chat conversations, interleaved newest-first.
   const recentActivity = useMemo<ActivityItem[]>(() => {
@@ -1006,12 +1019,38 @@ export default function DashboardPage() {
           <div className="mt-2 text-[28px] font-extrabold leading-none tracking-tight tabular-nums text-slate-900">{loading ? '—' : formatDuration(totalDurationSeconds)}</div>
         </div>
       </div>
+      {/* Both halves of this caption are meaningless for a garage that books by hand: they never
+          confirm a booking, so captured revenue and the confirmed-booking count are both
+          structurally zero. Desktop already switches to Bookings/Invoiced via
+          showInvoiceBreakdown; this line did not, so a phone showed "£0.00 · 0 confirmed
+          bookings" while the same screen's desktop view showed 59 bookings and £3,815 invoiced.
+          Show them the two figures that mean something instead. */}
       <p className="px-1 text-xs text-slate-500 md:hidden">
-        {c.capturedRevenue}:{' '}
-        <span className="font-semibold text-slate-700">{loading ? '—' : formatCurrency(bookingRevenueTotal)}</span>
-        {' · '}
-        <span className="font-semibold text-slate-700">{loading ? '—' : callTypeCounts['confirmed booking'] ?? 0}</span>{' '}
-        {c.confirmedBookings.toLowerCase()}
+        {allBookByHand ? (
+          <>
+            {c.invoiced}:{' '}
+            <span className="font-semibold text-slate-700">
+              {loading ? '—' : formatCurrency(bookingOutcome.invoicedTotal)}
+            </span>
+            {' · '}
+            <span className="font-semibold text-slate-700">
+              {loading ? '—' : bookingOutcome.bookedCount}
+            </span>{' '}
+            {c.bookedIn.toLowerCase()}
+          </>
+        ) : (
+          <>
+            {c.capturedRevenue}:{' '}
+            <span className="font-semibold text-slate-700">
+              {loading ? '—' : formatCurrency(bookingRevenueTotal)}
+            </span>
+            {' · '}
+            <span className="font-semibold text-slate-700">
+              {loading ? '—' : callTypeCounts['confirmed booking'] ?? 0}
+            </span>{' '}
+            {c.confirmedBookings.toLowerCase()}
+          </>
+        )}
       </p>
 
       {/* Mobile: calls by type as ranked bars */}
@@ -1145,7 +1184,9 @@ export default function DashboardPage() {
             </div>
             <p className="mt-2 hidden max-w-lg text-sm text-brand-100 md:block">
               {showInvoiceBreakdown
-                ? c.bookedInHint(formatCurrency(bookingRevenueTotal))
+                ? allBookByHand
+                  ? c.bookedInByHandHint
+                  : c.bookedInHint(formatCurrency(bookingRevenueTotal))
                 : c.capturedRevenueHint}
             </p>
           </div>

@@ -976,6 +976,27 @@ model CallDefect {
   @@index([signature, callAt])
 }
 
+// A human (or Claude) working a fault from /observability: what was found out about it, and
+// whether it has been dealt with.
+//
+// Deliberately NOT a column on CallDefect. The scanner rewrites a call's findings on every
+// rescan — delete-then-insert, so a finding that stops applying disappears — which would wipe
+// a note written minutes earlier. Keyed on (callId, signature) so a note survives any number
+// of rescans and reattaches to the same fault when it is found again.
+model CallDefectNote {
+  id         String    @id @default(cuid())
+  callId     String
+  signature  String
+  note       String? // what was found out, in whatever words the person used
+  actionedAt DateTime? // null means outstanding; set means dealt with
+  actionedBy String? // the email of whoever pressed it
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@unique([callId, signature])
+  @@index([actionedAt])
+}
+
 // Garage-side rating of an AI conversation. Mirrors CallFeedback exactly so
 // the weekly negative-feedback audit process (Monday SOP) can classify calls
 // and messages with the same buckets. One row per conversation — upsert on

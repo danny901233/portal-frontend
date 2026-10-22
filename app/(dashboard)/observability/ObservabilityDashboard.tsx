@@ -133,12 +133,20 @@ interface CallDefect {
   severity: 'high' | 'medium' | 'low' | string;
   detail: string;
   callAt: string;
+  // Working state, from CallDefectNote. A note records what was found out; only
+  // `actioned` means the fault has been dealt with.
+  note: string | null;
+  actioned: boolean;
+  actionedAt: string | null;
+  actionedBy: string | null;
 }
 interface CallDefects {
   bySignature: { signature: string; severity: string; count: number }[];
   recent: CallDefect[];
+  counts: { outstanding: number; completed: number };
   lastScanAt: string | null;
 }
+type DefectStatus = 'outstanding' | 'completed' | 'all';
 
 // What each signature means, in the words of the fault rather than the field
 // name, so the tile does not need a key to read it.
@@ -304,6 +312,11 @@ export function ObservabilityDashboard() {
   const [garageStats, setGarageStats] = useState<GarageStat[]>([]);
   const [chatToolStats, setChatToolStats] = useState<ChatToolStats | null>(null);
   const [callDefects, setCallDefects] = useState<CallDefects | null>(null);
+  // Defaults to the work still to do, which is what the panel is for.
+  const [defectStatus, setDefectStatus] = useState<DefectStatus>('outstanding');
+  const [openNoteId, setOpenNoteId] = useState<string | null>(null);
+  const [noteDraft, setNoteDraft] = useState('');
+  const [savingNote, setSavingNote] = useState(false);
   const [garageStatMetric, setGarageStatMetric] = useState<'callCount' | 'bookingCount' | 'totalDurationSeconds' | 'capturedRevenue'>('callCount');
   // Failure-type filter for the AI-flagged worklist (null = show all).
   const [flaggedCategoryFilter, setFlaggedCategoryFilter] = useState<string | null>(null);
@@ -328,6 +341,96 @@ export function ObservabilityDashboard() {
     fetchData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [timeRange, customStart, customEnd, aggregateAllBranches, selectedGarageId, assignedGarageIds]);
+
+  // The fault list, for one status. Separate from fetchData so switching between
+  // outstanding and completed does not refetch the whole page.
+  const loadCallDefects = async (
+    status: DefectStatus,
+    startDate: Date,
+    endDate: Date,
+  ): Promise<void> => {
+    const token = getSessionToken();
+    if (!token) return;
+    const res = await fetch(
+      `/api/staff/call-defects?startDate=${startDate.toISOString()}`
+      + `&endDate=${endDate.toISOString()}&status=${status}`,
+      { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } },
+    );
+    if (res.ok) setCallDefects(await res.json());
+  };
+
+  // A window matching the rest of the page, so the filter buttons do not need
+  // the dates threaded through them.
+  const defectWindow = (): [Date, Date] => {
+    const end = new Date();
+    const start = new Date(end);
+    start.setDate(start.getDate() - 7);
+    return [start, end];
+  };
+
+  const switchDefectStatus = async (status: DefectStatus) => {
+    setDefectStatus(status);
+    setOpenNoteId(null);
+    const [start, end] = defectWindow();
+    try {
+      await loadCallDefects(status, start, end);
+    } catch (err) {
+      console.error('Error switching fault filter:', err);
+    }
+  };
+
+  /**
+   * Save a note and/or the actioned flag for one fault.
+   *
+   * Only the fields passed are sent, so pressing Actioned cannot blank a note
+   * someone wrote, and saving a note cannot un-action a fault.
+   */
+  const saveDefectNote = async (
+    d: CallDefect,
+    changes: { note?: string; actioned?: boolean },
+  ) => {
+    const token = getSessionToken();
+    if (!token) return;
+    setSavingNote(true);
+    try {
+      const res = await fetch('/api/staff/call-defects/note', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ callId: d.callId, signature: d.signature, ...changes }),
+      });
+      if (!res.ok) throw new Error(`status ${res.status}`);
+      const { note } = await res.json();
+      // Patch the row in place rather than refetching, so the list does not jump
+      // under the cursor — except when the row no longer belongs in this filter.
+      setCallDefects((prev) => {
+        if (!prev) return prev;
+        const nowActioned = Boolean(note?.actionedAt);
+        const patched = prev.recent.map((row) =>
+          row.id === d.id
+            ? { ...row, note: note?.note ?? null, actioned: nowActioned,
+                actionedAt: note?.actionedAt ?? null, actionedBy: note?.actionedBy ?? null }
+            : row);
+        const stillBelongs = (row: CallDefect) =>
+          defectStatus === 'all'
+          || (defectStatus === 'outstanding' ? !row.actioned : row.actioned);
+        const wasActioned = d.actioned;
+        const delta = nowActioned === wasActioned ? 0 : (nowActioned ? 1 : -1);
+        return {
+          ...prev,
+          recent: patched.filter(stillBelongs),
+          counts: {
+            outstanding: Math.max(0, prev.counts.outstanding - delta),
+            completed: Math.max(0, prev.counts.completed + delta),
+          },
+        };
+      });
+      setOpenNoteId(null);
+    } catch (err) {
+      console.error('Error saving fault note:', err);
+    } finally {
+      setSavingNote(false);
+    }
+  };
 
   const fetchData = async () => {
     setLoading(true);
@@ -413,11 +516,7 @@ export function ObservabilityDashboard() {
       // Staff call-fault scanner output — the faults a call summary does not show.
       try {
         if (isReceptionMateStaff()) {
-          const cdRes = await fetch(
-            `/api/staff/call-defects?startDate=${startDate.toISOString()}&endDate=${now.toISOString()}`,
-            { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
-          );
-          if (cdRes.ok) setCallDefects(await cdRes.json());
+          await loadCallDefects(defectStatus, startDate, now);
         }
       } catch (cdErr) {
         console.error('Error fetching call defects:', cdErr);
@@ -1177,6 +1276,29 @@ export function ObservabilityDashboard() {
               : 'The scanner has never written anything — it may not be running.'}
           </p>
 
+          {/* Outstanding / completed / all. Both totals are always shown so a filtered
+              view can never be mistaken for a clear board. */}
+          <div className="mt-3 flex flex-wrap gap-2">
+            {([
+              ['outstanding', `Outstanding (${callDefects.counts?.outstanding ?? 0})`],
+              ['completed', `Actioned (${callDefects.counts?.completed ?? 0})`],
+              ['all', 'All'],
+            ] as [DefectStatus, string][]).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => switchDefectStatus(value)}
+                className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                  defectStatus === value
+                    ? 'bg-slate-900 text-white'
+                    : 'bg-white text-slate-600 ring-1 ring-slate-300 hover:bg-slate-50'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
           {callDefects.bySignature.length === 0 ? (
             <p className="mt-3 text-sm text-slate-500">No faults found in this period.</p>
           ) : (
@@ -1214,7 +1336,7 @@ export function ObservabilityDashboard() {
                   Most recent
                 </p>
                 <ul className="mt-2 divide-y divide-slate-200 overflow-hidden rounded-lg border border-slate-200 bg-white">
-                  {callDefects.recent.slice(0, 25).map((d) => (
+                  {callDefects.recent.slice(0, 50).map((d) => (
                     <li key={d.id} className="px-3 py-2">
                       <div className="flex flex-wrap items-center gap-2">
                         <span
@@ -1243,6 +1365,71 @@ export function ObservabilityDashboard() {
                         </span>
                       </div>
                       <p className="mt-0.5 text-xs text-slate-600">{d.detail}</p>
+
+                      {/* What was found out about it, and whether it is dealt with. */}
+                      {d.note && openNoteId !== d.id ? (
+                        <p className="mt-1 rounded border-l-2 border-slate-300 bg-slate-50 px-2 py-1 text-xs text-slate-700">
+                          <span className="font-semibold">Diagnosis note: </span>
+                          {d.note}
+                        </p>
+                      ) : null}
+
+                      {openNoteId === d.id ? (
+                        <div className="mt-1">
+                          <textarea
+                            value={noteDraft}
+                            onChange={(e) => setNoteDraft(e.target.value)}
+                            rows={3}
+                            placeholder="What did you find out? What was done about it?"
+                            className="w-full rounded border border-slate-300 px-2 py-1 text-xs text-slate-800"
+                          />
+                          <div className="mt-1 flex gap-2">
+                            <button
+                              type="button"
+                              disabled={savingNote}
+                              onClick={() => saveDefectNote(d, { note: noteDraft })}
+                              className="rounded bg-slate-900 px-2 py-1 text-xs font-semibold text-white disabled:opacity-50"
+                            >
+                              {savingNote ? 'Saving…' : 'Save note'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setOpenNoteId(null)}
+                              className="rounded px-2 py-1 text-xs text-slate-500 hover:text-slate-700"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="mt-1 flex flex-wrap items-center gap-3">
+                          <button
+                            type="button"
+                            onClick={() => { setOpenNoteId(d.id); setNoteDraft(d.note ?? ''); }}
+                            className="text-xs font-medium text-indigo-600 hover:underline"
+                          >
+                            {d.note ? 'Edit note' : 'Add diagnosis note'}
+                          </button>
+                          <button
+                            type="button"
+                            disabled={savingNote}
+                            onClick={() => saveDefectNote(d, { actioned: !d.actioned })}
+                            className={`rounded px-2 py-1 text-xs font-semibold disabled:opacity-50 ${
+                              d.actioned
+                                ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
+                                : 'bg-white text-slate-600 ring-1 ring-slate-300 hover:bg-slate-50'
+                            }`}
+                          >
+                            {d.actioned ? '✓ Actioned' : 'Mark actioned'}
+                          </button>
+                          {d.actioned && d.actionedAt ? (
+                            <span className="text-[11px] text-slate-400">
+                              {d.actionedBy ? `${d.actionedBy}, ` : ''}
+                              {new Date(d.actionedAt).toLocaleString('en-GB')}
+                            </span>
+                          ) : null}
+                        </div>
+                      )}
                     </li>
                   ))}
                 </ul>

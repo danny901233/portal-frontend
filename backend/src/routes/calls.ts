@@ -23,6 +23,7 @@ import type {
 } from '../utils/types.js';
 import { resolveAllowedGarages } from '../utils/auth.js';
 import { mayOpenCall } from '../utils/callAccess.js';
+import { mergeDefectNotes, type DefectStatus } from '../utils/defectNotes.js';
 import { sendCallSummaryEmail, sendPaymentSetupReminderEmail, sendArrearsCallNoticeEmail } from '../utils/email.js';
 import { raiseNegativeFeedbackTicket } from '../services/feedbackTicket.js';
 import { raiseTicketFromAiCall } from '../services/callTickets.js';
@@ -1111,13 +1112,62 @@ router.get(
 // /observability panel. Reads the derived CallDefect table rather than scanning
 // calls on request: the scan needs the `metrics` column, which is the expensive
 // one (it is what made the calls list time out), so it runs on a cron instead.
+// Write a working note against one fault, and/or mark it actioned.
+//
+// Keyed on callId + signature in the BODY rather than the path, because a signature contains a
+// colon ("ai:misheard") and reads badly in a URL. Claude uses the same endpoint, so a note
+// written by a person and one written by a script are the same thing.
+router.post('/staff/call-defects/note', authenticate, async (req: Request, res: Response) => {
+  try {
+    if (req.user?.role !== 'RECEPTIONMATE_STAFF') {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    const callId = typeof req.body?.callId === 'string' ? req.body.callId.trim() : '';
+    const signature = typeof req.body?.signature === 'string' ? req.body.signature.trim() : '';
+    if (!callId || !signature) {
+      return res.status(400).json({ error: 'callId and signature are required' });
+    }
+
+    // Each field is only touched when it is actually sent, so pressing Actioned
+    // cannot blank a note and saving a note cannot un-action a fault.
+    const data: {
+      note?: string | null;
+      actionedAt?: Date | null;
+      actionedBy?: string | null;
+    } = {};
+    if ('note' in req.body) {
+      const note = typeof req.body.note === 'string' ? req.body.note.trim() : '';
+      data.note = note ? note.slice(0, 4000) : null;
+    }
+    if ('actioned' in req.body) {
+      const on = req.body.actioned === true;
+      data.actionedAt = on ? new Date() : null;
+      data.actionedBy = on ? (req.user?.email ?? req.user?.userId ?? 'staff') : null;
+    }
+    if (Object.keys(data).length === 0) {
+      return res.status(400).json({ error: 'Nothing to change' });
+    }
+
+    const row = await prisma.callDefectNote.upsert({
+      where: { callId_signature: { callId, signature } },
+      create: { callId, signature, ...data },
+      update: data,
+      select: { callId: true, signature: true, note: true, actionedAt: true, actionedBy: true },
+    });
+    return res.json({ note: row });
+  } catch (error) {
+    console.error('[CALLS] POST /staff/call-defects/note error:', error);
+    return res.status(500).json({ error: 'Failed to save note' });
+  }
+});
+
 router.get('/staff/call-defects', authenticate, async (req: Request, res: Response) => {
   try {
     if (req.user?.role !== 'RECEPTIONMATE_STAFF') {
       return res.status(403).json({ error: 'Forbidden' });
     }
 
-    const { startDate, endDate, signature } = req.query;
+    const { startDate, endDate, signature, status } = req.query;
     if ((startDate && Array.isArray(startDate)) || (endDate && Array.isArray(endDate))) {
       return res.status(400).json({ error: 'Invalid query parameters' });
     }
@@ -1136,12 +1186,14 @@ router.get('/staff/call-defects', authenticate, async (req: Request, res: Respon
     if (Object.keys(callAt).length > 0) where.callAt = callAt;
     if (typeof signature === 'string' && signature.trim()) where.signature = signature.trim();
 
-    const [bySignature, recent, lastScan] = await Promise.all([
+    const [bySignature, found, lastScan] = await Promise.all([
       prisma.callDefect.groupBy({ by: ['signature', 'severity'], where, _count: { _all: true } }),
       prisma.callDefect.findMany({
         where,
         orderBy: [{ callAt: 'desc' }],
-        take: 100,
+        // Fetched before the outstanding/completed filter is applied, because that
+        // filter lives in the notes table. Bounded by the date range and this cap.
+        take: 500,
         select: {
           id: true, callId: true, garageId: true, signature: true,
           severity: true, detail: true, callAt: true,
@@ -1151,6 +1203,25 @@ router.get('/staff/call-defects', authenticate, async (req: Request, res: Respon
       // it has gone quiet rather than showing an empty panel that looks healthy.
       prisma.callDefect.findFirst({ orderBy: { createdAt: 'desc' }, select: { createdAt: true } }),
     ]);
+
+    // Working notes for exactly the faults on screen.
+    const noteRows = found.length
+      ? await prisma.callDefectNote.findMany({
+          where: { callId: { in: [...new Set(found.map((r) => r.callId))] } },
+          select: { callId: true, signature: true, note: true, actionedAt: true, actionedBy: true },
+        })
+      : [];
+    const wanted = typeof status === 'string' && status.trim() ? status.trim() : 'all';
+    const withNotes = mergeDefectNotes(found, noteRows, wanted as DefectStatus);
+    const recent = withNotes.slice(0, 150);
+
+    // Both totals, whatever the filter, so the page can show what is left to do
+    // without a second request.
+    const allMerged = mergeDefectNotes(found, noteRows, 'all');
+    const counts = {
+      outstanding: allMerged.filter((f) => !f.actioned).length,
+      completed: allMerged.filter((f) => f.actioned).length,
+    };
 
     const garageIds = [...new Set(recent.map((r) => r.garageId).filter(Boolean))];
     const garages = garageIds.length
@@ -1163,6 +1234,7 @@ router.get('/staff/call-defects', authenticate, async (req: Request, res: Respon
         .map((r) => ({ signature: r.signature, severity: r.severity, count: r._count._all }))
         .sort((a, b) => b.count - a.count),
       recent: recent.map((r) => ({ ...r, garageName: nameById.get(r.garageId) || null })),
+      counts,
       lastScanAt: lastScan?.createdAt ?? null,
     });
   } catch (error) {

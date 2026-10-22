@@ -373,6 +373,85 @@ check('the hello-hello call is not also reported as caller-repeating',
       !sigs(scanDefects([oneWay]), 'oneway01').includes('caller-repeating'),
       JSON.stringify(sigs(scanDefects([oneWay]), 'oneway01')));
 
+// ── a recognised vehicle the caller CONFIRMED is not unverified ──
+//
+// Call 00619922 (Great Hollands). The agent said "Is this about your Audi A3
+// Sportback, registration AO21YPH?" and the caller said yes — use_known_vehicle
+// returned OK. Dan: "the analyst reported the customer never mentioned that reg,
+// but it had got it from the use known vehicle tool".
+//
+// The caller never SPELLED the plate, so registration_rounds is 0, but they were
+// read it and agreed to it. That is verification. use_known_vehicle returning OK
+// is the agent's own record of exactly that — it has a NOT_CONFIRMED status for
+// the other case.
+const confirmedKnownVehicle = {
+  ...healthy, id: 'known001',
+  registrationNumber: 'AO21YPH',
+  metrics: {
+    ...healthy.metrics,
+    capture: { registration_rounds: 0, registration_captured: true },
+    tool_call_history: [
+      { tool: 'use_known_vehicle', status: 'STATUS: OK', args: { registration: 'AO21YPH' } },
+      { tool: 'take_message', status: 'STATUS: OK',
+        args: { vehicle_registration: 'AO21YPH', reason: 'Wants a price for a transmission service' } },
+    ],
+  },
+};
+check('a recognised plate the caller confirmed is not flagged',
+      !sigs(scanDefects([confirmedKnownVehicle]), 'known001').includes('reg-not-from-caller'),
+      JSON.stringify(sigs(scanDefects([confirmedKnownVehicle]), 'known001')));
+
+// NOT_CONFIRMED on its own is the agent failing to get agreement, so the plate
+// is still unverified. Call 52676814 went NOT_CONFIRMED then OK — the later OK
+// is what counts, so any OK for that plate clears it.
+const notConfirmedOnly = {
+  ...confirmedKnownVehicle, id: 'known002',
+  metrics: {
+    ...confirmedKnownVehicle.metrics,
+    tool_call_history: [
+      { tool: 'use_known_vehicle', status: 'STATUS: NOT_CONFIRMED', args: { registration: 'AO21YPH' } },
+      { tool: 'take_message', status: 'STATUS: OK',
+        args: { vehicle_registration: 'AO21YPH', reason: 'Is it ready' } },
+    ],
+  },
+};
+check('a recognised plate the caller never agreed to is still flagged',
+      sigs(scanDefects([notConfirmedOnly]), 'known002').includes('reg-not-from-caller'),
+      JSON.stringify(sigs(scanDefects([notConfirmedOnly]), 'known002')));
+
+const confirmedAfterRetry = {
+  ...confirmedKnownVehicle, id: 'known003',
+  metrics: {
+    ...confirmedKnownVehicle.metrics,
+    tool_call_history: [
+      { tool: 'use_known_vehicle', status: 'STATUS: NOT_CONFIRMED', args: { registration: 'AO21YPH' } },
+      { tool: 'use_known_vehicle', status: 'STATUS: OK', args: { registration: 'AO21YPH' } },
+      { tool: 'take_message', status: 'STATUS: OK',
+        args: { vehicle_registration: 'AO21YPH', reason: 'Is it ready' } },
+    ],
+  },
+};
+check('confirmed on the second attempt still counts as confirmed',
+      !sigs(scanDefects([confirmedAfterRetry]), 'known003').includes('reg-not-from-caller'),
+      JSON.stringify(sigs(scanDefects([confirmedAfterRetry]), 'known003')));
+
+// Confirming one vehicle does not verify a DIFFERENT plate that then gets used.
+const confirmedADifferentCar = {
+  ...confirmedKnownVehicle, id: 'known004',
+  registrationNumber: 'XX99XXX',
+  metrics: {
+    ...confirmedKnownVehicle.metrics,
+    tool_call_history: [
+      { tool: 'use_known_vehicle', status: 'STATUS: OK', args: { registration: 'AO21YPH' } },
+      { tool: 'take_message', status: 'STATUS: OK',
+        args: { vehicle_registration: 'XX99XXX', reason: 'Is it ready' } },
+    ],
+  },
+};
+check('confirming one vehicle does not verify a different plate',
+      sigs(scanDefects([confirmedADifferentCar]), 'known004').includes('reg-not-from-caller'),
+      JSON.stringify(sigs(scanDefects([confirmedADifferentCar]), 'known004')));
+
 // ── a booking the agent claimed but never made ──
 const falseClaim = {
   ...healthy, id: 'falsecl1',

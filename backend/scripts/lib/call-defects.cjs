@@ -192,6 +192,30 @@ function cantHearTurns(turns) {
 }
 
 /**
+ * Did the caller agree the vehicle out loud?
+ *
+ * `registration_rounds` counts rounds of ASKING for the plate, so a caller who was read their
+ * own plate and said yes has 0 rounds and still verified it. `use_known_vehicle` returning OK
+ * is the agent's own record of that agreement — it returns NOT_CONFIRMED when it has not got
+ * it, so the distinction is already there to be read.
+ *
+ * Call 00619922: "Is this about your Audi A3 Sportback, registration AO21YPH?" — the caller said
+ * yes and the tool returned OK. It was reported as a plate the caller never mentioned.
+ *
+ * Checked per plate, so confirming one of a caller's cars does not verify another one.
+ */
+function callerConfirmedKnownVehicle(history, plate) {
+  const want = plate.replace(/\s+/g, '').toUpperCase();
+  return (history || []).some((h) => {
+    if (String((h && h.tool) || '') !== 'use_known_vehicle') return false;
+    if (!statusOf(h).startsWith('OK')) return false;
+    const args = (h && h.args) || {};
+    return Object.keys(args).some((k) => /registration|vrn|plate/i.test(k)
+      && String(args[k] || '').replace(/\s+/g, '').toUpperCase() === want);
+  });
+}
+
+/**
  * Did this plate actually get written into a message or a booking? A plate that
  * recognition supplied and the agent never acted on carries no risk — and
  * recognition supplying plates is the feature working, on roughly a fifth of
@@ -292,14 +316,17 @@ function scanOne(call, feedbackFor) {
   const plate = String(call.registrationNumber || capture.registration || '').trim();
   const history = Array.isArray(m.tool_call_history) ? m.tool_call_history : [];
   const unverified = capture.registration_captured === true
-    && Number(capture.registration_rounds) === 0 && Boolean(plate);
+    && Number(capture.registration_rounds) === 0 && Boolean(plate)
+    // Read back to the caller and agreed to is verified, even with 0 rounds.
+    && !callerConfirmedKnownVehicle(history, plate);
   if (unverified && plateWasUsed(history, plate)) {
     // Medium, not high: this fires on roughly a sixth of calls because
     // recognition is usually right. It is a spot-check queue, not an alarm.
     add('reg-not-from-caller', SEVERITY.medium,
-        `Plate ${plate} was never spoken by the caller — caller recognition supplied it `
-        + `(0 rounds of asking) and the agent then wrote it into a message or booking. `
-        + `If recognition matched the wrong person, this is someone else's vehicle.`);
+        `Plate ${plate} was never spoken by the caller and never confirmed back to them — `
+        + `caller recognition supplied it (0 rounds of asking, no use_known_vehicle agreement) `
+        + `and the agent wrote it into a message or booking anyway. If recognition matched the `
+        + `wrong person, this is someone else's vehicle.`);
   }
 
   // 3. A tool that gathered everything and recorded nothing.

@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { getGarageId, getSessionToken, isReceptionMateStaff, setGarageId } from '../../lib/auth';
 import { useBranchScope } from '../../lib/branchScope';
+import { DEFECT_PERIODS, defectRange, type DefectPeriod } from '../../lib/defectPeriod';
 
 // --- Types ---
 
@@ -144,6 +145,9 @@ interface CallDefects {
   bySignature: { signature: string; severity: string; count: number }[];
   recent: CallDefect[];
   counts: { outstanding: number; completed: number };
+  // How many faults matched the filter, against the number actually sent.
+  total?: number;
+  truncated?: boolean;
   lastScanAt: string | null;
 }
 type DefectStatus = 'outstanding' | 'completed' | 'all';
@@ -314,6 +318,7 @@ export function ObservabilityDashboard() {
   const [callDefects, setCallDefects] = useState<CallDefects | null>(null);
   // Defaults to the work still to do, which is what the panel is for.
   const [defectStatus, setDefectStatus] = useState<DefectStatus>('outstanding');
+  const [defectPeriod, setDefectPeriod] = useState<DefectPeriod>('7d');
   const [openNoteId, setOpenNoteId] = useState<string | null>(null);
   const [noteDraft, setNoteDraft] = useState('');
   const [savingNote, setSavingNote] = useState(false);
@@ -359,24 +364,25 @@ export function ObservabilityDashboard() {
     if (res.ok) setCallDefects(await res.json());
   };
 
-  // A window matching the rest of the page, so the filter buttons do not need
-  // the dates threaded through them.
-  const defectWindow = (): [Date, Date] => {
-    const end = new Date();
-    const start = new Date(end);
-    start.setDate(start.getDate() - 7);
-    return [start, end];
+  // Both filters feed one request, so changing either keeps the other.
+  const reloadDefects = async (status: DefectStatus, period: DefectPeriod) => {
+    setOpenNoteId(null);
+    const [start, end] = defectRange(period);
+    try {
+      await loadCallDefects(status, start, end);
+    } catch (err) {
+      console.error('Error loading faults:', err);
+    }
   };
 
   const switchDefectStatus = async (status: DefectStatus) => {
     setDefectStatus(status);
-    setOpenNoteId(null);
-    const [start, end] = defectWindow();
-    try {
-      await loadCallDefects(status, start, end);
-    } catch (err) {
-      console.error('Error switching fault filter:', err);
-    }
+    await reloadDefects(status, defectPeriod);
+  };
+
+  const switchDefectPeriod = async (period: DefectPeriod) => {
+    setDefectPeriod(period);
+    await reloadDefects(defectStatus, period);
   };
 
   /**
@@ -516,7 +522,9 @@ export function ObservabilityDashboard() {
       // Staff call-fault scanner output — the faults a call summary does not show.
       try {
         if (isReceptionMateStaff()) {
-          await loadCallDefects(defectStatus, startDate, now);
+          // The panel has its own period, independent of the page's date range.
+          const [dStart, dEnd] = defectRange(defectPeriod);
+          await loadCallDefects(defectStatus, dStart, dEnd);
         }
       } catch (cdErr) {
         console.error('Error fetching call defects:', cdErr);
@@ -1276,9 +1284,28 @@ export function ObservabilityDashboard() {
               : 'The scanner has never written anything — it may not be running.'}
           </p>
 
+          {/* Period first: the table is read by day, by month, or over everything,
+              rather than only as a rolling "most recent". */}
+          <div className="mt-3 flex flex-wrap gap-2">
+            {DEFECT_PERIODS.map(({ value, label }) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => switchDefectPeriod(value)}
+                className={`rounded-full px-3 py-1 text-xs font-medium ${
+                  defectPeriod === value
+                    ? 'bg-indigo-600 text-white'
+                    : 'bg-white text-slate-600 ring-1 ring-slate-300 hover:bg-slate-50'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
           {/* Outstanding / completed / all. Both totals are always shown so a filtered
               view can never be mistaken for a clear board. */}
-          <div className="mt-3 flex flex-wrap gap-2">
+          <div className="mt-2 flex flex-wrap gap-2">
             {([
               ['outstanding', `Outstanding (${callDefects.counts?.outstanding ?? 0})`],
               ['completed', `Actioned (${callDefects.counts?.completed ?? 0})`],
@@ -1300,7 +1327,10 @@ export function ObservabilityDashboard() {
           </div>
 
           {callDefects.bySignature.length === 0 ? (
-            <p className="mt-3 text-sm text-slate-500">No faults found in this period.</p>
+            <p className="mt-3 text-sm text-slate-500">
+              No faults found in{' '}
+              {(DEFECT_PERIODS.find((pd) => pd.value === defectPeriod)?.label ?? 'this period').toLowerCase()}.
+            </p>
           ) : (
             <div className="mt-4 space-y-5">
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -1333,7 +1363,11 @@ export function ObservabilityDashboard() {
 
               <div>
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Most recent
+                  {DEFECT_PERIODS.find((pd) => pd.value === defectPeriod)?.label ?? 'Recent'}
+                  {typeof callDefects.total === 'number'
+                    ? ` — showing ${Math.min(callDefects.recent.length, 50)} of ${callDefects.total}`
+                    : null}
+                  {callDefects.truncated ? ' (capped)' : null}
                 </p>
                 <ul className="mt-2 divide-y divide-slate-200 overflow-hidden rounded-lg border border-slate-200 bg-white">
                   {callDefects.recent.slice(0, 50).map((d) => (

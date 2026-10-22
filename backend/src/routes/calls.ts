@@ -1112,6 +1112,11 @@ router.get(
 // /observability panel. Reads the derived CallDefect table rather than scanning
 // calls on request: the scan needs the `metrics` column, which is the expensive
 // one (it is what made the calls list time out), so it runs on a cron instead.
+// How many findings one request will consider. The outstanding/completed filter lives in a
+// separate table, so the rows have to be fetched before they can be filtered — this bounds that,
+// and `truncated` in the response tells the page when it has been hit.
+const DEFECT_PAGE_CAP = 1000;
+
 // Write a working note against one fault, and/or mark it actioned.
 //
 // Keyed on callId + signature in the BODY rather than the path, because a signature contains a
@@ -1192,8 +1197,10 @@ router.get('/staff/call-defects', authenticate, async (req: Request, res: Respon
         where,
         orderBy: [{ callAt: 'desc' }],
         // Fetched before the outstanding/completed filter is applied, because that
-        // filter lives in the notes table. Bounded by the date range and this cap.
-        take: 500,
+        // filter lives in the notes table. Bounded by the date range and this cap,
+        // and the response says when the cap was reached so "All time" cannot
+        // quietly show a partial list as though it were the whole one.
+        take: DEFECT_PAGE_CAP,
         select: {
           id: true, callId: true, garageId: true, signature: true,
           severity: true, detail: true, callAt: true,
@@ -1235,6 +1242,9 @@ router.get('/staff/call-defects', authenticate, async (req: Request, res: Respon
         .sort((a, b) => b.count - a.count),
       recent: recent.map((r) => ({ ...r, garageName: nameById.get(r.garageId) || null })),
       counts,
+      // How many matched the filter, versus how many are being sent.
+      total: withNotes.length,
+      truncated: found.length >= DEFECT_PAGE_CAP,
       lastScanAt: lastScan?.createdAt ?? null,
     });
   } catch (error) {

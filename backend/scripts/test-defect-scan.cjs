@@ -53,5 +53,28 @@ check('a missing duration is not read', !worthReading({
   transcript: [{ speaker: 'caller', text: 'hello I need an MOT' }],
 }));
 
+// ── the garage's own rules reach the analyst ──────────────────────────────
+const { garageRuleTexts } = require('./call-defect-scan.cjs');
+
+check('an active rule object is passed through', garageRuleTexts({
+  agentConfiguration: { customRules: [{ text: 'Always start with the £20 diagnostic.', active: true }] },
+}).join('') === 'Always start with the £20 diagnostic.');
+
+// An inactive rule is not something the agent was told to say, so quoting it
+// back must not excuse anything.
+check('an inactive rule is left out', garageRuleTexts({
+  agentConfiguration: { customRules: [{ text: 'Old pricing.', active: false }] },
+}).length === 0);
+
+// customRules is a string on some garages and a list on others.
+check('a free-text blob of rules is passed through', garageRuleTexts({
+  agentConfiguration: { customRules: 'Never quote for subframe work.' },
+}).length === 1);
+
+check('a garage with no config yields nothing', garageRuleTexts({}).length === 0);
+check('a garage with no rules yields nothing',
+      garageRuleTexts({ agentConfiguration: { customRules: [] } }).length === 0);
+check('junk yields nothing, never a crash', garageRuleTexts(null).length === 0);
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

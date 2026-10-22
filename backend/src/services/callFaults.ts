@@ -57,6 +57,50 @@ export interface CallFault {
   evidence?: string;
 }
 
+// Words that carry no weight when deciding whether a sentence IS the garage's
+// own script quoted back.
+const SCRIPT_FILLER = new Set([
+  'the', 'a', 'an', 'and', 'or', 'but', 'so', 'to', 'of', 'for', 'in', 'on', 'at', 'with',
+  'that', 'this', 'it', 'its', 'is', 'are', 'was', 'be', 'you', 'your', 'we', 'our', 'us',
+  'they', 'their', 'if', 'then', 'all', 'any', 'as', 'by', 'from', 'can', 'will', 'would',
+  'which', 'what', 'when', 'how', 'just', 'also', 'not', 'no', 'do', 'does', 'did', 'have',
+  'has', 'had', 'there', 'here', 'about', 'into', 'out', 'up', 'one',
+]);
+
+function scriptWords(text: string): Set<string> {
+  return new Set(
+    String(text || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9£\s]/g, ' ')
+      .split(/\s+/)
+      .filter((w) => w && w.length > 1 && !SCRIPT_FILLER.has(w)),
+  );
+}
+
+/**
+ * Is this quote the garage's OWN script, read back to them as a fault?
+ *
+ * Elite Autocare call 29225395 was flagged HIGH for "telling the caller something untrue" when
+ * the agent recited the garage's alignment pricing rule nearly word for word — the £20
+ * diagnostic, the £20 being removed rather than added if an adjustment is needed, all of it
+ * written by the garage. The analyst had never been shown the rule, so it had no way to know.
+ *
+ * Measured against the EVIDENCE's own words, so a long rule cannot drown out a short quote. A
+ * quote under five content words is too little to judge and is left alone.
+ */
+function quotesTheGarageScript(evidence: string, rules: string[]): boolean {
+  const words = scriptWords(evidence);
+  if (words.size < 5) return false;
+  for (const rule of rules) {
+    const ruleWords = scriptWords(rule);
+    if (!ruleWords.size) continue;
+    let shared = 0;
+    for (const w of words) if (ruleWords.has(w)) shared += 1;
+    if (shared / words.size >= 0.6) return true;
+  }
+  return false;
+}
+
 const SEVERITIES = ['high', 'medium', 'low'] as const;
 const SEVERITY_ORDER: Record<string, number> = { high: 0, medium: 1, low: 2 };
 
@@ -71,7 +115,12 @@ const NEEDS_A_DIARY: string[] = ['booking_failure', 'unresolved'];
 
 export function normalizeFindings(
   raw: unknown,
-  ctx: { capabilities?: Record<string, boolean>; hasDiary: boolean },
+  ctx: {
+    capabilities?: Record<string, boolean>;
+    hasDiary: boolean;
+    /** The garage's own custom rules. Following one is never a fault. */
+    rules?: string[];
+  },
 ): CallFault[] {
   if (!Array.isArray(raw)) return [];
   const out: CallFault[] = [];
@@ -108,6 +157,12 @@ export function normalizeFindings(
 
     // No diary means no booking was ever possible.
     if (!ctx.hasDiary && NEEDS_A_DIARY.includes(category)) continue;
+
+    // The garage wrote the script; saying it is not lying. Only information
+    // findings are excused — a rule about what to SAY does not excuse failing
+    // to record a message.
+    if (category === 'wrong_info' && typeof r.evidence === 'string'
+        && quotesTheGarageScript(r.evidence, ctx.rules || [])) continue;
 
     // A request the agent had no tool for is not the agent's failure. The model
     // is asked to pass back the caller's intent precisely so this can be checked
@@ -186,7 +241,9 @@ const SYSTEM_PROMPT = [
   '- the agent asking again for something the caller had already given',
   '- the agent acting on a vehicle the caller never confirmed (check the lookups against what the',
   '  caller actually said about their car — make, model, anything)',
-  '- the agent saying something untrue, invented, or against its brief, including prices',
+  '- the agent saying something untrue, invented, or against its brief, including prices.',
+  '  Check the garage\'s own rules above FIRST: a price or a process written there is the',
+  '  garage\'s own and is correct, however unusual it sounds.',
   '- the agent promising an email, a callback, a booking or a transfer that the tools never did',
   '- a tool that errored, or gathered everything and never completed. Judge this ONLY on how the',
   '  tool ENDED: a status part-way through a flow is a step, not a failure, and a tool called',
@@ -220,6 +277,8 @@ const SYSTEM_PROMPT = [
   '- caller recognition supplying the vehicle. That is normal; only flag it if the vehicle looks',
   '  WRONG for what the caller said.',
   '- "Thanks for calling" at the end. That is the goodbye, not a second greeting.',
+  '- the agent FOLLOWING one of the garage\'s own rules above. That is the agent doing its job,',
+  '  and it is never a fault, whatever you would have said instead.',
   '',
   'SEVERITY: "high" when a customer was harmed or misled — a wrong vehicle acted on, wrong',
   'information given, a promise not kept, a booking lost. "medium" when the handling was poor but',
@@ -242,6 +301,14 @@ export async function findCallFaults(input: {
   callType?: string;
   confirmedBooking?: boolean;
   model?: string;
+  /**
+   * This garage's own custom rules, as configured in the portal.
+   *
+   * Without them the analyst judges whether a price or a process was true with no idea what
+   * the garage told the agent to say — which is how Elite Autocare's own alignment pricing
+   * came back as "told the caller something untrue".
+   */
+  rules?: string[];
   /**
    * What the deterministic scan already established about this call.
    *
@@ -267,7 +334,15 @@ export async function findCallFaults(input: {
   const hasDiary = Boolean(m.diary) || Boolean(capabilities && Object.keys(capabilities).length);
 
   const known = (input.knownSignals || []).filter(Boolean);
+  const rules = (input.rules || []).map((x) => String(x || '').trim()).filter(Boolean);
   const userMsg =
+    (rules.length
+      ? `THIS GARAGE'S OWN RULES, written by the garage, which the agent is REQUIRED to follow. `
+        + `Anything the agent says that matches one of these is CORRECT and is never a fault — the `
+        + `prices, processes and wording below are the garage's own and are true:\n`
+        + `${rules.map((r) => `- ${r}`).join('\n')}\n\n`
+      : '')
+    +
     (known.length
       // Without the "do not repeat" instruction it dutifully restated each one:
       // over 124 calls the analyst returned 19 unverified-vehicle findings
@@ -304,7 +379,7 @@ export async function findCallFaults(input: {
     });
     const parsed = JSON.parse(r.choices[0]?.message?.content || '{}');
     return {
-      findings: normalizeFindings(parsed.findings, { capabilities, hasDiary }),
+      findings: normalizeFindings(parsed.findings, { capabilities, hasDiary, rules }),
       model,
     };
   } catch (err) {

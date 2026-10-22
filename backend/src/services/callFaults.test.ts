@@ -11,7 +11,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { normalizeFindings, FAULT_CATEGORIES } from './callFaults.js';
+import { normalizeFindings, FAULT_CATEGORIES, findCallFaults } from './callFaults.js';
 
 const ctx = { capabilities: { bookings: true, retrieve_booking: false }, hasDiary: true };
 
@@ -150,6 +150,97 @@ test('a promise the tools never kept IS kept — that is the checkable version',
   );
   assert.equal(out.length, 1);
   assert.equal(out[0].category, 'promise_not_kept');
+});
+
+// ── the garage's own script is never a fault ──────────────────────────────
+//
+// Elite Autocare call 29225395, 22 Oct 2026. Flagged HIGH, "told the caller
+// something untrue", for reciting the garage's alignment pricing. The garage's
+// custom rule tells it to say exactly that, nearly word for word:
+//
+//   "We start with a full alignment diagnostic for £20 — that checks all the
+//    angles on your wheels against the manufacturer's specification... If an
+//    adjustment IS needed, the £20 diagnostic charge is REMOVED and replaced
+//    by the alignment cost."
+//
+// Dan: "the agent correctly followed the garages rules".
+//
+// The analyst had no idea the rule existed — the same mistake as the Elite
+// Autocare drop-off calls, judging the agent against something the judge was
+// never given. The rules now go into its context, AND a finding quoting them
+// back is dropped here, because a prompt has not held yet.
+const ALIGNMENT_RULE = 'WHEEL ALIGNMENT / TRACKING — how the pricing works, explain it in this order: '
+  + '1. Always start with the diagnostic. "We start with a full alignment diagnostic for £20 — that '
+  + "checks all the angles on your wheels against the manufacturer's specification.\" "
+  + '2. If nothing needs adjusting, the £20 is all they pay. Say so, it reassures them. '
+  + '3. If an adjustment IS needed, the £20 diagnostic charge is REMOVED and replaced by the '
+  + 'alignment cost — it is not added on top. Front toe adjustment is £48.';
+
+const RULED = { ...ctx, rules: [ALIGNMENT_RULE] };
+
+test('a wrong_info finding that quotes the garage\'s own rule back is dropped', () => {
+  const out = normalizeFindings(
+    [{
+      category: 'wrong_info', severity: 'high', headline: 'Stated alignment pricing as fact',
+      detail: 'The agent told the caller the garage always starts with a full wheel alignment '
+        + 'diagnostic for £20 and described a specific process and pricing.',
+      evidence: 'We always start with a full wheel alignment diagnostic for £20, which checks all '
+        + "the wheel angles against your car's specification. If nothing needs adjusting, that's "
+        + 'all you pay. If an adjustment is needed, the £20 is removed and replaced by the '
+        + 'alignment cost instead.',
+    }],
+    RULED,
+  );
+  assert.equal(out.length, 0);
+});
+
+test('a genuinely wrong price is still flagged when rules exist', () => {
+  const out = normalizeFindings(
+    [{
+      category: 'wrong_info', severity: 'high', headline: 'Quoted the wrong MOT price',
+      detail: 'The agent quoted £40 for an MOT. The garage charges £54.85.',
+      evidence: 'An MOT with us is forty pounds.',
+    }],
+    RULED,
+  );
+  assert.equal(out.length, 1, 'a price that is not in any rule is still a fault');
+});
+
+test('a wrong_info finding with no rules configured is untouched', () => {
+  const out = normalizeFindings(
+    [{ category: 'wrong_info', severity: 'high', headline: 'Invented a service',
+       detail: 'The agent offered air conditioning regas, which this garage does not do.',
+       evidence: 'Yes, we can do your air con regas.' }],
+    ctx,
+  );
+  assert.equal(out.length, 1);
+});
+
+test('a finding about something OTHER than information is not excused by the rules', () => {
+  // The rules say what to SAY. They do not excuse never recording the message.
+  const out = normalizeFindings(
+    [{ category: 'tool_failure', severity: 'medium', headline: 'Message never saved',
+       detail: 'take_message ended at NEED_NAME and recorded nothing.',
+       evidence: 'We start with a full alignment diagnostic for £20.' }],
+    RULED,
+  );
+  assert.equal(out.length, 1);
+});
+
+test('a wrong_info finding with no evidence quoted is kept — there is nothing to match', () => {
+  const out = normalizeFindings(
+    [{ category: 'wrong_info', severity: 'medium', headline: 'Said something untrue',
+       detail: 'The agent gave information that does not match the garage.' }],
+    RULED,
+  );
+  assert.equal(out.length, 1);
+});
+
+test('the rules are put in front of the analyst, not only enforced after it', () => {
+  // A guard that only fires afterwards still lets it waste a high-severity slot
+  // and still reads as a judgement nobody asked for.
+  const src = findCallFaults.toString();
+  assert.ok(/rules/i.test(src), 'findCallFaults must build a rules block');
 });
 
 test('findings are capped so one call cannot flood the page', () => {

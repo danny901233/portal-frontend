@@ -17,7 +17,11 @@ import { findCallFaults } from '../src/services/callFaults.js';
 // through createRequire rather than a bare require.
 import { createRequire } from 'node:module';
 
-const { scanDefects } = createRequire(import.meta.url)('./lib/call-defects.cjs');
+const require_ = createRequire(import.meta.url);
+const { scanDefects } = require_('./lib/call-defects.cjs');
+// The garage's own rules must reach the analyst here too, or this measures
+// something the cron does not do.
+const { garageRuleTexts } = require_('./call-defect-scan.cjs');
 
 const prisma = new PrismaClient();
 
@@ -36,7 +40,8 @@ async function main() {
     select: {
       id: true, garageId: true, createdAt: true, durationSeconds: true, summary: true,
       callType: true, confirmedBooking: true, registrationNumber: true,
-      metrics: true, transcript: true, garage: { select: { name: true } },
+      metrics: true, transcript: true,
+      garage: { select: { name: true, agentConfiguration: { select: { customRules: true } } } },
     },
   });
 
@@ -57,6 +62,7 @@ async function main() {
       transcript: c.transcript, metrics: c.metrics, summary: c.summary ?? undefined,
       callType: c.callType ?? undefined, confirmedBooking: c.confirmedBooking ?? false,
       knownSignals: mech.map((f: { detail: string }) => f.detail),
+      rules: garageRuleTexts(c.garage),
     });
     const aiFindings = (ai?.findings ?? []).filter((f) => f.severity !== 'low');
 

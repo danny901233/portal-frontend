@@ -46,6 +46,24 @@ function callIdsToScan({ windowCallIds, feedbackCallIds }) {
 }
 
 /**
+ * The garage's custom rules as plain strings.
+ *
+ * Stored either as a list of `{ text, active }` objects or as one free-text blob, so both
+ * shapes are flattened here and inactive rules are left out — an inactive rule is not
+ * something the agent was told to say.
+ */
+function garageRuleTexts(garage) {
+  const raw = garage && garage.agentConfiguration && garage.agentConfiguration.customRules;
+  if (!raw) return [];
+  if (typeof raw === 'string') return raw.trim() ? [raw.trim()] : [];
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((r) => (typeof r === 'string' ? r : (r && r.active !== false ? r.text : '')))
+    .map((t) => String(t || '').trim())
+    .filter(Boolean);
+}
+
+/**
  * Is this call worth paying a model to read?
  *
  * The analyst costs money per call, and most of what it would read has nothing
@@ -114,12 +132,21 @@ async function run({ dry = false, hours = WINDOW_HOURS } = {}) {
       id: true, garageId: true, createdAt: true, durationSeconds: true,
       registrationNumber: true, confirmedBooking: true, metrics: true, transcript: true,
       summary: true, callType: true,
-      garage: { select: { name: true, isTestAccount: true, archivedAt: true } },
+      garage: {
+        select: {
+          name: true, isTestAccount: true, archivedAt: true,
+          // The garage's own rules. Without them the analyst judges a price or a process
+          // with no idea what the garage told the agent to say, which is how Elite
+          // Autocare's own alignment pricing came back as "told the caller something
+          // untrue" on call 29225395.
+          agentConfiguration: { select: { customRules: true } },
+        },
+      },
     },
   });
   const live = calls
     .filter((c) => c.garage && !c.garage.isTestAccount && !c.garage.archivedAt)
-    .map((c) => ({ ...c, garageName: c.garage.name }));
+    .map((c) => ({ ...c, garageName: c.garage.name, garageRules: garageRuleTexts(c.garage) }));
 
   const findings = scanDefects(live, { feedback: freshFeedback });
 
@@ -139,6 +166,7 @@ async function run({ dry = false, hours = WINDOW_HOURS } = {}) {
           transcript: call.transcript, metrics: call.metrics, summary: call.summary || undefined,
           callType: call.callType || undefined, confirmedBooking: call.confirmedBooking || false,
           knownSignals: known,
+          rules: call.garageRules,
         });
       } catch (err) {
         console.error(`[defects] analyst failed on ${call.id}:`, err && err.message);
@@ -225,4 +253,4 @@ if (!process.env.DEFECT_SCAN_NO_AUTORUN) {
   main();
 }
 
-module.exports = { run, callIdsToScan, worthReading, WINDOW_HOURS };
+module.exports = { run, callIdsToScan, worthReading, garageRuleTexts, WINDOW_HOURS };

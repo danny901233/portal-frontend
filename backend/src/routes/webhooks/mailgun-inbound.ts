@@ -19,6 +19,13 @@
 // TicketEntry so it shows up on the timeline. Suppressed for threaded replies
 // (they already know we're on it) and for spam-flagged contacts.
 //
+// It is also the only email the system sends with nobody's approval, so it is
+// the only one that can run away: answer an autoresponder and it answers back
+// (Torque GT, 2026-10-22). Three things stop that now — the auto-reply headers
+// are read (services/emailClassifier.ts), the acknowledgement carries a stored
+// Message-Id so a reply to it threads instead of opening a new ticket, and
+// there is a per-sender ceiling on acknowledgements (services/autoAckBudget.ts).
+//
 // Spam: bulk-mail headers and automated senders are settled by rules
 // (services/emailClassifier.ts) and filed closed on arrival; cold outreach
 // written by a person is left to the AI classifier, whose verdict withholds the
@@ -39,7 +46,8 @@ import { classifyDeterministic, isNoReplySender, parseMailgunHeaders } from '../
 import { ticketSubjectTag, ticketNumberFromSubject, stripTicketTag } from '../../services/ticketRef.js';
 import { pushNewTicketToStaff, pushCustomerReply } from '../../services/ticketPush.js';
 import { fileTicketMail } from '../../services/outlookMailbox.js';
-import { withSupportSignature } from '../../services/ticketEmail.js';
+import { withSupportSignature, generateOutboundMessageId, buildThreadingHeaders } from '../../services/ticketEmail.js';
+import { autoAckOverBudget } from '../../services/autoAckBudget.js';
 
 const router = Router();
 
@@ -247,10 +255,31 @@ const withDeadline = <T,>(p: Promise<T>, ms: number, fallback: T): Promise<T> =>
 async function sendAutoAck(args: {
   ticketNumber: number;
   ticketId: string;
+  contactId: string;
   toEmail: string;
   contactName: string | null;
   originalSubject: string;
 }) {
+  // Have we already answered this sender more than enough today? The header
+  // rules in emailClassifier.ts catch an autoresponder that says what it is;
+  // this catches one that says nothing (services/autoAckBudget.ts).
+  const previousAcks = await prisma.ticketEntry.findMany({
+    where: {
+      kind: TicketEntryKind.auto_ack,
+      createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+      ticket: { contactId: args.contactId },
+    },
+    select: { createdAt: true },
+  });
+  const overBudget = autoAckOverBudget(previousAcks.map((e) => e.createdAt), new Date());
+  if (overBudget) {
+    console.warn(
+      `[MAILGUN_INBOUND] Auto-ack withheld for ticket #${args.ticketNumber} —`
+      + ` ${args.toEmail} is over the ${overBudget} budget (${previousAcks.length} in the last day)`,
+    );
+    return;
+  }
+
   const greet = args.contactName ? `Hi ${args.contactName.split(/\s+/)[0]},` : 'Hi,';
   const subjectTag = ticketSubjectTag(args.ticketNumber);
   // If the original subject already had a tag we'd have threaded — no auto-ack fires. So
@@ -285,6 +314,18 @@ async function sendAutoAck(args: {
 <p>We'll come back to you shortly. If you think of anything else in the meantime, just reply to this email and it'll reach the same person.</p>`,
   );
 
+  // A Message-Id of our own, stored on the entry below, so a reply to the
+  // acknowledgement threads back onto this ticket through the In-Reply-To
+  // lookup at step 2 of resolveOrCreateTicket.
+  //
+  // It used to go out without one. The subject tag was the only way back, and
+  // a helpdesk at the other end writes its own subject — so Torque GT's reply
+  // to our acknowledgement opened a SECOND ticket, whose acknowledgement
+  // opened a third (2026-10-22). Anyone whose client rewrites the subject did
+  // the same thing more slowly.
+  const outboundMessageId = generateOutboundMessageId(args.ticketNumber);
+  const threadingHeaders = await buildThreadingHeaders(args.ticketId, outboundMessageId);
+
   const ok = await sendEmail({
     // Same reason as the reply path in routes/tickets.ts: the default
     // MAILGUN_FROM is noreply@, which cannot receive, and this message invites
@@ -297,6 +338,7 @@ async function sendAutoAck(args: {
     subject,
     text,
     html,
+    headers: threadingHeaders,
   });
   if (!ok) {
     console.warn(`[MAILGUN_INBOUND] Auto-ack send failed for ticket #${args.ticketNumber}`);
@@ -310,6 +352,7 @@ async function sendAutoAck(args: {
       ticketId: args.ticketId,
       kind: TicketEntryKind.auto_ack,
       body: text,
+      outboundMessageId,
     },
   });
   console.log(`[MAILGUN_INBOUND] Auto-ack sent + logged for ticket #${args.ticketNumber}`);
@@ -616,6 +659,7 @@ router.post('/mailgun-inbound', async (req: Request, res: Response) => {
           return sendAutoAck({
             ticketNumber: ticket.number,
             ticketId: ticket.id,
+            contactId: contact.id,
             toEmail: email,
             contactName: contact.name,
             originalSubject: subject,

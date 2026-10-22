@@ -91,6 +91,52 @@ const bulkMarker = (headers: Record<string, string> | undefined): string | null 
   return null;
 };
 
+// ─── Automatic replies ──────────────────────────────────────────────────────
+// A robot answering a robot. On 22 Oct 2026 a message sent from hello@ reached
+// Torque GT's Zendesk, which acknowledged it; our auto-ack answered the
+// acknowledgement, which Zendesk answered in turn. Fifteen round trips in two
+// minutes, one new ticket each, and it only stopped because the sender was
+// blocked by hand.
+//
+// Every one of those messages said what it was. Zendesk set `Auto-Submitted:
+// auto-generated` (RFC 3834, whose entire purpose is to stop this) and
+// `X-Auto-Response-Suppress: All` (Microsoft's version of the same
+// instruction). Nothing read them.
+//
+// NOT in this list: `x-ms-exchange-transport-rules-loop`. Our own M365 rule
+// copies hello@ to Mailgun's inbound route, and that forward stamps the header
+// on everything it touches — including mail a customer typed by hand. Reading
+// it as an auto-reply marker would silence the acknowledgement on every
+// genuine email we receive.
+
+/** Headers whose mere presence means software sent this. */
+const AUTO_REPLY_FLAGS = ['x-autoreply', 'x-auto-reply', 'x-autorespond', 'x-autoreply-from'];
+
+/** Which marker fired, or null. The name goes into the rule label, so the
+ *  timeline says which header we believed rather than just "a robot". */
+const autoResponseMarker = (headers: Record<string, string> | undefined): string | null => {
+  if (!headers) return null;
+  // RFC 3834 §5: the field is absent on ordinary mail, and any value other
+  // than "no" means auto-submitted. "no" is explicitly a human.
+  const submitted = headers['auto-submitted'];
+  if (submitted && !/^\s*no\s*$/i.test(submitted)) return 'auto-submitted';
+  // A comma list of what the sender wants suppressed. "None" asks for nothing.
+  if (/\b(all|autoreply|oof)\b/i.test(headers['x-auto-response-suppress'] ?? '')) {
+    return 'x-auto-response-suppress';
+  }
+  // Distinct from the bulk rule's reading of the same header: `bulk` is a
+  // mailing list, `auto_reply` is a vacation responder.
+  if (/auto[_-]?repl(y|ied)/i.test(headers['precedence'] ?? '')) return 'precedence';
+  for (const h of AUTO_REPLY_FLAGS) if (headers[h]) return h;
+  return null;
+};
+
+/** The subject a mail client writes when it answers for someone. Anchored at
+ *  the start (after any Re:/Fwd: chain) so a sentence that merely mentions
+ *  being out of the office is not mistaken for an absence notice. */
+const AUTO_RESPONSE_SUBJECT =
+  /^\s*(?:(?:re|fw|fwd)\s*:\s*)*(?:automatic repl(?:y|ies)|auto(?:matic)?[ -]?repl(?:y|ied)|auto[ -]?response|autoresponse|out of (?:the )?office|\[request received\])/i;
+
 export interface DeterministicMatch {
   category: TicketCategory;
   priority?: TicketPriority;
@@ -301,6 +347,36 @@ export function classifyDeterministic(input: DeterministicInput): DeterministicM
         autoClose: true,
       };
     }
+  }
+
+  // Rule 3b: an automatic reply. Never answered, because answering one is how
+  // a mail loop starts — and unlike every other rule here, a known garage is
+  // NOT exempt. Their helpdesk loops exactly like a stranger's.
+  const auto = autoResponseMarker(input.headers);
+  if (auto) {
+    return {
+      category: TicketCategory.other,
+      rule: `auto_response:${auto}`,
+      autoAck: false,
+      aiDraft: false,
+      // The headers below are only ever set by software, so this is a robot
+      // talking and there is nothing for anyone to do. Kept for the audit
+      // trail, closed on the way in.
+      autoClose: true,
+    };
+  }
+  // Same thing with no headers to prove it — an out-of-office from a mail
+  // client that sets none. Worth withholding the reply for; not worth closing
+  // on, because "Out of office cover" is a subject a person could write and a
+  // closed ticket is one nobody looks at.
+  if (AUTO_RESPONSE_SUBJECT.test(input.subject)) {
+    return {
+      category: TicketCategory.other,
+      rule: 'auto_response:subject',
+      autoAck: false,
+      aiDraft: false,
+      autoClose: false,
+    };
   }
 
   // Rule 4: an automated sender we have no relationship with → a notification,

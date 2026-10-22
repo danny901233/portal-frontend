@@ -99,3 +99,123 @@ test('a garage writing in is left for the normal flow', () => {
   });
   assert.equal(m, null);
 });
+
+// ─── Auto-responders (the Torque GT loop, 2026-10-22) ──────────────────────
+// Their Zendesk acknowledged a message sent from hello@; we acknowledged the
+// acknowledgement; it acknowledged ours. 15 round trips in two minutes, each
+// one a new ticket, until the sender was blocked by hand.
+
+test('a Zendesk auto-acknowledgement is never acknowledged back', () => {
+  const m = classifyDeterministic({
+    ...base,
+    senderEmail: 'support@torquegt.zendesk.com',
+    subject: '[Request received] - Torque GT',
+    bodyText: '##- Please type your reply above this line -##\n\nThanks for the message.',
+    headers: {
+      'auto-submitted': 'auto-generated',
+      'x-auto-response-suppress': 'All',
+      'x-mailer': 'Zendesk Mailer',
+    },
+  });
+  assert.ok(m, 'expected a deterministic match');
+  assert.equal(m.autoAck, false);
+  assert.equal(m.aiDraft, false);
+  assert.equal(m.autoClose, true);
+  assert.equal(m.rule, 'auto_response:auto-submitted');
+});
+
+// The loop is between two robots, and it does not matter whose robot it is.
+// The bulk and no-reply rules both exempt a known garage, which is why this
+// one must not: a customer's own helpdesk loops exactly like a stranger's.
+test('a known garage does not exempt an auto-responder', () => {
+  const m = classifyDeterministic({
+    ...base,
+    senderEmail: 'service@somegarage.co.uk',
+    contactGarageId: 'grg_123',
+    subject: 'Automatic reply: [RM-2PQQEEZ] Your message',
+    headers: { 'auto-submitted': 'auto-replied' },
+  });
+  assert.ok(m);
+  assert.equal(m.autoAck, false);
+  assert.equal(m.rule, 'auto_response:auto-submitted');
+});
+
+test('X-Auto-Response-Suppress alone is enough', () => {
+  const m = classifyDeterministic({
+    ...base,
+    senderEmail: 'helpdesk@example.com',
+    subject: 'Ticket 4471 received',
+    headers: { 'x-auto-response-suppress': 'OOF, AutoReply' },
+  });
+  assert.ok(m);
+  assert.equal(m.autoAck, false);
+  assert.equal(m.rule, 'auto_response:x-auto-response-suppress');
+});
+
+test('Precedence: auto_reply is an auto-responder, not bulk mail', () => {
+  const m = classifyDeterministic({
+    ...base,
+    senderEmail: 'rota@example.com',
+    contactGarageId: 'grg_123',
+    subject: 'Out of the office',
+    headers: { precedence: 'auto_reply' },
+  });
+  assert.ok(m);
+  assert.equal(m.rule, 'auto_response:precedence');
+});
+
+// RFC 3834: a human-written message may carry the header with this value, and
+// it means the opposite. Reading it as a robot would silence real mail.
+test('Auto-Submitted: no is a person, not a robot', () => {
+  const m = classifyDeterministic({
+    ...base,
+    senderEmail: 'info@somegarage.co.uk',
+    subject: 'Can you change my opening hours?',
+    headers: { 'auto-submitted': 'no' },
+  });
+  assert.equal(m, null);
+});
+
+// Our own M365 rule copies hello@ to Mailgun, and that forward stamps every
+// message it touches with a loop counter — including a customer's. Reading it
+// as an auto-reply marker would suppress the acknowledgement on all of them.
+test('the M365 transport-rule loop header is not an auto-reply marker', () => {
+  const m = classifyDeterministic({
+    ...base,
+    senderEmail: 'info@somegarage.co.uk',
+    subject: 'Can you change my opening hours?',
+    headers: { 'x-ms-exchange-transport-rules-loop': '1' },
+  });
+  assert.equal(m, null);
+});
+
+// No headers at all, just the subject a mail client writes. Worth suppressing
+// the reply for, not worth closing on: "Out of office cover" is a real subject
+// a real person could send, and a closed ticket is one nobody looks at.
+test('an out-of-office subject suppresses the reply but stays open', () => {
+  const m = classifyDeterministic({
+    ...base,
+    senderEmail: 'manager@somegarage.co.uk',
+    contactGarageId: 'grg_123',
+    subject: 'Automatic reply: Your message',
+  });
+  assert.ok(m);
+  assert.equal(m.autoAck, false);
+  assert.equal(m.aiDraft, false);
+  assert.equal(m.autoClose, false);
+  assert.equal(m.rule, 'auto_response:subject');
+});
+
+// Ordering guard from the other side: a supplier's receipt is auto-generated
+// too, and it must keep going to Dan as billing rather than becoming 'other'.
+test('a Stripe receipt stays billing even though it is auto-generated', () => {
+  const m = classifyDeterministic({
+    ...base,
+    senderEmail: 'invoice+statements@stripe.com',
+    subject: 'Your receipt from Eleven Labs Inc.',
+    headers: { 'auto-submitted': 'auto-generated' },
+  });
+  assert.ok(m);
+  assert.equal(m.category, 'billing');
+  assert.match(m.rule, /^supplier_domain:stripe\.com/);
+});

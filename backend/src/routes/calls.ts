@@ -22,6 +22,7 @@ import type {
   TranscriptEntry,
 } from '../utils/types.js';
 import { resolveAllowedGarages } from '../utils/auth.js';
+import { mayOpenCall } from '../utils/callAccess.js';
 import { sendCallSummaryEmail, sendPaymentSetupReminderEmail, sendArrearsCallNoticeEmail } from '../utils/email.js';
 import { raiseNegativeFeedbackTicket } from '../services/feedbackTicket.js';
 import { raiseTicketFromAiCall } from '../services/callTickets.js';
@@ -1583,6 +1584,51 @@ router.get(
     }
   },
 );
+
+// A call by id, with the garage resolved FROM THE CALL rather than from the branch picker.
+//
+// The scoped sibling above needs the right garage in the URL, so a link to a call in another
+// branch — from the observability fault list, an email, a bookmark — came back 404 unless you
+// had already switched branches. The user sees "Unable to load this call."
+//
+// Access is unchanged: it still comes from the user's own garage list (mayOpenCall), never from
+// anything on the request, and a restricted garage still gets the redacted call.
+router.get('/calls/:callId', authenticate, async (req: Request, res: Response) => {
+  try {
+    const { callId } = req.params;
+    const call = await prisma.call.findUnique({
+      where: { id: callId },
+      include: { feedback: true },
+    });
+
+    // Deliberately 404 before the access check so this cannot be used to find out which call
+    // ids exist in other people's garages.
+    if (!call) {
+      return res.status(404).json({ error: 'Call not found' });
+    }
+    if (!mayOpenCall(req.user, call.garageId)) {
+      return res.status(404).json({ error: 'Call not found' });
+    }
+
+    const isStaff = req.user?.role === 'RECEPTIONMATE_STAFF';
+    if (!isStaff && call.garageId) {
+      const g = await prisma.garage.findUnique({
+        where: { id: call.garageId },
+        select: { accessRestricted: true },
+      });
+      if (g?.accessRestricted) {
+        return res.json({ call: redactRestrictedCall(parseCallJson(call)) });
+      }
+    }
+
+    return res.json({ call: parseCallJson(call) });
+  } catch (error) {
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('Failed to fetch call by id', error);
+    }
+    return res.status(500).json({ error: 'Failed to fetch call' });
+  }
+});
 
 router.post(
   '/garages/:garageId/calls/:callId/feedback',

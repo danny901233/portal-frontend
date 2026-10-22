@@ -169,17 +169,23 @@ export const fetchCalls = async (
   return data;
 };
 
+/**
+ * One call, found by its id alone.
+ *
+ * This used to go through `/api/garages/<selected branch>/calls/<id>`, which 404s for a call
+ * belonging to a sibling branch — so a link from the observability fault list, an email or a
+ * bookmark showed "Unable to load this call" unless you had already switched the branch picker
+ * to the right one. The server resolves the garage from the call and checks access against the
+ * user's own garages, so the picker no longer decides whether a call can be opened.
+ *
+ * `garageId` is accepted and ignored, because callers still pass it.
+ */
 export const fetchCallById = async (
   callId: string,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   garageId?: string
 ): Promise<CallResponse> => {
-  const targetGarageId = garageId ?? getGarageId();
-  if (!targetGarageId) {
-    throw new Error("Missing garage id. Log in again.");
-  }
-  const { data } = await api.get<CallResponse>(
-    `/api/garages/${targetGarageId}/calls/${callId}`
-  );
+  const { data } = await api.get<CallResponse>(`/api/calls/${callId}`);
   return data;
 };
 

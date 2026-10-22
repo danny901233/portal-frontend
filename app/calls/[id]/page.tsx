@@ -611,7 +611,9 @@ export default function CallDetailPage() {
   }, [callId, fetchingRecording]);
 
   const query = useQuery<CallRecord>({
-    queryKey: ['call-detail', garageId, callId],
+    // Not keyed on the selected branch: the call is fetched by id, so the same call is the
+    // same call whichever branch the picker is on.
+    queryKey: ['call-detail', callId],
     queryFn: async () => {
       if (!callId) {
         throw new Error('Missing call id');
@@ -619,7 +621,7 @@ export default function CallDetailPage() {
       const response = await fetchCallById(callId, garageId ?? undefined);
       return response.call;
     },
-    enabled: Boolean(garageId && callId),
+    enabled: Boolean(callId),
   });
 
   const [analyzing, setAnalyzing] = useState(false);

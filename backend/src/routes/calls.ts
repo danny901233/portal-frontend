@@ -1,4 +1,7 @@
-import type { Call, CallFeedback, Prisma } from '@prisma/client';
+// Prisma is a value import, not type-only: the call-defect chip counts use
+// Prisma.sql / Prisma.empty to build their optional WHERE clauses.
+import { Prisma } from '@prisma/client';
+import type { Call, CallFeedback } from '@prisma/client';
 import type { Request, Response } from 'express';
 import type { Readable } from 'node:stream';
 import { randomInt } from 'node:crypto';
@@ -1194,21 +1197,42 @@ router.get('/staff/call-defects', authenticate, async (req: Request, res: Respon
       return res.status(400).json({ error: 'Invalid query parameters' });
     }
     const callAt: Prisma.DateTimeFilter = {};
+    let startAt: Date | null = null;
+    let endAt: Date | null = null;
     if (typeof startDate === 'string' && startDate.trim()) {
       const d = new Date(startDate);
       if (Number.isNaN(d.getTime())) return res.status(400).json({ error: 'Invalid startDate parameter' });
       callAt.gte = d;
+      startAt = d;
     }
     if (typeof endDate === 'string' && endDate.trim()) {
       const d = new Date(endDate);
       if (Number.isNaN(d.getTime())) return res.status(400).json({ error: 'Invalid endDate parameter' });
       callAt.lte = d;
+      endAt = d;
     }
+    const signatureFilter = typeof signature === 'string' && signature.trim() ? signature.trim() : null;
     const where: Prisma.CallDefectWhereInput = {};
     if (Object.keys(callAt).length > 0) where.callAt = callAt;
-    if (typeof signature === 'string' && signature.trim()) where.signature = signature.trim();
+    if (signatureFilter) where.signature = signatureFilter;
 
-    const [bySignature, found, lastScan] = await Promise.all([
+    // How many of each signature are already actioned, counted in the database.
+    // The chips used to show outstanding + actioned whichever tab was selected,
+    // because actioned-ness lives in the notes table and a groupBy on CallDefect
+    // cannot see it. A join can, and it stays correct past the page cap.
+    const actionedPerSignature = prisma.$queryRaw<{ signature: string; severity: string; count: bigint }[]>`
+      SELECT d."signature", d."severity", COUNT(*) AS count
+      FROM "CallDefect" d
+      JOIN "CallDefectNote" n
+        ON n."callId" = d."callId" AND n."signature" = d."signature"
+      WHERE n."actionedAt" IS NOT NULL
+        ${startAt ? Prisma.sql`AND d."callAt" >= ${startAt}` : Prisma.empty}
+        ${endAt ? Prisma.sql`AND d."callAt" <= ${endAt}` : Prisma.empty}
+        ${signatureFilter ? Prisma.sql`AND d."signature" = ${signatureFilter}` : Prisma.empty}
+      GROUP BY d."signature", d."severity"
+    `;
+
+    const [bySignature, found, lastScan, actionedCounts] = await Promise.all([
       prisma.callDefect.groupBy({ by: ['signature', 'severity'], where, _count: { _all: true } }),
       prisma.callDefect.findMany({
         where,
@@ -1226,6 +1250,7 @@ router.get('/staff/call-defects', authenticate, async (req: Request, res: Respon
       // When the scanner last wrote anything, so the page can say outright that
       // it has gone quiet rather than showing an empty panel that looks healthy.
       prisma.callDefect.findFirst({ orderBy: { createdAt: 'desc' }, select: { createdAt: true } }),
+      actionedPerSignature,
     ]);
 
     // Working notes for exactly the faults on screen.
@@ -1253,9 +1278,21 @@ router.get('/staff/call-defects', authenticate, async (req: Request, res: Respon
       : [];
     const nameById = new Map(garages.map((g) => [g.id, g.name]));
 
+    const actionedBySignature = new Map(
+      actionedCounts.map((r) => [`${r.signature}|${r.severity}`, Number(r.count)]),
+    );
+
     return res.json({
       bySignature: bySignature
-        .map((r) => ({ signature: r.signature, severity: r.severity, count: r._count._all }))
+        .map((r) => {
+          const total = r._count._all;
+          const actioned = actionedBySignature.get(`${r.signature}|${r.severity}`) ?? 0;
+          const count = wanted === 'completed' ? actioned
+            : wanted === 'outstanding' ? total - actioned
+              : total;
+          return { signature: r.signature, severity: r.severity, count };
+        })
+        .filter((r) => r.count > 0)
         .sort((a, b) => b.count - a.count),
       recent: recent.map((r) => ({ ...r, garageName: nameById.get(r.garageId) || null })),
       counts,

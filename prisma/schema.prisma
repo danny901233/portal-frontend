@@ -1920,3 +1920,51 @@ model DemoProspect {
 
   @@index([expiresAt])
 }
+
+// ---------------------------------------------------------------------------
+// Tyresoft caller recognition
+//
+// Tyresoft has no live customer-lookup API, so they SFTP two CSV snapshots per
+// garage nightly (same mechanism as the tyre stock list). jobs/tyresoftCustomerIngest.ts
+// replaces these tables wholesale on each run; /api/agent/tyresoft/caller reads
+// them to answer caller lookups in single-digit milliseconds.
+//
+// Phones are stored NORMALISED to E.164 (+44…) by the ingest job — the lookup
+// normalises the inbound number the same way, so both sides must stay in sync.
+// Unparseable numbers are stored as '' rather than raw, so a garbage CSV value
+// can never match a real caller.
+// ---------------------------------------------------------------------------
+
+model TyresoftCustomer {
+  id                    String   @id @default(cuid())
+  garageId              String
+  customerAccountNumber String // Tyresoft's own key, e.g. "AAR25825" — joins to TyresoftVehicle
+  name                  String
+  salutation            String?
+  contact               String?
+  telephone             String   @default("") // normalised E.164, '' when absent/unparseable
+  mobile                String   @default("") // normalised E.164, '' when absent/unparseable
+  email                 String?
+  updatedAt             DateTime @updatedAt
+
+  @@unique([garageId, customerAccountNumber])
+  @@index([garageId, mobile])
+  @@index([garageId, telephone])
+}
+
+model TyresoftVehicle {
+  id                    String    @id @default(cuid())
+  garageId              String
+  vrm                   String // stored uppercase, spaces stripped
+  customerAccountNumber String
+  make                  String?
+  model                 String?
+  motDueDate            DateTime?
+  tyreCheckDate         DateTime?
+  serviceDueDate        DateTime?
+  nextInspectionDate    DateTime?
+  updatedAt             DateTime  @updatedAt
+
+  @@unique([garageId, vrm])
+  @@index([garageId, customerAccountNumber])
+}

@@ -319,6 +319,8 @@ export function ObservabilityDashboard() {
   // Defaults to the work still to do, which is what the panel is for.
   const [defectStatus, setDefectStatus] = useState<DefectStatus>('outstanding');
   const [defectPeriod, setDefectPeriod] = useState<DefectPeriod>('7d');
+  // null means every tag. Clicking a chip narrows the list to that one signature.
+  const [defectSignature, setDefectSignature] = useState<string | null>(null);
   const [openNoteId, setOpenNoteId] = useState<string | null>(null);
   const [noteDraft, setNoteDraft] = useState('');
   const [savingNote, setSavingNote] = useState(false);
@@ -353,23 +355,29 @@ export function ObservabilityDashboard() {
     status: DefectStatus,
     startDate: Date,
     endDate: Date,
+    signature: string | null,
   ): Promise<void> => {
     const token = getSessionToken();
     if (!token) return;
     const res = await fetch(
       `/api/staff/call-defects?startDate=${startDate.toISOString()}`
-      + `&endDate=${endDate.toISOString()}&status=${status}`,
+      + `&endDate=${endDate.toISOString()}&status=${status}`
+      + (signature ? `&signature=${encodeURIComponent(signature)}` : ''),
       { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } },
     );
     if (res.ok) setCallDefects(await res.json());
   };
 
-  // Both filters feed one request, so changing either keeps the other.
-  const reloadDefects = async (status: DefectStatus, period: DefectPeriod) => {
+  // All three filters feed one request, so changing any one keeps the others.
+  const reloadDefects = async (
+    status: DefectStatus,
+    period: DefectPeriod,
+    signature: string | null,
+  ) => {
     setOpenNoteId(null);
     const [start, end] = defectRange(period);
     try {
-      await loadCallDefects(status, start, end);
+      await loadCallDefects(status, start, end, signature);
     } catch (err) {
       console.error('Error loading faults:', err);
     }
@@ -377,12 +385,20 @@ export function ObservabilityDashboard() {
 
   const switchDefectStatus = async (status: DefectStatus) => {
     setDefectStatus(status);
-    await reloadDefects(status, defectPeriod);
+    await reloadDefects(status, defectPeriod, defectSignature);
   };
 
   const switchDefectPeriod = async (period: DefectPeriod) => {
     setDefectPeriod(period);
-    await reloadDefects(defectStatus, period);
+    await reloadDefects(defectStatus, period, defectSignature);
+  };
+
+  // Clicking the chip that is already selected clears the filter, so the chips
+  // work as a toggle and there is no separate control to go back to all tags.
+  const toggleDefectSignature = async (signature: string) => {
+    const next = defectSignature === signature ? null : signature;
+    setDefectSignature(next);
+    await reloadDefects(defectStatus, defectPeriod, next);
   };
 
   /**
@@ -421,9 +437,22 @@ export function ObservabilityDashboard() {
           || (defectStatus === 'outstanding' ? !row.actioned : row.actioned);
         const wasActioned = d.actioned;
         const delta = nowActioned === wasActioned ? 0 : (nowActioned ? 1 : -1);
+        // The chips count whatever the current tab counts, so ticking a fault has
+        // to move its chip as well — otherwise the row disappears and the number
+        // above it does not, which reads as a broken page.
+        const chipDelta = defectStatus === 'outstanding' ? -delta
+          : defectStatus === 'completed' ? delta
+            : 0;
+        const bySignature = chipDelta === 0 ? prev.bySignature
+          : prev.bySignature
+            .map((sig) => (sig.signature === d.signature && sig.severity === d.severity
+              ? { ...sig, count: Math.max(0, sig.count + chipDelta) }
+              : sig))
+            .filter((sig) => sig.count > 0);
         return {
           ...prev,
           recent: patched.filter(stillBelongs),
+          bySignature,
           counts: {
             outstanding: Math.max(0, prev.counts.outstanding - delta),
             completed: Math.max(0, prev.counts.completed + delta),
@@ -524,7 +553,7 @@ export function ObservabilityDashboard() {
         if (isReceptionMateStaff()) {
           // The panel has its own period, independent of the page's date range.
           const [dStart, dEnd] = defectRange(defectPeriod);
-          await loadCallDefects(defectStatus, dStart, dEnd);
+          await loadCallDefects(defectStatus, dStart, dEnd, null);
         }
       } catch (cdErr) {
         console.error('Error fetching call defects:', cdErr);
@@ -1335,9 +1364,16 @@ export function ObservabilityDashboard() {
             <div className="mt-4 space-y-5">
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 {callDefects.bySignature.map((sig) => (
-                  <div
+                  <button
                     key={`${sig.signature}-${sig.severity}`}
-                    className="rounded-lg border border-slate-200 bg-white p-3"
+                    type="button"
+                    onClick={() => toggleDefectSignature(sig.signature)}
+                    aria-pressed={defectSignature === sig.signature}
+                    className={`rounded-lg border p-3 text-left transition-colors ${
+                      defectSignature === sig.signature
+                        ? 'border-brand-600 bg-brand-50 ring-1 ring-brand-600'
+                        : 'border-slate-200 bg-white hover:border-slate-400'
+                    }`}
                   >
                     <div className="flex items-baseline justify-between gap-2">
                       <p className="text-2xl font-bold text-slate-900">{sig.count}</p>
@@ -1357,7 +1393,7 @@ export function ObservabilityDashboard() {
                       {DEFECT_LABELS[sig.signature] || sig.signature}
                     </p>
                     <p className="text-[10px] text-slate-400">{sig.signature}</p>
-                  </div>
+                  </button>
                 ))}
               </div>
 
@@ -1369,6 +1405,15 @@ export function ObservabilityDashboard() {
                     : null}
                   {callDefects.truncated ? ' (capped)' : null}
                 </p>
+                {defectSignature ? (
+                  <button
+                    type="button"
+                    onClick={() => toggleDefectSignature(defectSignature)}
+                    className="mt-1 text-xs text-brand-600 underline hover:text-brand-700"
+                  >
+                    Showing {DEFECT_LABELS[defectSignature] || defectSignature} only — show all tags
+                  </button>
+                ) : null}
                 <ul className="mt-2 divide-y divide-slate-200 overflow-hidden rounded-lg border border-slate-200 bg-white">
                   {callDefects.recent.slice(0, 50).map((d) => (
                     <li key={d.id} className="px-3 py-2">

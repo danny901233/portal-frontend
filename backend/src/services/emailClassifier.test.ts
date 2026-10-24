@@ -219,3 +219,66 @@ test('a Stripe receipt stays billing even though it is auto-generated', () => {
   assert.equal(m.category, 'billing');
   assert.match(m.rule, /^supplier_domain:stripe\.com/);
 });
+
+// ── our own billing alerts must stay in the queue ──────────────────────────
+//
+// A.M. Engineering's card declined on 16 Oct. The webhook emailed
+// hello@receptionmate.co.uk on every Stripe retry — 16, 17, 19, 21 and 23 Oct,
+// all five delivered — and every one became a ticket that was CLOSED 16
+// milliseconds after it arrived, then archived out of the inbox. Dan never saw
+// any of them and asked why he had not been notified. He had been, five times.
+//
+// Rule 4 files everything our own systems send unless the subject is on
+// OURS_WORTH_QUEUEING, which held only the watchdog alerts and the nightly
+// report. The comment there says filing an outage on arrival "buries an outage
+// in a queue nobody opens" — the same is true of money.
+test('a failed card payment stays open in the queue', () => {
+  const m = classifyDeterministic({
+    senderEmail: 'noreply@receptionmate.co.uk',
+    subject: 'Assist payment failed — A.M. Engineering Vehicle Servicing and Repair',
+    bodyText: 'Stripe subscription payment failed for A.M. Engineering (invoice in_123).',
+    headers: {},
+    contactGarageId: null,
+  });
+  assert.equal(m?.autoClose, false, 'this is the mail most worth seeing');
+  assert.equal(m?.rule, 'automated_sender:ours_alert');
+});
+
+test('a cancelled subscription stays open too', () => {
+  const m = classifyDeterministic({
+    senderEmail: 'noreply@receptionmate.co.uk',
+    subject: 'Assist subscription cancelled — Some Garage Ltd',
+    bodyText: 'Stripe subscription cancelled.',
+    headers: {},
+    contactGarageId: null,
+  });
+  assert.equal(m?.autoClose, false);
+});
+
+// The allow-list is scoped to our own sending domain, so a customer or a
+// supplier cannot hold a ticket open by choosing a subject line.
+test('an outsider cannot keep a ticket open with the same subject', () => {
+  const m = classifyDeterministic({
+    senderEmail: 'noreply@someone-else.com',
+    subject: 'Assist payment failed — nice try',
+    bodyText: 'x',
+    headers: {},
+    contactGarageId: null,
+  });
+  assert.equal(m?.autoClose, true);
+  assert.equal(m?.rule, 'automated_sender:external');
+});
+
+// And the ordinary per-call notifications we send ourselves must still file,
+// or the queue fills with records nobody works.
+test('a routine notification from us still files on arrival', () => {
+  const m = classifyDeterministic({
+    senderEmail: 'noreply@receptionmate.co.uk',
+    subject: 'New call for Speedy Spanners',
+    bodyText: 'A call was answered.',
+    headers: {},
+    contactGarageId: null,
+  });
+  assert.equal(m?.autoClose, true);
+  assert.equal(m?.rule, 'automated_sender:ours');
+});

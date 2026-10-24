@@ -266,13 +266,23 @@ const SELF_NOTIFICATION_SUBJECTS = [
 // notification addressed to a garage that happens to be us, a lead notice
 // HighLevel already owns. Those file on arrival like any other robot's mail.
 //
-// These three do not. Two are the watchdog saying an agent is down or back up,
-// and one is the nightly call report. They are the mail most worth seeing, and
-// filing them on arrival buries an outage in a queue nobody opens.
+// These do not. Two are the watchdog saying an agent is down or back up, one is
+// the nightly call report, and two are money: a card that failed and a
+// subscription that ended. They are the mail most worth seeing, and filing them
+// on arrival buries an outage in a queue nobody opens.
+//
+// The billing pair was added on 24 Oct 2026. A.M. Engineering's card declined on
+// the 16th and the webhook mailed hello@ on every Stripe retry — five emails,
+// all delivered, each one a ticket CLOSED 16 milliseconds after it arrived and
+// archived out of the inbox. Dan asked why he had not been notified; he had
+// been, five times, and every one was filed before a person could see it. The
+// comment above already made the argument for outages. It holds for money.
 const OURS_WORTH_QUEUEING: ReadonlyArray<RegExp> = [
   /ReceptionMate ALERT/i,
   /issue\(s\) recovered/i,
   /^ReceptionMate daily\b/i,
+  /payment failed/i,
+  /subscription cancelled/i,
 ];
 
 // ─── Complaint keywords (rule: complaint + high priority IF known garage) ──

@@ -1,5 +1,5 @@
 import { load } from 'cheerio';
-import { assertPublicHost } from './privateHosts.js';
+import { assertPublicHost, safeFetchAgent } from './privateHosts.js';
 
 const PHONE_REGEX = /\+?\d[\d\s().-]{6,}/g;
 const EMAIL_REGEX = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
@@ -317,6 +317,9 @@ const fetchHtml = async (url: URL) => {
     let target = url;
     for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
       await assertPublicHost(target.hostname);
+      // The dispatcher is the guard that actually holds: it validates inside the socket's DNS
+      // lookup, so the address checked is the address connected to. assertPublicHost above stays
+      // because it fails fast with a clearer message for the ordinary cases.
       const response = await fetch(target.toString(), {
         signal: controller.signal,
         redirect: 'manual',
@@ -324,7 +327,8 @@ const fetchHtml = async (url: URL) => {
           'user-agent': 'ReceptionMateBot/1.0 (+https://receptionmate.co.uk)',
           accept: 'text/html,application/xhtml+xml',
         },
-      });
+        dispatcher: safeFetchAgent,
+      } as RequestInit & { dispatcher?: unknown });
 
       if (response.status >= 300 && response.status < 400) {
         const location = response.headers.get('location');

@@ -46,3 +46,33 @@ test('allows a real garage website', () => {
   assert.ok(!isBlockedHostname('cowesharbourgarage.com'));
   assert.ok(!isBlockedHostname('www.roywindebank.co.uk'));
 });
+
+test('unwraps the IPv6 forms that hide an IPv4 address', () => {
+  // Every one of these is 169.254.169.254 wearing a different coat.
+  assert.ok(isBlockedIp('::ffff:a9fe:a9fe'));
+  assert.ok(isBlockedIp('::ffff:169.254.169.254'));
+  assert.ok(isBlockedIp('64:ff9b::a9fe:a9fe'));
+  assert.ok(isBlockedIp('2002:a9fe:a9fe::'));
+  assert.ok(isBlockedIp('::7f00:1'));            // 127.0.0.1
+  assert.ok(isBlockedIp('::ffff:7f00:1'));
+});
+
+test('does not block a public address wrapped in an IPv6 form', () => {
+  assert.ok(!isBlockedIp('::ffff:8.8.8.8'));
+  assert.ok(!isBlockedIp('2001:4860:4860::8888'));
+});
+
+test('blocks the ranges the first version missed', () => {
+  assert.ok(isBlockedIp('198.18.0.1'));      // benchmarking
+  assert.ok(isBlockedIp('198.19.255.254'));
+  assert.ok(isBlockedIp('192.0.2.1'));       // documentation
+  assert.ok(isBlockedIp('203.0.113.9'));
+  assert.ok(isBlockedIp('240.0.0.1'));       // reserved
+  assert.ok(isBlockedIp('255.255.255.255'));
+});
+
+test('judges a bracketed IPv6 literal as an address, not a hostname', () => {
+  assert.ok(isBlockedHostname('[::1]'));
+  assert.ok(isBlockedHostname('[::ffff:a9fe:a9fe]'));
+  assert.ok(!isBlockedHostname('[2001:4860:4860::8888]'));
+});

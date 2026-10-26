@@ -12,7 +12,11 @@
  * routing audit. The config itself is built lazily, on their first click, by
  * POST /api/public/demo-prospect/:token.
  *
- * Shortlist CSV columns: contactId,name,email,website,status
+ * Shortlist CSV columns: contactId,name,email,website,status[,postcode]
+ *
+ * The website may be blank if a postcode is given: the first click resolves the garage's Google
+ * listing from name + postcode and takes the website from it. That is why no Places lookup is
+ * bought here any more -- see findPlaceByNameAndPostcode.
  * Enrichment JSON (optional): [{ contactId, siteOk, postcode, phone, hoursLines }]  — used only
  * to skip garages whose website did not resolve, since a dead site means a generic-sounding demo.
  */
@@ -69,7 +73,7 @@ function cols(line) {
 
 const rows = fs.readFileSync(CSV, 'utf8').trim().split(/\r?\n/).slice(1)
   .map(cols).filter((r) => r.length >= 4)
-  .map((r) => ({ contactId: r[0], name: r[1], email: r[2], website: r[3], status: r[4] || '' }));
+  .map((r) => ({ contactId: r[0], name: r[1], email: r[2], website: r[3], status: r[4] || '', postcode: r[5] || '' }));
 
 let enrich = new Map();
 if (ENRICHED && fs.existsSync(ENRICHED)) {
@@ -134,7 +138,10 @@ const main = async () => {
 
   for (const r of rows) {
     if (plan.length >= LIMIT) break;
-    if (!r.website) { skippedNoSite += 1; continue; }
+    // A row with neither a website nor a postcode cannot be enriched at all, and a name-only
+    // agent is a thin demo — those are still skipped. A postcode is enough on its own: the first
+    // click resolves the listing and takes the website from it.
+    if (!r.website && !r.postcode) { skippedNoSite += 1; continue; }
     const e = enrich.get(r.contactId);
     if (REQUIRE_SITE && e && e.siteOk === false) { skippedDeadSite += 1; continue; }
 
@@ -149,10 +156,13 @@ const main = async () => {
       code: newCode(),
       businessName: r.name,
       spokenName: toSpokenName(r.name),
-      websiteUrl: r.website,
+      websiteUrl: r.website || null,
       email: r.email || null,
       contactId: r.contactId || null,
       placeId: places.get(r.contactId) || null,
+      // Carried so the Google listing can be resolved on the click instead of being bought here
+      // for every prospect, 94% of whom never click.
+      postcode: r.postcode || null,
       expiresAt,
     });
   }
@@ -160,10 +170,10 @@ const main = async () => {
   console.log(`\nshortlist rows      ${rows.length}`);
   console.log(`already seeded      ${skippedExisting}`);
   console.log(`website did not resolve (skipped) ${skippedDeadSite}`);
-  console.log(`no website          ${skippedNoSite}`);
+  console.log(`no website and no postcode ${skippedNoSite}`);
   console.log(`TO CREATE           ${plan.length}`);
   console.log('\nfirst 5:');
-  plan.slice(0, 5).forEach((p) => console.log(`  ${p.spokenName.padEnd(34)} ${p.websiteUrl.padEnd(34)} code ${p.code}  /try/${p.slug}`));
+  plan.slice(0, 5).forEach((p) => console.log(`  ${p.spokenName.padEnd(34)} ${(p.websiteUrl || '(site from Google on click)').padEnd(34)} ${(p.postcode || '').padEnd(9)} code ${p.code}  /try/${p.slug}`));
 
   if (!APPLY) { console.log('\nDRY RUN — pass --apply to write.'); await prisma.$disconnect(); return; }
 

@@ -25,7 +25,7 @@ import {
 } from './config.js';
 import { industryDefaultFaqs, generateFaqsFromWebsite } from '../utils/faqGenerator.js';
 import { fetchWebsiteInfo } from '../utils/scraper.js';
-import { fetchPlaceDetails } from '../utils/googlePlaces.js';
+import { fetchPlaceDetails, findPlaceByNameAndPostcode } from '../utils/googlePlaces.js';
 import type { WeeklyOpeningHours } from '../utils/googlePlaces.js';
 
 const router = Router();
@@ -321,7 +321,7 @@ router.post('/public/demo-prospect/:slug', async (req: Request, res: Response) =
   }
 
   const spokenName = prospect.spokenName || toSpokenName(prospect.businessName);
-  const websiteUrl = prospect.websiteUrl ? `https://${prospect.websiteUrl.replace(/^https?:\/\//, '')}` : null;
+  let websiteUrl = prospect.websiteUrl ? `https://${prospect.websiteUrl.replace(/^https?:\/\//, '')}` : null;
 
   // Address, phone and OPENING HOURS from Google, fetched once on first click and cached on the
   // row. One lookup, three facts, and only for prospects who actually click.
@@ -334,14 +334,48 @@ router.post('/public/demo-prospect/:slug', async (req: Request, res: Response) =
   //
   // A hand-reviewed week already on the row still wins: if someone has checked a garage's hours,
   // that judgement outranks Google.
+  // No placeId on the row? Find the listing now, from their name and postcode.
+  //
+  // This is what makes a shortlist of any size free to seed. A Text Search costs roughly six
+  // times a details lookup, so buying one for all ~6,000 prospects to serve the ~6% who click was
+  // £175 of which £165 was wasted. Both calls now happen on the click.
+  //
+  // A refusal is not a failure: `findPlaceByNameAndPostcode` returns null rather than guess, and
+  // everything below already handles knowing nothing — no address, no phone, the permissive
+  // fallback week that is never spoken, and a greeting that is just their name.
+  let placeId = prospect.placeId;
+  if (!placeId && prospect.postcode) {
+    const found = await findPlaceByNameAndPostcode(prospect.businessName, prospect.postcode);
+    if (found) {
+      placeId = found.placeId;
+      // Their own website, which for a garage whose only contact detail is a free-mail address is
+      // recorded nowhere else. Stored scheme-less, exactly as the shortlist supplies it.
+      //
+      // Only adopted on a FULL postcode match. The address and phone are merely spoken, but this
+      // URL is fetched by our server and its contents go to OpenAI, so it is the one field worth
+      // a stricter gate than the rest: an outward-code match is the whole town, and a listing's
+      // website is a third party's free-text field, not ours.
+      const site =
+        found.website && found.matchedOn === 'postcode+name'
+          ? found.website.replace(/^https?:\/\//, '').replace(/\/+$/, '')
+          : '';
+      await prisma.demoProspect.update({
+        where: { id: prospect.id },
+        data: { placeId: found.placeId, ...(site && !prospect.websiteUrl ? { websiteUrl: site } : {}) },
+      });
+      if (site && !websiteUrl) websiteUrl = `https://${site}`;
+      console.log(`[DEMO_PROSPECT] ${spokenName}: listing resolved on ${found.matchedOn} -> ${found.name || '?'}`);
+    }
+  }
+
   let branchAddress = prospect.branchAddress ?? '';
   let phoneNumber = prospect.phoneNumber ?? '';
   let placeHours: WeeklyOpeningHours | null = null;
   const storedHours = (prospect.weeklyOpeningHours as WeeklyOpeningHours | null) ?? null;
-  const needsLookup = Boolean(prospect.placeId) && (!branchAddress || !storedHours);
+  const needsLookup = Boolean(placeId) && (!branchAddress || !storedHours);
   if (needsLookup) {
     try {
-      const details = await fetchPlaceDetails(prospect.placeId as string);
+      const details = await fetchPlaceDetails(placeId as string);
       if (details?.address) branchAddress = details.address;
       if (details?.phone) phoneNumber = details.phone;
       // Only if Google actually gives an open week. A listing with no hours, or one marked closed

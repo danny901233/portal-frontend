@@ -1855,6 +1855,12 @@ model DemoProspect {
   /// Google place, from the shortlist enrichment. Kept so the address below can be fetched once
   /// and cached rather than re-billed on every build.
   placeId      String?
+  /// Their postcode, carried from the shortlist so the Google listing can be resolved on first
+  /// click instead of at seed time. Name alone matched 73% of a 118-garage backfill; name plus
+  /// postcode matched 88% of 3,553, and the difference is finding the right "Newtown Garage"
+  /// rather than a same-named one in another county. Null means the listing can only be found by
+  /// name, and a shortlist row with neither postcode nor placeId gets a name-only agent.
+  postcode     String?
   /// The garage's real address, as Google formats it. Needed because the agent is handed
   /// "- address: …" in its prompt and simply has no answer without it: asked where they were
   /// based, the demo could only offer to take a message. The website scrape is not a substitute —

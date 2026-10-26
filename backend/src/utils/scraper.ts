@@ -1,4 +1,5 @@
 import { load } from 'cheerio';
+import { assertPublicHost } from './privateHosts.js';
 
 const PHONE_REGEX = /\+?\d[\d\s().-]{6,}/g;
 const EMAIL_REGEX = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
@@ -296,24 +297,55 @@ const extractLinks = ($: ReturnType<typeof load>, baseUrl: URL) => {
   return Array.from(links);
 };
 
+/*
+ * Every scrape in the codebase comes through here, which is why the SSRF guard lives here and not
+ * at the call sites: the URL may come from a signup form, a prospecting shortlist or a Google
+ * listing's websiteUri, and none of those are ours.
+ *
+ * Redirects are followed by hand rather than by fetch, because an auto-followed redirect is
+ * exactly how a public hostname reaches a private address: the first hop passes the check and the
+ * second hop is never seen. Real garage sites redirect constantly (http->https, bare->www), so
+ * refusing to follow them is not an option.
+ */
+const MAX_REDIRECTS = 4;
+
 const fetchHtml = async (url: URL) => {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 8000);
 
   try {
-    const response = await fetch(url.toString(), {
-      signal: controller.signal,
-      headers: {
-        'user-agent': 'ReceptionMateBot/1.0 (+https://receptionmate.co.uk)',
-        accept: 'text/html,application/xhtml+xml',
-      },
-    });
+    let target = url;
+    for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
+      await assertPublicHost(target.hostname);
+      const response = await fetch(target.toString(), {
+        signal: controller.signal,
+        redirect: 'manual',
+        headers: {
+          'user-agent': 'ReceptionMateBot/1.0 (+https://receptionmate.co.uk)',
+          accept: 'text/html,application/xhtml+xml',
+        },
+      });
 
-    if (!response.ok) {
-      throw new Error(`Failed to load page (status ${response.status})`);
+      if (response.status >= 300 && response.status < 400) {
+        const location = response.headers.get('location');
+        if (!location) {
+          throw new Error(`Redirect with no location (status ${response.status})`);
+        }
+        const next = new URL(location, target);
+        if (!['http:', 'https:'].includes(next.protocol)) {
+          throw new Error('Redirect to a non-HTTP(S) URL');
+        }
+        target = next;
+        continue;
+      }
+
+      if (!response.ok) {
+        throw new Error(`Failed to load page (status ${response.status})`);
+      }
+
+      return await response.text();
     }
-
-    return await response.text();
+    throw new Error(`Too many redirects (more than ${MAX_REDIRECTS})`);
   } finally {
     clearTimeout(timeout);
   }

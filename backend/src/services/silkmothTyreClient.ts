@@ -54,8 +54,30 @@
 const USER_AGENT =
   'ReceptionMate/1.0 (+https://receptionmate.co.uk; authorised tyre-price integration)';
 
-/** A slow third party must never hold a phone call open. */
-const FETCH_TIMEOUT_MS = 6000;
+/**
+ * Silkmoth asked for a correlation id that differs on every request, so they can follow a
+ * single lookup through their logs. It goes in a HEADER and the User-Agent stays fixed:
+ * a User-Agent that changed per request would be indistinguishable from the rotation a
+ * scraper does to avoid being correlated, and the whole point of identifying ourselves is
+ * that their ops team can see the traffic is ours and ring us rather than block it.
+ */
+const REQUEST_ID_PREFIX = 'reg-request-';
+let requestSeq = 0;
+function nextRequestId(): string {
+  requestSeq = (requestSeq + 1) % 1_000_000;
+  // time + sequence + entropy: unique across restarts and concurrent workers, and still
+  // short enough to read in a log line.
+  return `${REQUEST_ID_PREFIX}${Date.now().toString(36)}${requestSeq.toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+}
+
+/**
+ * A slow third party must never hold a phone call open. Measured 2026-10-26: this origin
+ * answers in ~0.9s cold when fresh, but degraded to 5-11s after ~20 requests in ten
+ * minutes, on a ~290KB page. Nobody waits that long mid-call, so the budget is what a
+ * caller will sit through behind one filler line, and anything slower falls back to taking
+ * a message. Warm the popular sizes on a schedule rather than fetching per call.
+ */
+const FETCH_TIMEOUT_MS = 2500;
 const CACHE_TTL_MS = 60 * 60 * 1000;
 
 export const SILKMOTH_ENDPOINTS = {
@@ -127,7 +149,7 @@ async function get(url: string): Promise<{ html: string; finalUrl: string }> {
     const res = await fetch(url, {
       redirect: 'follow',
       signal: ctrl.signal,
-      headers: { 'User-Agent': USER_AGENT, Accept: 'text/html' },
+      headers: { 'User-Agent': USER_AGENT, Accept: 'text/html', 'X-Request-ID': nextRequestId() },
     });
     if (!res.ok) throw new Error(`silkmoth ${res.status} for ${url}`);
     return { html: await res.text(), finalUrl: res.url };

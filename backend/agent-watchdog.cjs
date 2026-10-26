@@ -31,7 +31,12 @@ const prisma = new PrismaClient();
 
 // ---- config ----
 const ALERT_EMAILS = ['hello@receptionmate.co.uk'];
-const ALERT_SMS = ['+447976500282'];
+// SMS alerting is OFF (2026-10-26, Dan's call): every alert below already emails hello@, so the
+// texts were a duplicate channel. They were also 82% of the account's SMS segments — 379 messages
+// in 26 days averaging 6 segments each, because the emoji force UCS-2 encoding at 67 characters a
+// segment instead of 153. Put the number back in this array to start texting again; the call
+// sites below are unchanged and need no edit.
+const ALERT_SMS = []; // was ['+447976500282']
 const SMS_FROM = 'RMonitor'; // alphanumeric sender id (one-way, UK)
 const STATE_FILE = `${__dirname}/.watchdog-state.json`;
 const TEST_MODE = process.argv.includes('--test');
@@ -922,6 +927,7 @@ async function sendEmail(subject, text) {
   console.log('email', res.status, res.ok ? 'sent' : await res.text());
 }
 async function sendSms(text) {
+  if (ALERT_SMS.length === 0) return; // texting disabled — see ALERT_SMS
   const sid = process.env.TWILIO_ACCOUNT_SID, token = process.env.TWILIO_AUTH_TOKEN;
   if (!sid || !token) { console.error('twilio not configured'); return; }
   for (const to of ALERT_SMS) {
@@ -998,7 +1004,7 @@ async function main() {
   }
 
   if (TEST_MODE) {
-    await sendEmail('✅ ReceptionMate Watchdog test', 'This is a test alert. Email + SMS delivery is working.');
+    await sendEmail('✅ ReceptionMate Watchdog test', `This is a test alert. Email delivery is working.${ALERT_SMS.length ? ' SMS too.' : ' SMS alerting is off.'}`);
     await sendSms('RM Watchdog test — alerts are working. You will get a message here if the agents go down.');
     await prisma.$disconnect();
     return;

@@ -11,6 +11,7 @@ import { industryDefaultFaqs, generateFaqsFromWebsite } from '../utils/faqGenera
 import { sanitizeBranchRoles } from '../utils/branchRoles.js';
 import { sendWelcomeEmail } from '../utils/email.js';
 import { ensureUnifiedSipRouting } from '../services/unifiedSip.js';
+import { sendDiaryConnectRequest, PROVIDER_KEYS } from '../services/diaryConnect.js';
 import { ONBOARDING_STAGES } from '../utils/onboardingStage.js';
 // Pushes the saved config through to the agent (Postgres -> DynamoDB). A background FAQ rewrite
 // lands after the onboard has already synced, so it has to push again or the agent keeps the
@@ -1374,6 +1375,30 @@ router.post('/admin/onboard', authenticateApiKey, requireAdmin, async (req, res)
       console.error('Failed to send welcome email:', error);
       // Don't fail the onboarding if email fails
     });
+    }
+
+    // 8. Ask the diary provider for API credentials.
+    //
+    // Nothing did this on a quick onboard. The request has only ever been sent on agreement
+    // SIGNING (routes/agreements.ts), and a quick onboard creates no agreement — so Woodyard
+    // Garage went live on 27 Oct with integrationProvider 'bookar', an agent that cannot see a
+    // diary, and nobody at Bookar aware they existed. There is no admin button either: the
+    // provider-facing form in diary-connect.ts can validate and submit a token, but nothing
+    // could ever send one.
+    //
+    // GarageHive is deliberately NOT included. It has its own path — the admin "Connect
+    // GarageHive" button, where we paste the instance and match the branches ourselves — and
+    // auto-emailing them here would duplicate a request we often do not need to make.
+    const diaryProvider = parsed.data.integrationProvider;
+    if ((PROVIDER_KEYS as string[]).includes(diaryProvider)) {
+      void sendDiaryConnectRequest(business.id)
+        .then((sent) => {
+          console.log(
+            `[ONBOARD] ${diaryProvider} connect request for ${business.name}: ` +
+              (sent ? 'sent' : 'NOT sent — see the [DIARY-CONNECT] line above for why'),
+          );
+        })
+        .catch((e) => console.error('[ONBOARD] diary connect request threw:', e));
     }
 
     res.status(201).json({

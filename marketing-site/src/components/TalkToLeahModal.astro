@@ -79,11 +79,17 @@ const c = {
   const closeBtn = document.getElementById('leah-modal-close');
 
   if (modal && frame) {
-    const open = () => {
+    const open = (leadId) => {
       // Load on first open, not on page load — an idle iframe would pull the portal bundle for
       // every visitor whether or not they ever click.
       if (!frame.src || frame.src === 'about:blank') {
-        frame.src = frame.getAttribute('data-src') || '';
+        const base = frame.getAttribute('data-src') || '';
+        // Carry the lead the form just created into the call, so the demo becomes a touch on that
+        // contact in HighLevel rather than an anonymous session. /demo-embed reads ?lead= and
+        // passes it to the token endpoint; without it a browser demo has nothing to identify it.
+        frame.src = leadId
+          ? base + (base.includes('?') ? '&' : '?') + 'lead=' + encodeURIComponent(leadId)
+          : base;
       }
       modal.classList.remove('hidden');
       modal.classList.add('flex');

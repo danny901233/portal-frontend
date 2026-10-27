@@ -157,6 +157,7 @@ type DefectStatus = 'outstanding' | 'completed' | 'all';
 const DEFECT_LABELS: Record<string, string> = {
   'silent-call': 'Caller heard nothing back',
   'reg-not-from-caller': 'Plate never spoken by the caller',
+  'booked-on-an-unconfirmed-plate': 'Booked on a plate never agreed',
   'tool-never-completed': 'Message or booking never finished',
   'false-booking-claim': 'Booking claimed but not made',
   'mid-call-regreeting': 'Agent greeted the caller twice',

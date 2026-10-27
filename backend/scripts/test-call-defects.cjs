@@ -600,6 +600,119 @@ const noDiary = {
 check('a garage with no diary raises nothing on its own', scanDefects([noDiary]).length === 0,
       JSON.stringify(sigs(scanDefects([noDiary]), 'nodiary1')));
 
+// ── a plate the caller was asked for, never agreed, and booked on anyway ──
+//
+// In'n'out Bracknell 72718302, 26 Oct 2026. The plate was SN69ZYM. Three rounds of
+// asking, the caller rejected the read-back TWICE, capture_registration ended
+// OK_BESTEFFORT keeping YN69ZYM, and the booking went to Garage Hive under it — which
+// knew YN69ZYM as a VOLKSWAGEN GOLF and priced that car at GBP 207.
+//
+// reg-not-from-caller cannot see this: registration_rounds is 3, not 0. The scanner
+// raised a HIGH false positive about the booking date instead, and nothing about the
+// vehicle. This is the signature that should have fired.
+const bookedOnAGuess = {
+  ...healthy, id: '72718302',
+  registrationNumber: 'YN69ZYM',
+  confirmedBooking: true,
+  metrics: {
+    ...healthy.metrics,
+    capture: { registration_rounds: 3, registration_attempts: 2, registration_captured: true },
+    tool_call_history: [
+      { tool: 'capture_registration', status: 'STATUS: READBACK', args: { spoken: 'N six nine zed y m' } },
+      { tool: 'capture_registration', status: 'STATUS: REASK', args: { spoken: 'Sierra November nine Zulu Yankee Mike' } },
+      { tool: 'capture_registration', status: 'STATUS: OK_BESTEFFORT', args: { spoken: 'Sierra November nine Zulu Yankee Mike' } },
+      { tool: 'confirm_booking', status: 'STATUS: OK — booking placed for Monday 2026-10-26, 14:30.',
+        args: { contact_name: 'Whitfield', bookingDate: '2026-10-26', bookingTime: '14:30' } },
+    ],
+  },
+  transcript: [
+    { speaker: 'agent', text: 'Could I take your registration, please?' },
+    { speaker: 'caller', text: 'Yes. N six nine zed y m' },
+    { speaker: 'agent', text: 'Yankee November, six nine, Zulu Yankee Mike, is that right?' },
+    { speaker: 'caller', text: 'No.' },
+    { speaker: 'agent', text: "All booked in for today at 2:30pm." },
+  ],
+};
+const guess = scanDefects([bookedOnAGuess]);
+check('a booking on a plate capture gave up on is flagged',
+      sigs(guess, '72718302').includes('booked-on-an-unconfirmed-plate'),
+      `got ${JSON.stringify(sigs(guess, '72718302'))}`);
+check('it is HIGH — the garage gets a job sheet for the wrong vehicle',
+      guess.some((x) => x.signature === 'booked-on-an-unconfirmed-plate' && x.severity === 'high'));
+check('the finding names the plate that reached the diary',
+      guess.some((x) => x.signature === 'booked-on-an-unconfirmed-plate' && String(x.detail).includes('YN69ZYM')));
+check('the finding quotes the status the agent itself returned',
+      guess.some((x) => x.signature === 'booked-on-an-unconfirmed-plate' && String(x.detail).includes('OK_BESTEFFORT')));
+
+// The post-fix give-up status. A booking cannot be reached in this state any more, so if
+// this ever fires it is a regression — which is exactly why it is still detected.
+const noRegButBooked = {
+  ...bookedOnAGuess, id: 'noreg001',
+  metrics: {
+    ...bookedOnAGuess.metrics,
+    tool_call_history: [
+      { tool: 'capture_registration', status: 'STATUS: NO_REGISTRATION', args: { spoken: 'erm' } },
+      { tool: 'confirm_booking', status: 'STATUS: OK — booking placed.', args: {} },
+    ],
+  },
+};
+check('the replacement give-up status is detected too',
+      sigs(scanDefects([noRegButBooked]), 'noreg001').includes('booked-on-an-unconfirmed-plate'));
+
+// GIVING UP AND TAKING A MESSAGE IS THE CORRECT OUTCOME. No booking, no vehicle priced,
+// no harm — and flagging it would put the right behaviour on the fault list.
+const gaveUpTookMessage = {
+  ...bookedOnAGuess, id: 'gaveup01',
+  registrationNumber: null,
+  confirmedBooking: false,
+  metrics: {
+    ...bookedOnAGuess.metrics,
+    tool_call_history: [
+      { tool: 'capture_registration', status: 'STATUS: NO_REGISTRATION', args: { spoken: 'erm' } },
+      { tool: 'take_message', status: 'STATUS: OK', args: { reason: 'Wants an interim service' } },
+    ],
+  },
+};
+check('giving up on the plate and taking a message is NOT a fault',
+      !sigs(scanDefects([gaveUpTookMessage]), 'gaveup01').includes('booked-on-an-unconfirmed-plate'),
+      `got ${JSON.stringify(sigs(scanDefects([gaveUpTookMessage]), 'gaveup01'))}`);
+
+// A plate agreed through the account route is agreed, however capture ended — the same
+// lesson that took reg-not-from-caller from 53 findings to 22.
+const gaveUpThenAgreedTheCar = {
+  ...bookedOnAGuess, id: 'known002',
+  registrationNumber: 'AO21YPH',
+  metrics: {
+    ...bookedOnAGuess.metrics,
+    tool_call_history: [
+      { tool: 'capture_registration', status: 'STATUS: OK_BESTEFFORT', args: { spoken: 'mumble' } },
+      { tool: 'use_known_vehicle', status: 'STATUS: OK', args: { registration: 'AO21YPH' } },
+      { tool: 'confirm_booking', status: 'STATUS: OK — booking placed.', args: {} },
+    ],
+  },
+};
+check('a plate the caller agreed through use_known_vehicle is not flagged',
+      !sigs(scanDefects([gaveUpThenAgreedTheCar]), 'known002').includes('booked-on-an-unconfirmed-plate'),
+      `got ${JSON.stringify(sigs(scanDefects([gaveUpThenAgreedTheCar]), 'known002'))}`);
+
+// The ordinary booking: capture settled with a yes.
+const settledThenBooked = {
+  ...bookedOnAGuess, id: 'settled1',
+  metrics: {
+    ...bookedOnAGuess.metrics,
+    tool_call_history: [
+      { tool: 'capture_registration', status: 'STATUS: READBACK', args: { spoken: 'Y N six nine Z Y M' } },
+      { tool: 'capture_registration', status: 'STATUS: OK', args: { spoken: 'yes' } },
+      { tool: 'confirm_booking', status: 'STATUS: OK — booking placed.', args: {} },
+    ],
+  },
+};
+check('a plate the caller confirmed and then booked is not flagged',
+      !sigs(scanDefects([settledThenBooked]), 'settled1').includes('booked-on-an-unconfirmed-plate'),
+      `got ${JSON.stringify(sigs(scanDefects([settledThenBooked]), 'settled1'))}`);
+check('a call that never asked for a plate at all is not flagged',
+      !sigs(scanDefects([healthy]), 'healthy1').includes('booked-on-an-unconfirmed-plate'));
+
 // ── shape contract: every finding must be renderable and traceable ──
 const all = scanDefects([regFromRecognition, silent, falseClaim, realRegreet]);
 check('every finding carries callId, signature, severity and a human detail',

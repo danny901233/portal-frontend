@@ -230,6 +230,31 @@ function plateWasUsed(history, plate) {
   });
 }
 
+/**
+ * The agent's own record that it never got the plate.
+ *
+ * OK_BESTEFFORT was the old give-up: it kept whatever the decoder had last produced and
+ * marked the registration settled. NO_REGISTRATION replaced it on 26 Oct and keeps nothing.
+ * Either status is capture_registration saying, in its own words, that the caller never
+ * agreed a plate — which is not a judgement call and needs no transcript reading.
+ */
+const GAVE_UP_ON_THE_PLATE = ['OK_BESTEFFORT', 'NO_REGISTRATION'];
+
+function captureGaveUp(history) {
+  const rounds = (history || []).filter((h) => String((h && h.tool) || '') === 'capture_registration');
+  if (!rounds.length) return '';
+  const last = statusOf(rounds[rounds.length - 1]);
+  return GAVE_UP_ON_THE_PLATE.includes(last) ? last : '';
+}
+
+/** Did a booking actually complete on this call? The column is the authoritative outcome; the
+ *  tool timeline is the fallback for a call whose payload predates it. */
+function bookingLanded(call, history) {
+  if (call && call.confirmedBooking === true) return true;
+  return (history || []).some((h) => String((h && h.tool) || '') === 'confirm_booking'
+    && statusOf(h).startsWith('OK'));
+}
+
 /** "STATUS: NEED_NAME" -> "NEED_NAME"; absent -> "". */
 function statusOf(entry) {
   return String((entry && entry.status) || '').replace(/^\s*STATUS:\s*/i, '').trim().toUpperCase();
@@ -327,6 +352,36 @@ function scanOne(call, feedbackFor) {
         + `caller recognition supplied it (0 rounds of asking, no use_known_vehicle agreement) `
         + `and the agent wrote it into a message or booking anyway. If recognition matched the `
         + `wrong person, this is someone else's vehicle.`);
+  }
+
+  // 2b. A plate the caller WAS asked for, never agreed to, and booked on anyway.
+  //
+  //     reg-not-from-caller above is the plate NOBODY said — recognition supplied it and
+  //     registration_rounds is 0. This is the opposite shape, and the scanner was blind to
+  //     it: the rounds of asking DID happen, so that check cannot fire, and capture then
+  //     gave up without a yes while the booking went ahead regardless.
+  //
+  //     In'n'out Bracknell 72718302, 26 Oct. Three rounds. The caller rejected the read-back
+  //     TWICE — the only two "no"s on the call were his — capture_registration ended
+  //     OK_BESTEFFORT holding a plate he had never agreed, and the booking went to Garage
+  //     Hive under it. GH knew YN69ZYM as a VOLKSWAGEN GOLF and priced that car's interim
+  //     service at GBP 207, so every check we had agreed with it. Observability raised a
+  //     high-severity false positive about the booking DATE and nothing at all about this.
+  //
+  //     HIGH, unlike reg-not-from-caller's medium. That one is a spot-check queue because
+  //     recognition is usually right; this is the agent's own admission that it does not
+  //     know the vehicle, followed by a job sheet and a price for one. After the 26 Oct fix
+  //     a booking cannot be reached in this state at all, so anything here is a regression.
+  const gaveUp = captureGaveUp(history);
+  if (gaveUp && bookingLanded(call, history)
+      // A plate agreed through the account route is agreed, however capture ended.
+      && !(plate && callerConfirmedKnownVehicle(history, plate))) {
+    const onTheJob = plate || 'one the caller never confirmed';
+    add('booked-on-an-unconfirmed-plate', SEVERITY.high,
+        `capture_registration ended ${gaveUp} — the agent's own record that the caller never `
+        + `agreed a registration — and a booking was still completed against ${onTheJob}. `
+        + `The diary will have priced and job-sheeted whatever vehicle that plate matches, `
+        + `which is not known to be this caller's.`);
   }
 
   // 3. A tool that gathered everything and recorded nothing.

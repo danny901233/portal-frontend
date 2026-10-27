@@ -96,6 +96,15 @@ test('a dropped call says how short it was and that the number is worth ringing'
 
 // The lead id travels on the room name because that is the only field that survives the trip from
 // the token request to the Call row the agent posts back.
+// PendingSignup ids are UUIDs. An alphanumeric-only rule looked right, matched the cuids used
+// elsewhere in the schema, and would have quietly dropped every real lead.
+test('a UUID lead id survives the round trip', () => {
+  assert.equal(
+    leadIdFromRoomName('garage-c7f53608-b0eb-4bdd-93da-02f2875acd93_web_a1b2c3d4e5f6_lead-aeea2737-65bb-4b6f-be40-0e3d8990de1c'),
+    'aeea2737-65bb-4b6f-be40-0e3d8990de1c',
+  );
+});
+
 test('the lead id is read back off the room name', () => {
   assert.equal(
     leadIdFromRoomName('garage-c7f53608-b0eb-4bdd-93da-02f2875acd93_web_a1b2c3d4e5f6_lead-cmv8anjse00ws9nfm4ejjihmj'),

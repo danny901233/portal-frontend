@@ -282,7 +282,7 @@ export async function captureDroppedDemoCallLead(args: {
  * nothing caller-supplied reaches the room name — the same rule the prospect slug follows.
  */
 export function leadIdFromRoomName(roomName: string | null | undefined): string | null {
-  const m = (roomName ?? '').match(/_lead-([A-Za-z0-9]{10,40})(?:_|$)/);
+  const m = (roomName ?? '').match(/_lead-([A-Za-z0-9-]{10,40})(?:_|$)/);
   return m ? m[1] : null;
 }
 

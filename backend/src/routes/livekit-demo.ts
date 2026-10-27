@@ -166,7 +166,9 @@ async function resolveProspectAgentId(slugValue: unknown): Promise<string | null
 async function resolveLeadId(leadValue: unknown): Promise<string | null> {
   if (typeof leadValue !== 'string') return null;
   const id = leadValue.trim();
-  if (id.length < 10 || id.length > 40 || !/^[A-Za-z0-9]+$/.test(id)) return null;
+  // PendingSignup ids are UUIDs, so hyphens are part of the id — a stricter alphanumeric rule
+  // rejected every real lead and would have made this whole linkage silently do nothing.
+  if (id.length < 10 || id.length > 40 || !/^[A-Za-z0-9-]+$/.test(id)) return null;
   try {
     const row = await prisma.pendingSignup.findUnique({
       where: { id },

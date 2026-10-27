@@ -39,6 +39,7 @@ const DRY_RUN = flag('dry-run');
 const HOURS = Number(value('hours', '24'));
 const LIMIT = Number(value('limit', '200'));
 const TAG = process.env.DEMO_NUDGE_TAG || 'demo-built-no-call';
+const CALLED_TAG = process.env.DEMO_CALLED_TAG || 'demo-called';
 
 if (!Number.isFinite(HOURS) || HOURS <= 0) {
   console.error('[DEMO_NUDGE] --hours must be a positive number');
@@ -59,6 +60,41 @@ if (!highlevelConfigured()) {
 }
 
 const cutoff = new Date(Date.now() - HOURS * 60 * 60 * 1000);
+
+/*
+ * First, tell HighLevel who DID call.
+ *
+ * This runs before the nudge pass so that anyone who rang in the meantime is marked before the
+ * follow-up logic looks at them. It is what lets a follow-up workflow stop itself: a prospect can
+ * be tagged for a nudge on Tuesday and ring the number on Wednesday, and nothing should then
+ * email them to say they never tried it. The exit condition in the workflow reads this tag.
+ *
+ * No time threshold -- a call is a call the moment it happens.
+ */
+const callers = await prisma.demoProspect.findMany({
+  where: { callCount: { gt: 0 }, contactId: { not: null }, calledTaggedAt: null },
+  select: { id: true, contactId: true, spokenName: true, callCount: true },
+  orderBy: { lastCalledAt: 'asc' },
+  take: LIMIT,
+});
+console.log(`[DEMO_NUDGE] called their agent and not yet marked in the CRM: ${callers.length}`);
+if (!DRY_RUN) {
+  for (const p of callers) {
+    if (!(await addContactTags(p.contactId, [CALLED_TAG]))) {
+      console.error(`[DEMO_NUDGE] could not tag ${p.spokenName} as ${CALLED_TAG}`);
+      continue;
+    }
+    await prisma.demoProspect.update({
+      where: { id: p.id },
+      data: { calledTaggedAt: new Date() },
+    });
+    console.log(`[DEMO_NUDGE] ${CALLED_TAG}: ${p.spokenName} (${p.callCount} call(s))`);
+  }
+} else {
+  for (const p of callers) {
+    console.log(`  would tag ${p.spokenName} as ${CALLED_TAG} (${p.callCount} call(s))`);
+  }
+}
 
 /*
  * Who earns a nudge:

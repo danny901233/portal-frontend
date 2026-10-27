@@ -1892,6 +1892,13 @@ model DemoProspect {
   /// that the nudge was earned once, and the campaign's own exit condition handles the rest.
   /// Null means never nudged.
   nudgeTaggedAt DateTime?
+  /// When HighLevel was told this prospect actually rang their receptionist.
+  ///
+  /// Carries the `demo-called` tag, which is what lets a follow-up workflow stop itself: someone
+  /// who rings the number between being tagged and being emailed should not then be told they
+  /// never tried it. Separate from nudgeTaggedAt because the two are independent — a prospect can
+  /// earn the nudge, ignore it, and call a week later.
+  calledTaggedAt DateTime?
   /// Demo links are temporary, and this is the ONLY thing that enforces it: the two checks in
   /// routes/demo-prospect.ts return 410 past this date. The DynamoDB item carries no TTL --
   /// writeAgentConfigToDynamo writes garageId, updatedAt, configuration, knowledgeBase and

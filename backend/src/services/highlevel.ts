@@ -141,6 +141,11 @@ export async function upsertContact(args: UpsertContactArgs): Promise<ContactRes
  *
  * Returns null when nothing matches, which is the common case and not an error.
  */
+const lastNine = (raw: string | null | undefined): string => {
+  const digits = (raw ?? '').replace(/\D/g, '');
+  return digits.length >= 9 ? digits.slice(-9) : '';
+};
+
 export async function findContactByPhone(phone: string): Promise<string | null> {
   if (!highlevelConfigured() || !phone.trim()) return null;
   const qs = new URLSearchParams({ locationId: GHL_LOCATION_ID, query: phone.trim(), limit: '5' });
@@ -150,8 +155,16 @@ export async function findContactByPhone(phone: string): Promise<string | null> 
       console.error(`[HL] contact lookup by phone failed ${res.status}`);
       return null;
     }
-    const body = (await res.json()) as { contacts?: Array<{ id?: string }> };
-    return body.contacts?.[0]?.id ?? null;
+    // `query` is a FUZZY search across several fields, so the first hit is not necessarily the
+    // person who rang: a partial digit run, or the number appearing in some other contact's
+    // notes, would hand us a stranger's record to tag and write a call note onto. Only an exact
+    // line match counts, compared on the last nine digits so +447989582725 and 07989582725 agree
+    // (the same rule callerNumber.ts uses). No exact match means no match, and the caller falls
+    // through to creating a contact of their own.
+    const body = (await res.json()) as { contacts?: Array<{ id?: string; phone?: string }> };
+    const wanted = lastNine(phone);
+    const exact = (body.contacts ?? []).find((c) => c.id && lastNine(c.phone) === wanted);
+    return exact?.id ?? null;
   } catch (err) {
     console.error('[HL] contact lookup by phone threw:', err);
     return null;

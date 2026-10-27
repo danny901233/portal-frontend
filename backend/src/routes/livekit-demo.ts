@@ -168,8 +168,22 @@ async function resolveLeadId(leadValue: unknown): Promise<string | null> {
   const id = leadValue.trim();
   if (id.length < 10 || id.length > 40 || !/^[A-Za-z0-9]+$/.test(id)) return null;
   try {
-    const row = await prisma.pendingSignup.findUnique({ where: { id }, select: { id: true } });
-    return row?.id ?? null;
+    const row = await prisma.pendingSignup.findUnique({
+      where: { id },
+      select: { id: true, status: true, createdAt: true },
+    });
+    if (!row) return null;
+    // The id is not a credential — it credits a demo to a contact and nothing else — but it does
+    // travel in a URL, so treat a stale or reused one as untrusted. A row that already became a
+    // customer must never collect demo notes from whoever has the old link, and an id from
+    // months ago is far likelier to be a forwarded URL than the person who filled the form.
+    const ELIGIBLE = new Set(['enquiry', 'prospect', 'pending']);
+    const ageDays = (Date.now() - row.createdAt.getTime()) / 86_400_000;
+    if (!ELIGIBLE.has(row.status) || ageDays > 30) {
+      console.log(`[demo] ignoring lead ${id}: status=${row.status}, ${Math.round(ageDays)}d old`);
+      return null;
+    }
+    return row.id;
   } catch (err) {
     console.error('[demo] lead lookup failed, continuing without it:', err);
     return null;

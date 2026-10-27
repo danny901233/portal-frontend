@@ -22,6 +22,7 @@ import OpenAI from 'openai';
 import { TicketCategory, TicketEntryKind, TicketStatus } from '@prisma/client';
 import { prisma } from '../db.js';
 import { highlevelConfigured, upsertContact, createOpportunity } from './highlevel.js';
+import { DID, FROM } from './highlevelTags.js';
 
 let client: OpenAI | null = null;
 const oa = () => (client ??= new OpenAI({ apiKey: process.env.OPENAI_API_KEY }));
@@ -184,7 +185,7 @@ async function recordSalesEnquiryInCrm(args: {
       name,
       email: args.contactEmail,
       source: 'support email',
-      tags: [process.env.GHL_EMAIL_ENQUIRY_TAG || 'email-enquiry'],
+      tags: [process.env.GHL_EMAIL_ENQUIRY_TAG || 'email-enquiry', FROM.helloEmail, DID.enquiry],
     });
     if (!contactId) return;
 

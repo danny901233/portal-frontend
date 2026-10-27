@@ -41,6 +41,7 @@ import { fetchPlaceDetails } from '../utils/googlePlaces.js';
 import { industryDefaultFaqs, generateFaqsFromWebsite } from '../utils/faqGenerator.js';
 import { TEMPLATE_VERSION } from '../services/agreementTemplate.js';
 import { highlevelConfigured, upsertContact, updateContact, createOpportunity } from '../services/highlevel.js';
+import { DID, FROM } from '../services/highlevelTags.js';
 import type { Prisma } from '@prisma/client';
 
 const router = Router();
@@ -514,7 +515,7 @@ router.post('/public/show-signup', async (req: Request, res: Response) => {
             companyName: businessName,
             website: place?.website ?? undefined,
             source: 'blend-show',
-            tags: ['blend-2026', 'website-signup', 'automate'],
+            tags: ['blend-2026', 'website-signup', 'automate', FROM.tradeShow, DID.signupStarted],
           });
           contactId = contact.contactId;
         }
@@ -646,7 +647,7 @@ router.post('/public/show-interest', async (req: Request, res: Response) => {
             phone,
             companyName: businessName,
             source: 'blend-show',
-            tags: ['blend-2026', 'blend-interested', 'automate'],
+            tags: ['blend-2026', 'blend-interested', 'automate', FROM.tradeShow, DID.enquiry],
           });
           contactId = c.contactId;
         }

@@ -485,11 +485,19 @@ router.post('/support/voice/enquiry', async (req: Request, res: Response) => {
       // HL needs an email or a phone to identify a contact. A caller with neither is not a lead
       // we can act on, so don't create a contact for one — the email to the team still goes.
       if (d.email || d.phone) {
+        // Source and tags were both left to the defaults, which meant every call to the 0333
+        // front door landed in HighLevel as `source: website` with the tag 'website-lead' — the
+        // single most misleading row in the CRM, since nobody who rang us touched the website.
+        const { DID, FROM } = await import('../services/highlevelTags.js');
         const contact = await upsertContact({
           name: d.name || label,
           email: d.email || undefined,
           phone: d.phone || undefined,
           companyName: d.company || undefined,
+          source: 'sales line (0333)',
+          // did-enquiry either way: asking for a demo on the phone is not the same as having
+          // heard one, and did-demo is reserved for people who actually talked to an agent.
+          tags: [FROM.salesCall, DID.enquiry],
         });
         if (contact.contactId) {
           const opp = await createOpportunity({

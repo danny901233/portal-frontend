@@ -12,6 +12,7 @@ import { randomBytes } from 'crypto';
 import { prisma } from '../db.js';
 import { fetchPlaceDetails, placesAutocomplete } from '../utils/googlePlaces.js';
 import { highlevelConfigured, upsertContact, updateContact, createOpportunity } from '../services/highlevel.js';
+import { DID, mergeTags, websiteOriginTags } from '../services/highlevelTags.js';
 import type { Prisma } from '@prisma/client';
 
 const router = Router();
@@ -65,10 +66,17 @@ export function isBlendSource(source?: string | null): boolean {
   return typeof source === 'string' && source.startsWith('blend-');
 }
 
-/** Campaign tags for a prospect, on top of the ones every website lead gets. */
+/** Campaign tags for a prospect, on top of the ones every website lead gets.
+ *
+ *  The legacy pair ('website-signup', 'abandoned-checkout') is kept exactly as it was — HL smart
+ *  lists filter on it — and the from-/did- pair is added beside it. did-signup-start is the one
+ *  that was missing: picking your garage out of the Places search IS the start of a signup, and
+ *  until now the only record of it was a stage that reads "Abandoned checkout" even while the
+ *  person is still filling the form. */
 export function tagsForSource(source?: string | null): string[] {
   const base = ['website-signup', 'abandoned-checkout'];
-  return isBlendSource(source) ? [...base, 'blend-2026'] : base;
+  const legacy = isBlendSource(source) ? [...base, 'blend-2026'] : base;
+  return mergeTags(legacy, websiteOriginTags({ source }), [DID.signupStarted, DID.abandonedCheckout]);
 }
 
 // Sync a prospect to HighLevel: always upsert (enrich) the contact; create the abandoned-

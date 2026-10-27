@@ -7,6 +7,7 @@ import twilio from 'twilio';
 import { randomBytes } from 'crypto';
 import { prisma } from '../db.js';
 import { pushSignupToHighlevel, updateContact, updateOpportunity, TRIAL_LIVE_STAGE_ID } from '../services/highlevel.js';
+import { DID, FROM } from '../services/highlevelTags.js';
 import { sendOpsSms } from '../utils/opsAlerts.js';
 import { sendEmail } from '../utils/email.js';
 
@@ -215,7 +216,8 @@ router.post('/start', async (req, res) => {
           } else {
             const r = await pushSignupToHighlevel({
               name, email, phone: mobile, companyName: businessName,
-              source: 'website-mot-connect', tags: ['website-signup', 'connect', 'abandoned-checkout'],
+              source: 'website-mot-connect',
+              tags: ['website-signup', 'connect', 'abandoned-checkout', FROM.website, DID.signupStarted, DID.abandonedCheckout],
               opportunityName: `${businessName} — Connect trial`,
               kind: 'abandoned',
             });
@@ -466,7 +468,8 @@ router.post('/verify', async (req, res) => {
         if (!opportunityId) {
           ({ opportunityId } = await pushSignupToHighlevel({
             name, email, phone: mobile, companyName: businessName,
-            source: 'website-mot-connect', tags: ['website-signup', 'connect', 'trial'],
+            source: 'website-mot-connect',
+            tags: ['website-signup', 'connect', 'trial', FROM.website, DID.signupStarted, DID.trial],
             opportunityName: `${businessName} — Connect trial`,
             monetaryValueGbp: 250, kind: 'signup',
           }));

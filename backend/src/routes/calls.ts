@@ -16,6 +16,7 @@ import { authenticate } from '../middleware/auth.js';
 import { callFeedbackSchema, createCallSchema } from '../utils/validators.js';
 import { classifyCallCategory } from '../utils/callClassifier.js';
 import { callerNumberForStorage } from '../utils/callerNumber.js';
+import { DEMO_GARAGE_ID, isDemoGarage } from '../utils/demoGarage.js';
 import { sendDemoCallSummary } from '../services/demoProspectSummary.js';
 import type { DemoProspectForSummary } from '../services/demoProspectSummary.js';
 import type {
@@ -94,10 +95,6 @@ const csvEscape = (value: string | number | null | undefined) => {
 // OBJECT keyed by index ({"0":"a","1":"b",…}) instead of an array. With 20+ branches the all-branches
 // filter hit this: Array.isArray() was false, the object got wrapped as a single non-string element,
 // and every id was dropped (403 "No valid garage IDs"). Normalise array | index-object | single -> string[].
-// The real "ReceptionMate Demo" garage. Demo-prospect calls are logged here because their own
-// agent ids deliberately have no Garage row behind them.
-const DEMO_PROSPECT_LOG_GARAGE_ID = 'c7f53608-b0eb-4bdd-93da-02f2875acd93';
-
 const normalizeGarageIds = (garageIds: unknown): string[] => {
   if (Array.isArray(garageIds)) {
     return garageIds.filter((v): v is string => typeof v === 'string');
@@ -377,7 +374,9 @@ router.post('/calls', async (req: Request, res: Response) => {
       });
       if (prospect) {
         prospectForMetrics = prospect;
-        payload.garageId = DEMO_PROSPECT_LOG_GARAGE_ID;
+        // Logged against the real "ReceptionMate Demo" garage because a prospect's own agent id
+        // deliberately has no Garage row behind it.
+        payload.garageId = DEMO_GARAGE_ID;
         // Stamp the prospect onto the PAYLOAD, not just onto the row we are about to create. The
         // AI diagnosis below rewrites metrics from `payload.metrics`, so anything added only at
         // create time is silently overwritten a few seconds later — which is exactly what
@@ -636,7 +635,10 @@ router.post('/calls', async (req: Request, res: Response) => {
       };
       void (async () => {
         try {
-          const { createOpportunity, addContactNote } = await import('../services/highlevel.js');
+          const { createOpportunity, addContactNote, addContactTags } = await import('../services/highlevel.js');
+          const { DID, FROM } = await import('../services/highlevelTags.js');
+          // Additive, so the directory-import tags these cold contacts came in with survive.
+          await addContactTags(contactId, [FROM.ownDemo, DID.demo]);
           const { id } = await createOpportunity({
             contactId,
             name: spokenName,
@@ -667,6 +669,29 @@ router.post('/calls', async (req: Request, res: Response) => {
         } catch (err) {
           console.error('[CALL] could not raise the Hot opportunity or note', err);
         }
+      })();
+    }
+
+    // The other half of the same idea: a call on the SHARED demo garage. No prospect record, so
+    // the block above skipped it — and until now nothing else picked it up, which is how 66 demos
+    // in 30 days produced no leads at all. A phone demo is identified by the caller's number; a
+    // browser demo only if the visitor came through a CTA that took their details.
+    if (!prospectForMetrics && isDemoGarage(payload.garageId)) {
+      const demoFacts = {
+        via: (fromNumber ? 'phone' : 'web') as 'phone' | 'web',
+        callerPhone: fromNumber ?? customerPhone ?? null,
+        heardName: payload.customerName ?? null,
+        durationSeconds: actualDuration,
+        summary: payload.summary ?? null,
+        registrationNumber: payload.registrationNumber ?? null,
+        bookingDetails: payload.bookingDetails ?? null,
+        confirmedBooking,
+        callId,
+      };
+      const room = payload.roomName;
+      void (async () => {
+        const { captureDemoCallLead, leadForRoom } = await import('../services/demoLead.js');
+        await captureDemoCallLead({ ...demoFacts, lead: await leadForRoom(room) });
       })();
     }
 

@@ -29,6 +29,18 @@ const SIGNUP_URL = 'https://receptionmate.co.uk/get-started/';
 // The demo is reached from a marketing-site CTA and has no site nav, so the visitor needs a way
 // back — the browser back button lands them in the lead modal they came through.
 const SITE_URL = 'https://receptionmate.co.uk/';
+// Where the gate posts, and where a captured identity is remembered.
+//
+// WHY THERE IS A GATE. Every demo call should leave a lead in HighLevel, and the site's own
+// "Talk to Leah" button already takes a name and email before it opens this demo. This page
+// can also be reached without passing that form — the case-studies CTA goes straight to /demo,
+// and the URL has been emailed out — and those visitors used to have a whole conversation with
+// the agent while being completely anonymous: no phone number, no email, nothing to follow up.
+//
+// Remembered per browser so nobody fills it twice, which also keeps our own testing quick.
+const LEAD_ENDPOINT = '/api/public/lead';
+const LEAD_STORE_KEY = 'rm_demo_lead';
+const GATE_SOURCE = 'website-demo-page';
 const HOW_URL = 'https://receptionmate.co.uk/how-it-works/';
 
 export default function DemoPage() {
@@ -45,6 +57,15 @@ export default function DemoPage() {
   const [expressiveOn, setExpressiveOn] = useState(false);
   const [ttsKey, setTtsKey] = useState('inworld');
   const [micOn, setMicOn] = useState(true);
+  // Who we are talking to, if we know. A ref, not state: nothing on the page renders it, and the
+  // gate starts the call in the same tick it captures the lead — before a state update could be
+  // read back.
+  const leadIdRef = useRef<string | null>(null);
+  const [gateOpen, setGateOpen] = useState(false);
+  const [gateName, setGateName] = useState('');
+  const [gateEmail, setGateEmail] = useState('');
+  const [gateSending, setGateSending] = useState(false);
+  const [gateError, setGateError] = useState('');
   const [captions, setCaptions] = useState<Caption[]>([]);
   const roomRef = useRef<RoomType | null>(null);
   const micRef = useRef<LocalAudioTrack | null>(null);
@@ -74,20 +95,37 @@ export default function DemoPage() {
       setExpressiveOn(flag !== '0');
       setTtsKey((q.get('tts') || 'inworld').toLowerCase());
     }
+    // A ?lead=<id> means they came through a CTA that already took their details — the site's
+    // "Talk to Leah" form passes it — so there is nothing left to ask. Otherwise fall back to
+    // whatever this browser captured last time.
+    const fromUrl = q.get('lead');
+    const remembered = (() => {
+      try { return window.localStorage.getItem(LEAD_STORE_KEY); } catch { return null; }
+    })();
+    const known = fromUrl || remembered;
+    if (known) {
+      leadIdRef.current = known;
+      if (fromUrl) { try { window.localStorage.setItem(LEAD_STORE_KEY, fromUrl); } catch { /* private mode */ } }
+    }
   }, []);
 
-  const start = useCallback(async () => {
+  const connect = useCallback(async () => {
     setPhase('connecting');
     setCaptions([]);
     try {
       const lk = await import('livekit-client');
       const { Room, RoomEvent, Track, createLocalAudioTrack } = lk;
 
+      // The lead this call belongs to, so it is credited to that contact in the CRM instead of
+      // being an anonymous session. Absent is possible — if the gate's capture failed we still
+      // let the visitor have their demo — and the call simply logs without a contact.
+      const leadId = leadIdRef.current || undefined;
       const res = await fetch('/api/livekit/demo-token', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           voice,
+          ...(leadId && { leadId }),
           ...(expressiveOn && { expressive: true, tts: ttsKey }),
           ...(agentVariant && { agent: agentVariant }),
         }),
@@ -142,6 +180,46 @@ export default function DemoPage() {
     }
   }, [cleanup, voice, expressiveOn, ttsKey, agentVariant]);
 
+  /** Start button: ask who they are first, unless we already know. */
+  const start = useCallback(() => {
+    if (leadIdRef.current) return void connect();
+    setGateError('');
+    setGateOpen(true);
+  }, [connect]);
+
+  /**
+   * Capture the lead, then start the call.
+   *
+   * The lead POST is the same endpoint every website CTA uses, so this visitor lands in
+   * HighLevel the same way and with the same tags. A failure here does NOT stop the demo: the
+   * person in front of us wanting to hear the product matters more than the CRM row, and the
+   * call still logs — just without a contact to hang it on.
+   */
+  const submitGate = useCallback(async (e: React.FormEvent) => {
+    e.preventDefault();
+    setGateSending(true);
+    setGateError('');
+    try {
+      const res = await fetch(LEAD_ENDPOINT, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: gateName.trim(), email: gateEmail.trim(), source: GATE_SOURCE }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok) throw new Error(`HTTP ${res.status}`);
+      if (data.leadId) {
+        leadIdRef.current = data.leadId;
+        try { window.localStorage.setItem(LEAD_STORE_KEY, data.leadId); } catch { /* private mode */ }
+      }
+    } catch (err) {
+      console.error('[demo] lead capture failed, starting the demo anyway', err);
+    } finally {
+      setGateSending(false);
+      setGateOpen(false);
+    }
+    void connect();
+  }, [connect, gateName, gateEmail]);
+
   const end = useCallback(() => {
     cleanup();
     setPhase('ended');
@@ -171,7 +249,7 @@ export default function DemoPage() {
     { key: 'fishaudio', label: 'Fish Audio — Marley (US)' },
     { key: 'xai', label: 'xAI — Eve (US)' },
   ];
-  const showPicker = phase === 'idle' || phase === 'ended' || phase === 'failed';
+  const showPicker = (phase === 'idle' || phase === 'ended' || phase === 'failed') && !gateOpen;
 
   return (
     <div className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden px-5 py-10 text-white">
@@ -342,9 +420,65 @@ export default function DemoPage() {
             </div>
           ) : null}
 
+          {/* who are we talking to — asked once per browser, before the first call */}
+          {gateOpen ? (
+            <form onSubmit={submitGate} className="mt-6 text-left">
+              <p className="mb-3 text-center text-sm text-brand-100/90">
+                Who are we speaking to? We&rsquo;ll send you nothing you didn&rsquo;t ask for.
+              </p>
+              <label className="block text-[11px] font-bold uppercase tracking-[0.2em] text-brand-100/70" htmlFor="demo-gate-name">
+                Your name
+              </label>
+              <input
+                id="demo-gate-name"
+                name="name"
+                type="text"
+                required
+                minLength={2}
+                autoComplete="name"
+                autoFocus
+                value={gateName}
+                onChange={(e) => setGateName(e.target.value)}
+                placeholder="Jane Smith"
+                className="mt-1.5 w-full rounded-2xl bg-white/10 px-4 py-3 text-[15px] text-white placeholder-white/40 ring-1 ring-white/20 transition focus:bg-white/15 focus:outline-none focus:ring-2 focus:ring-white/60"
+              />
+              <label className="mt-4 block text-[11px] font-bold uppercase tracking-[0.2em] text-brand-100/70" htmlFor="demo-gate-email">
+                Email address
+              </label>
+              <input
+                id="demo-gate-email"
+                name="email"
+                type="email"
+                required
+                autoComplete="email"
+                value={gateEmail}
+                onChange={(e) => setGateEmail(e.target.value)}
+                placeholder="you@yourgarage.co.uk"
+                className="mt-1.5 w-full rounded-2xl bg-white/10 px-4 py-3 text-[15px] text-white placeholder-white/40 ring-1 ring-white/20 transition focus:bg-white/15 focus:outline-none focus:ring-2 focus:ring-white/60"
+              />
+              {gateError ? <p className="mt-3 text-sm text-rose-200">{gateError}</p> : null}
+              <div className="mt-6 flex items-center justify-center gap-3">
+                <button
+                  type="submit"
+                  disabled={gateSending}
+                  className="rounded-full bg-white px-7 py-3 text-base font-bold text-brand-700 shadow-lg transition hover:bg-brand-50 active:scale-95 disabled:opacity-70"
+                >
+                  {gateSending ? 'One moment…' : '📞  Start the demo'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setGateOpen(false)}
+                  className="text-sm font-semibold text-brand-100 underline underline-offset-4 transition hover:text-white"
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          ) : null}
+
           {/* controls */}
           <div className="mt-7 flex items-center justify-center gap-3">
-            {phase === 'idle' || phase === 'ended' || phase === 'failed' ? (
+            {(phase === 'idle' || phase === 'ended' || phase === 'failed') && !gateOpen ? (
               <button
                 type="button"
                 onClick={start}
@@ -393,7 +527,7 @@ export default function DemoPage() {
               Couldn’t start the demo — please allow microphone access and try again.
             </p>
           ) : null}
-          {phase !== 'connecting' && phase !== 'live' ? (
+          {phase !== 'connecting' && phase !== 'live' && !gateOpen ? (
             <div className="mt-5 flex flex-col items-center gap-3">
               {phase === 'ended' ? (
                 <p className="text-sm text-brand-100/90">Thanks for trying ReceptionMate. 👋</p>

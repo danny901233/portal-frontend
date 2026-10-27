@@ -147,10 +147,14 @@ export default function DemoEmbedPage() {
     setPhase('connecting');
     try {
       const { Room, RoomEvent, Track, createLocalAudioTrack } = await import('livekit-client');
+      // A ?lead=<id> on the URL means the visitor came through a CTA that took their name and
+      // email, so this demo can be credited to that contact in the CRM instead of being an
+      // anonymous session. Absent is fine — the demo runs either way.
+      const leadId = new URLSearchParams(window.location.search).get('lead') || undefined;
       const res = await fetch('/api/livekit/demo-token', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ voice }),
+        body: JSON.stringify({ voice, ...(leadId && { leadId }) }),
       });
       if (res.status === 429) throw new Error('You have already tried the demo recently.');
       if (res.status === 503) throw new Error('All demo lines are busy — please try again shortly.');

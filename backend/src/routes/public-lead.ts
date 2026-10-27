@@ -10,6 +10,7 @@ import { sendEmail } from '../utils/email.js';
 import { sendOpsSms } from '../utils/opsAlerts.js';
 import { prisma } from '../db.js';
 import { highlevelConfigured, upsertContact, createOpportunity, updateOpportunity, ENQUIRY_STAGE_ID } from '../services/highlevel.js';
+import { DID, mergeTags, websiteOriginTags } from '../services/highlevelTags.js';
 
 const router = Router();
 
@@ -74,7 +75,10 @@ router.post('/public/lead', async (req: Request, res: Response) => {
     try {
       const pending = await prisma.pendingSignup.findUnique({ where: { id: prospectId } });
       if (pending) {
-        await upsertContact({ name, email, phone, companyName, source: source || 'website', tags: [PRIMARY_TAG] });
+        await upsertContact({
+          name, email, phone, companyName, source: source || 'website',
+          tags: mergeTags([PRIMARY_TAG], websiteOriginTags({ source, fromAds: Boolean(gclid) }), [DID.enquiry]),
+        });
         if (pending.ghlOpportunityId && ENQUIRY_STAGE_ID) {
           await updateOpportunity(pending.ghlOpportunityId, { stageId: ENQUIRY_STAGE_ID });
         }
@@ -99,12 +103,19 @@ router.post('/public/lead', async (req: Request, res: Response) => {
     phone,
     companyName,
     source: source || 'website',
-    tags: fromAds ? [PRIMARY_TAG, 'google-ads'] : [PRIMARY_TAG],
+    // The legacy tags stay (HL smart lists are built on them) and the from-/did- pair goes on
+    // beside them, so the row says both where this came from and that they only enquired.
+    tags: mergeTags(
+      fromAds ? [PRIMARY_TAG, 'google-ads'] : [PRIMARY_TAG],
+      websiteOriginTags({ source, fromAds }),
+      [DID.enquiry],
+    ),
   });
 
   // Best-effort: a failure here must not cost us the lead, which is already in HighLevel.
+  let leadId: string | null = null;
   try {
-    await prisma.pendingSignup.create({
+    const pending = await prisma.pendingSignup.create({
       data: {
         businessName: companyName || name,
         email: email.toLowerCase(),
@@ -119,14 +130,16 @@ router.post('/public/lead', async (req: Request, res: Response) => {
         status: 'enquiry',
         signToken: randomUUID(),
         expiresAt: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000),
+        ghlContactId: contact.contactId,
       },
     });
+    leadId = pending.id;
   } catch (err) {
     console.error('[LEAD] could not record enquiry locally:', err);
   }
 
   if (!contact.contactId) {
-    return res.json({ ok: true, syncedToCrm: false });
+    return res.json({ ok: true, syncedToCrm: false, leadId });
   }
 
   // Best-effort opportunity creation — failure doesn't fail the request.
@@ -136,11 +149,24 @@ router.post('/public/lead', async (req: Request, res: Response) => {
     kind: 'lead',
   });
 
+  // Keep the HighLevel ids on our own row. They were thrown away here, which is why 17
+  // hero-CTA enquiries in 30 days had no contact or opportunity id against them: the next thing
+  // the same person did — try the demo, start a signup — could not be credited to the contact
+  // they had just created, and showed up as a second, unconnected row.
+  if (leadId && opportunity.id) {
+    await prisma.pendingSignup
+      .update({ where: { id: leadId }, data: { ghlOpportunityId: opportunity.id } })
+      .catch((err) => console.error('[LEAD] could not store the opportunity id:', err));
+  }
+
   return res.json({
     ok: true,
     syncedToCrm: true,
     contactId: contact.contactId,
     opportunityId: opportunity.id,
+    // The marketing site passes this back as `leadId` when it starts the browser demo, which is
+    // what turns an anonymous demo into a touch on this contact (see livekit-demo.ts).
+    leadId,
   });
 });
 

@@ -22,6 +22,7 @@ import type { Request, Response } from 'express';
 import { Router } from 'express';
 import twilio from 'twilio';
 import { prisma } from '../db.js';
+import { DEMO_GARAGE_ID } from '../utils/demoGarage.js';
 
 const router = Router();
 
@@ -54,8 +55,7 @@ const fromTwilio = (req: Request, path: string): boolean => {
   return twilio.validateRequest(authToken, signature, `${base}${path}`, req.body || {});
 };
 
-/** The shared demo garage, used whenever a call cannot be tied to a prospect. */
-const DEMO_GARAGE_ID = 'c7f53608-b0eb-4bdd-93da-02f2875acd93';
+/* The shared demo garage, used whenever a call cannot be tied to a prospect, is DEMO_GARAGE_ID. */
 
 const SIP_DOMAIN = () =>
   process.env.LIVEKIT_SIP_DOMAIN_UNIFIED || process.env.LIVEKIT_SIP_DOMAIN || '';

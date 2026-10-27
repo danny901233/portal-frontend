@@ -7,6 +7,7 @@ import { prisma } from '../db.js';
 import { sendEmail } from '../utils/email.js';
 import { TEMPLATE_VERSION } from '../services/agreementTemplate.js';
 import { pushSignupToHighlevel, updateContact } from '../services/highlevel.js';
+import { DID, FROM } from '../services/highlevelTags.js';
 import { ensureAdminAccessToGarage } from './admin.js';
 import { getStripeClient, stripeConfigured } from '../services/stripe.js';
 import { fetchPlaceDetails } from '../utils/googlePlaces.js';
@@ -291,7 +292,7 @@ router.post('/public-signup', async (req: Request, res: Response) => {
         companyName: businessName,
         website: place?.website ?? undefined,
         source: 'website-getstarted-assist',
-        tags: ['website-signup', 'abandoned-checkout', 'assist'],
+        tags: ['website-signup', 'abandoned-checkout', 'assist', FROM.website, DID.signupStarted, DID.abandonedCheckout],
         opportunityName: `${businessName} — Assist`,
         kind: 'abandoned',
       }).then((r) => {

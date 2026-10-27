@@ -17,6 +17,7 @@
 // both firing for one call is harmless.
 import { prisma } from '../db.js';
 
+import { isDemoGarage } from '../utils/demoGarage.js';
 import { decideCallback } from './callbackPolicy.js';
 import { loadCallbackPolicyInput, londonDayKey } from './callbackState.js';
 
@@ -46,6 +47,38 @@ export type RequestOutcome =
 export async function requestCallback(report: ShortCallReport): Promise<RequestOutcome> {
   const now = new Date();
   const dayKey = londonDayKey(now);
+
+  // A short call on the DEMO garage is not a customer we failed to answer — it is somebody who
+  // dialled the number off our homepage and hung up before the agent got going. Those never reach
+  // the Call table (they are under the 30s logging floor), so this is the only place that sees
+  // them, and it sees them whatever the callback policy then decides.
+  //
+  // Only the Twilio trigger, which fires for every answered call however brief: the agent's
+  // second trigger would double it. The note is kept for the first attempt of the day — Adrian's
+  // two 15-second drops on 27 Oct would otherwise have left two identical notes.
+  if (isDemoGarage(report.garageId) && report.source === 'twilio' && report.callerPhone) {
+    const phone = report.callerPhone;
+    const seconds = report.durationSeconds;
+    void (async () => {
+      try {
+        // Every short call on this garage leaves a CallbackAttempt row (queued or refused), and
+        // the dedupe key carries the London day — so "have we already noted this caller today?"
+        // is answerable without a second date calculation or a scan of the Call table, which has
+        // no index to scan it by.
+        const earlier = await prisma.callbackAttempt.count({
+          where: { garageId: report.garageId, toNumber: phone, dedupeKey: { contains: dayKey } },
+        });
+        const { captureDroppedDemoCallLead } = await import('./demoLead.js');
+        await captureDroppedDemoCallLead({
+          callerPhone: phone,
+          durationSeconds: seconds,
+          firstAttemptToday: earlier === 0,
+        });
+      } catch (e) {
+        console.error('[callback] demo lead capture failed:', e);
+      }
+    })();
+  }
 
   const state = await loadCallbackPolicyInput({
     garageId: report.garageId,

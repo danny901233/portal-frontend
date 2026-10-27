@@ -93,7 +93,6 @@ export async function upsertContact(args: UpsertContactArgs): Promise<ContactRes
     name: args.name,
     ...(args.companyName ? { companyName: args.companyName } : {}),
     source: args.source || 'website',
-    tags: args.tags ?? ['website-lead'],
   };
   if (args.email) body.email = args.email;
   if (args.phone) body.phone = args.phone;
@@ -111,10 +110,80 @@ export async function upsertContact(args: UpsertContactArgs): Promise<ContactRes
       return { contactId: null, raw: null };
     }
     const json = (await res.json()) as { contact?: { id?: string }; id?: string };
-    return { contactId: json.contact?.id ?? json.id ?? null, raw: json };
+    const contactId = json.contact?.id ?? json.id ?? null;
+    // Tags go on in a SECOND, additive call — never in the upsert body.
+    //
+    // `tags` on /contacts/upsert REPLACES the contact's whole tag list. Pushing eight Blend leads
+    // through here wiped the segmentation off five contacts that already existed ('mot centres',
+    // 'select+'), and every website lead that matched an existing contact had been quietly losing
+    // its prior tags ever since. It also made the one thing the pipeline needed impossible:
+    // 'did-enquiry', 'did-demo' and 'did-abandon-checkout' can only tell you where someone got to
+    // if they are allowed to pile up.
+    //
+    // A failure here costs the tags, not the contact, so it is logged and swallowed.
+    const tags = args.tags ?? ['website-lead'];
+    if (contactId && tags.length) await addContactTags(contactId, tags);
+    return { contactId, raw: json };
   } catch (err) {
     console.error('[HL] contact upsert threw:', err);
     return { contactId: null, raw: null };
+  }
+}
+
+/**
+ * Find an existing contact by phone number.
+ *
+ * Exists so a touch that only knows a phone number — a demo call — can tag the contact it already
+ * has rather than upserting over it. `source` on /contacts/upsert is replaced, not merged, so an
+ * upsert would rewrite "Trust My Garage directory" to "demo line" and lose where that garage
+ * actually came from. 1,806 contacts were imported from directories in the last two days alone,
+ * and any of them might ring the demo number.
+ *
+ * Returns null when nothing matches, which is the common case and not an error.
+ */
+export async function findContactByPhone(phone: string): Promise<string | null> {
+  if (!highlevelConfigured() || !phone.trim()) return null;
+  const qs = new URLSearchParams({ locationId: GHL_LOCATION_ID, query: phone.trim(), limit: '5' });
+  try {
+    const res = await fetch(`${GHL_BASE_URL}/contacts/?${qs.toString()}`, { headers: HEADERS });
+    if (!res.ok) {
+      console.error(`[HL] contact lookup by phone failed ${res.status}`);
+      return null;
+    }
+    const body = (await res.json()) as { contacts?: Array<{ id?: string }> };
+    return body.contacts?.[0]?.id ?? null;
+  } catch (err) {
+    console.error('[HL] contact lookup by phone threw:', err);
+    return null;
+  }
+}
+
+/**
+ * Add tags to a contact without touching the ones already on it.
+ *
+ * POST /contacts/{id}/tags appends; the `tags` array on /contacts/upsert replaces. That one
+ * difference is the whole reason this function exists — see the note in upsertContact.
+ *
+ * Tolerant: logs and returns false, never throws.
+ */
+export async function addContactTags(contactId: string, tags: string[]): Promise<boolean> {
+  if (!highlevelConfigured() || !contactId) return false;
+  const clean = [...new Set(tags.map((t) => t.trim()).filter(Boolean))];
+  if (!clean.length) return false;
+  try {
+    const res = await fetch(`${GHL_BASE_URL}/contacts/${contactId}/tags`, {
+      method: 'POST',
+      headers: HEADERS,
+      body: JSON.stringify({ tags: clean }),
+    });
+    if (!res.ok) {
+      console.error(`[HL] tag add failed ${res.status} for ${contactId}:`, (await res.text()).slice(0, 200));
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.error('[HL] tag add threw:', err);
+    return false;
   }
 }
 

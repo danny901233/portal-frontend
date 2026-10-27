@@ -9,13 +9,14 @@ import { Router } from 'express';
 import { AccessToken, AgentDispatchClient, RoomServiceClient } from 'livekit-server-sdk';
 import { randomBytes } from 'crypto';
 import { prisma } from '../db.js';
+import { DEMO_GARAGE_ID } from '../utils/demoGarage.js';
 
 const router = Router();
 
-// The dedicated "ReceptionMate Demo" garage. Web-demo calls are logged against it so they show
-// up in the portal (under the Demo branch) with full transcript/detail, without ever touching a
-// real customer's data or KPIs. Kept server-side so the demo agent never needs the garage id.
-const DEMO_GARAGE_ID = 'c7f53608-b0eb-4bdd-93da-02f2875acd93';
+// The dedicated "ReceptionMate Demo" garage (DEMO_GARAGE_ID, imported above). Web-demo calls are
+// logged against it so they show up in the portal (under the Demo branch) with full
+// transcript/detail, without ever touching a real customer's data or KPIs. Kept server-side so
+// the demo agent never needs the garage id.
 
 const LIVEKIT_URL        = process.env.LIVEKIT_URL ?? '';
 const LIVEKIT_API_KEY    = process.env.LIVEKIT_API_KEY ?? '';
@@ -149,6 +150,32 @@ async function resolveProspectAgentId(slugValue: unknown): Promise<string | null
   }
 }
 
+/**
+ * Resolve the marketing-site lead this demo belongs to, so the call can become a CRM touch on
+ * the right contact rather than an anonymous session.
+ *
+ * A browser demo has no phone number and no identity of its own — which is why 37 web demos in 30
+ * days produced no leads. The CTAs that gate the demo on name and email (the homepage's "Hear
+ * Leah answer a call") already create a PendingSignup; passing its id here is what ties the two
+ * halves together.
+ *
+ * Same rule as the prospect slug above: the id is used as a lookup key and only the row's OWN id
+ * is returned, so nothing caller-supplied reaches the room name. An id that resolves to nothing
+ * is simply dropped — an anonymous demo is still a demo.
+ */
+async function resolveLeadId(leadValue: unknown): Promise<string | null> {
+  if (typeof leadValue !== 'string') return null;
+  const id = leadValue.trim();
+  if (id.length < 10 || id.length > 40 || !/^[A-Za-z0-9]+$/.test(id)) return null;
+  try {
+    const row = await prisma.pendingSignup.findUnique({ where: { id }, select: { id: true } });
+    return row?.id ?? null;
+  } catch (err) {
+    console.error('[demo] lead lookup failed, continuing without it:', err);
+    return null;
+  }
+}
+
 // Voices the demo agent can use — the /demo picker sends a key; we validate against this
 // allowlist so a caller can't inject an arbitrary value into the dispatch metadata.
 const DEMO_VOICES = new Set(['leah', 'tom', 'sophie', 'gemma', 'isobel', 'fraser']);
@@ -222,9 +249,16 @@ router.post('/livekit/demo-token', async (req: Request, res: Response) => {
   const demoAgentId = (useUnified ? await resolveProspectAgentId(req.body?.prospectSlug) : null)
     ?? DEMO_GARAGE_ID;
 
+  // The lead rides along in the room name, which is the one field that survives the whole trip to
+  // the Call row — the agent posts it back, so services/demoLead.ts can read it off the call and
+  // credit the touch to the right contact. The agent itself only looks at the "garage-<uuid>"
+  // prefix and the "_web_" marker, so an extra trailing segment is invisible to it.
+  const leadId = await resolveLeadId(req.body?.leadId);
+  const leadSuffix = leadId ? `_lead-${leadId}` : '';
+
   const roomName = useUnified
-    ? `garage-${demoAgentId}_web_${randomBytes(6).toString('hex')}`
-    : `demo-${randomBytes(8).toString('hex')}`;
+    ? `garage-${demoAgentId}_web_${randomBytes(6).toString('hex')}${leadSuffix}`
+    : `demo-${randomBytes(8).toString('hex')}${leadSuffix}`;
   const identity = `visitor-${randomBytes(4).toString('hex')}`;
 
   const at = new AccessToken(lkKey, lkSecret, {
@@ -339,6 +373,25 @@ router.post('/demo/call-log', async (req: Request, res: Response) => {
       },
     });
     console.log(`[demo] logged demo call ${call.id} (room ${call.roomName})`);
+
+    // Same CRM touch the unified agent's calls get in routes/calls.ts. This route is only still
+    // used by the self-hosted demo worker (?agent=reg and the no-unified fallback), but a demo is
+    // a lead whichever worker answered it.
+    void (async () => {
+      const { captureDemoCallLead, leadForRoom } = await import('../services/demoLead.js');
+      await captureDemoCallLead({
+        via: 'web',
+        durationSeconds: call.durationSeconds,
+        heardName: call.customerName,
+        summary: call.summary,
+        registrationNumber: call.registrationNumber,
+        bookingDetails: call.bookingDetails,
+        confirmedBooking: call.confirmedBooking,
+        callId: call.id,
+        lead: await leadForRoom(call.roomName),
+      });
+    })();
+
     return res.status(201).json({ success: true, callId: call.id });
   } catch (err) {
     console.error('[demo] failed to log demo call:', err);

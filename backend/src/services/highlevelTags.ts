@@ -56,6 +56,8 @@ export const DID = {
   abandonedCheckout: 'did-abandon-checkout',
   /** Reached a live trial account. */
   trial: 'did-trial',
+  /** Live on the product for free, in exchange for something that is not money. */
+  focLive: 'did-live-foc',
 } as const;
 
 export type FromTag = (typeof FROM)[keyof typeof FROM];

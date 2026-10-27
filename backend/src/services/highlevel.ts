@@ -44,6 +44,21 @@ export const HL_INVITED_STAGE_ID = process.env.GHL_INVITED_STAGE_ID ?? '';
 export const HL_CONTRACT_SENT_STAGE_ID = process.env.GHL_CONTRACT_SENT_STAGE_ID ?? '';
 /** "Hot" — a cold prospect who has actually talked to their own demo agent. */
 export const HL_HOT_STAGE_ID = process.env.GHL_HOT_STAGE_ID ?? '';
+/**
+ * Free of charge: a garage live on the product in exchange for something other than money —
+ * today, social-media content (JLK Vehicle Solutions and Woodyard Garage, 27 Oct).
+ *
+ * These do not belong in "Free trial live" (nothing expires, nothing converts on a date) and
+ * certainly not in "Live and £££" (they pay nothing, and counting them there overstates revenue
+ * by exactly the amount the deal is worth). Hence a stage of their own.
+ *
+ * Resolved BY NAME, not pinned by id like the others, because the token has no pipeline-write
+ * scope — the stage has to be created by hand in HighLevel, and resolving the name means
+ * nothing else has to be touched afterwards: no id to copy, no env var to set, no restart.
+ * Pin GHL_FOC_STAGE_ID if you would rather not depend on the name.
+ */
+export const HL_FOC_STAGE_ID = process.env.GHL_FOC_STAGE_ID ?? '';
+export const HL_FOC_STAGE_NAME = process.env.GHL_FOC_STAGE_NAME || 'Live — FOC (content partner)';
 
 const HEADERS = {
   Authorization: `Bearer ${GHL_PIT}`,
@@ -51,6 +66,53 @@ const HEADERS = {
   Accept: 'application/json',
   Version: '2021-07-28',
 };
+
+/**
+ * Look a stage up by name in our pipeline.
+ *
+ * Cached for ten minutes: long enough that a stage move costs no extra API call in practice,
+ * short enough that a stage created in the HighLevel UI starts working without a pm2 restart —
+ * which is the whole point of resolving by name rather than by id.
+ */
+let stageCache: { at: number; byName: Map<string, string> } | null = null;
+const STAGE_CACHE_MS = 10 * 60 * 1000;
+
+export async function stageIdByName(name: string): Promise<string | null> {
+  if (!highlevelConfigured() || !PIPELINE_ID || !name.trim()) return null;
+  const key = name.trim().toLowerCase();
+  if (stageCache && Date.now() - stageCache.at < STAGE_CACHE_MS) return stageCache.byName.get(key) ?? null;
+  try {
+    const res = await fetch(`${GHL_BASE_URL}/opportunities/pipelines?locationId=${GHL_LOCATION_ID}`, { headers: HEADERS });
+    if (!res.ok) {
+      console.error(`[HL] pipeline fetch failed ${res.status} — cannot resolve stage "${name}"`);
+      return null;
+    }
+    const body = (await res.json()) as { pipelines?: Array<{ id?: string; stages?: Array<{ id?: string; name?: string }> }> };
+    const pipeline = (body.pipelines ?? []).find((p) => p.id === PIPELINE_ID);
+    const byName = new Map<string, string>();
+    for (const st of pipeline?.stages ?? []) {
+      if (st.id && st.name) byName.set(st.name.trim().toLowerCase(), st.id);
+    }
+    stageCache = { at: Date.now(), byName };
+    return byName.get(key) ?? null;
+  } catch (err) {
+    console.error('[HL] stage lookup threw:', err);
+    return null;
+  }
+}
+
+/** The FOC stage id: pinned if set, else resolved by name, else null (caller decides). */
+export async function focStageId(): Promise<string | null> {
+  if (HL_FOC_STAGE_ID) return HL_FOC_STAGE_ID;
+  const id = await stageIdByName(HL_FOC_STAGE_NAME);
+  if (!id) {
+    console.warn(
+      `[HL] no stage named "${HL_FOC_STAGE_NAME}" in the pipeline — create it in HighLevel ` +
+        '(Settings > Pipelines > Onboarding Newest), or set GHL_FOC_STAGE_ID.',
+    );
+  }
+  return id;
+}
 
 export function highlevelConfigured(): boolean {
   return Boolean(GHL_PIT && GHL_LOCATION_ID);
@@ -267,7 +329,7 @@ export async function addContactNote(contactId: string, body: string): Promise<b
   }
 }
 
-export type OpportunityKind = 'signup' | 'lead' | 'trial' | 'abandoned' | 'hot';
+export type OpportunityKind = 'signup' | 'lead' | 'trial' | 'abandoned' | 'hot' | 'foc';
 
 export interface CreateOpportunityArgs {
   contactId: string;
@@ -282,6 +344,11 @@ export interface CreateOpportunityArgs {
  *  "Free trial live" who then submits a demo form must not be dragged back to "Enquiry
  *  received", which is what a naive de-duplicate would do. Unknown stages rank 0 so an
  *  unrecognised id can never outrank a real one. */
+// stageRank is synchronous and called on every opportunity upsert, so the FOC id it ranks is
+// whatever the last lookup resolved. An unresolved stage simply ranks 0, exactly like any other
+// id we do not recognise — it cannot outrank a real one.
+let focStageRankId = '';
+
 function stageRank(stageId: string): number {
   const order = [
     LEAD_STAGE_ID,                     // Enquiry received
@@ -292,6 +359,7 @@ function stageRank(stageId: string): number {
     HL_AGENT_BUILT_STAGE_ID,
     HL_INVITED_STAGE_ID,
     TRIAL_STAGE_ID,                    // Free trial live
+    focStageRankId,                    // Live — FOC: live on the product, paying nothing
     SIGNUP_STAGE_ID,                   // Live and £££
   ].filter(Boolean);
   const i = order.indexOf(stageId);
@@ -336,8 +404,16 @@ export async function createOpportunity(args: CreateOpportunityArgs): Promise<{ 
     console.warn('[HL] skipping opportunity — set GHL_PIPELINE_ID / GHL_SIGNUP_STAGE_ID / GHL_LEAD_STAGE_ID in env.');
     return { id: null };
   }
+  // Resolved before the rank table is consulted, so an FOC opportunity ranks where it belongs
+  // rather than at 0 on the first call of the process.
+  if (args.kind === 'foc') focStageRankId = (await focStageId()) ?? '';
+
   const stageId =
     args.kind === 'signup'    ? SIGNUP_STAGE_ID :
+    // No stage means no guess: "Free trial live" is the closest honest resting place for a
+    // garage that is live and paying nothing, and it will not overstate revenue the way the
+    // live stage would.
+    args.kind === 'foc'       ? (focStageRankId || TRIAL_STAGE_ID || LEAD_STAGE_ID) :
     args.kind === 'trial'     ? (TRIAL_STAGE_ID || SIGNUP_STAGE_ID) :
     args.kind === 'abandoned' ? (ABANDONED_STAGE_ID || LEAD_STAGE_ID) :
     // Unset GHL_HOT_STAGE_ID degrades to the lead stage rather than losing the opportunity.

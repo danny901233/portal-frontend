@@ -162,8 +162,11 @@ export async function findContactByPhone(phone: string): Promise<string | null> 
     // (the same rule callerNumber.ts uses). No exact match means no match, and the caller falls
     // through to creating a contact of their own.
     const body = (await res.json()) as { contacts?: Array<{ id?: string; phone?: string }> };
+    // A number too short to compare matches nothing — without this, an unusable caller id and a
+    // contact with no phone at all both reduce to '' and would be treated as the same line.
     const wanted = lastNine(phone);
-    const exact = (body.contacts ?? []).find((c) => c.id && lastNine(c.phone) === wanted);
+    if (!wanted) return null;
+    const exact = (body.contacts ?? []).find((c) => c.id && c.phone && lastNine(c.phone) === wanted);
     return exact?.id ?? null;
   } catch (err) {
     console.error('[HL] contact lookup by phone threw:', err);

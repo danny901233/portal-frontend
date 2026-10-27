@@ -11,7 +11,7 @@ import { industryDefaultFaqs, generateFaqsFromWebsite } from '../utils/faqGenera
 import { sanitizeBranchRoles } from '../utils/branchRoles.js';
 import { sendWelcomeEmail } from '../utils/email.js';
 import { ensureUnifiedSipRouting } from '../services/unifiedSip.js';
-import { sendDiaryConnectRequest, PROVIDER_KEYS } from '../services/diaryConnect.js';
+import { sendDiaryConnectRequest, PROVIDER_KEYS, DIARY_AGENT_SCRIPT } from '../services/diaryConnect.js';
 import { ONBOARDING_STAGES } from '../utils/onboardingStage.js';
 // Pushes the saved config through to the agent (Postgres -> DynamoDB). A background FAQ rewrite
 // lands after the onboard has already synced, so it has to push again or the agent keeps the
@@ -1389,8 +1389,23 @@ router.post('/admin/onboard', authenticateApiKey, requireAdmin, async (req, res)
     // GarageHive is deliberately NOT included. It has its own path — the admin "Connect
     // GarageHive" button, where we paste the instance and match the branches ourselves — and
     // auto-emailing them here would duplicate a request we often do not need to make.
+    //
+    // And only for a garage on the unified agent. Assist has no diary — it books off a synthetic
+    // grid — so a provider set on an Assist garage is a leftover, not an integration. Emailing
+    // on one would be worse than pointless: diary-connect's submit handler sets the garage's
+    // agentScript to unified-agent, so a provider filling in that form would silently convert an
+    // Assist garage into something else. JLK Vehicle Solutions was onboarded exactly that way
+    // (Assist-agent, provider 'bookar') on 27 Oct.
     const diaryProvider = parsed.data.integrationProvider;
-    if ((PROVIDER_KEYS as string[]).includes(diaryProvider)) {
+    const diaryCapable = parsed.data.agentScript === DIARY_AGENT_SCRIPT;
+    if ((PROVIDER_KEYS as string[]).includes(diaryProvider) && !diaryCapable) {
+      console.warn(
+        `[ONBOARD] ${business.name} is ${parsed.data.agentScript} with integrationProvider ` +
+          `'${diaryProvider}' — no connect request sent, that agent has no diary. Clear the ` +
+          'provider unless the branch is meant to be on the unified agent.',
+      );
+    }
+    if ((PROVIDER_KEYS as string[]).includes(diaryProvider) && diaryCapable) {
       void sendDiaryConnectRequest(business.id)
         .then((sent) => {
           console.log(

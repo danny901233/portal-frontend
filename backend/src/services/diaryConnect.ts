@@ -21,7 +21,7 @@ const TOKEN_TTL_MS = 14 * 24 * 60 * 60 * 1000;
 
 // Every garage connected through here runs the unified agent — it is the only one with adapters
 // for these diaries.
-const DIARY_AGENT_SCRIPT = 'unified-agent';
+export const DIARY_AGENT_SCRIPT = 'unified-agent';
 
 export type ProviderKey = 'bookar' | 'poole' | 'tyresoft';
 export const PROVIDER_KEYS: ProviderKey[] = ['bookar', 'poole', 'tyresoft'];

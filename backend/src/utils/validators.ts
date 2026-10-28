@@ -229,18 +229,44 @@ const dailyHoursSchema = z
 
 export const weeklyOpeningHoursSchema = z.preprocess(
   (val) => {
-    // If weeklyOpeningHours is an empty object or missing days, fill with defaults
-    if (typeof val === 'object' && val !== null) {
-      const hasAllDays = WEEKDAY_ORDER.every((day) => day in val);
-      if (!hasAllDays) {
-        const defaults: any = {};
-        WEEKDAY_ORDER.forEach((day) => {
-          defaults[day] = (val as any)[day] || { open: null, close: null, closed: true };
-        });
-        return defaults;
+    if (typeof val !== 'object' || val === null) return val;
+    const src = val as Record<string, unknown>;
+    const out: Record<string, unknown> = {};
+
+    for (const day of WEEKDAY_ORDER) {
+      const raw = src[day];
+
+      // A missing day is a closed day — the same shape createEmptyWeeklyOpeningHours uses.
+      if (typeof raw !== 'object' || raw === null) {
+        out[day] = { open: null, close: null, closed: true };
+        continue;
       }
+
+      const d = raw as { open?: unknown; close?: unknown; closed?: unknown };
+
+      if (d.closed) {
+        // A closed day carries no times, and the refinement above rejects it if it does.
+        // The portal's Closed tickbox only ever flipped `closed` and left the day's previous
+        // open/close sitting in state, and the time inputs are hidden once a day reads Closed
+        // — so closing a day came back "Clear the opening time when the day is marked closed"
+        // with no way to clear it from the UI. One bad day fails the whole form, so Bee Cool
+        // ACS lost an entire hours edit to this on 27 Oct 2026, weekday change included.
+        // Normalising here rather than only in HoursTab fixes every caller of this schema at
+        // once, including the two separate copies of that tab.
+        out[day] = { open: null, close: null, closed: true };
+        continue;
+      }
+
+      out[day] = {
+        // An empty time input posts "", which is neither HH:MM nor null. Treat it as absent so
+        // the caller gets "Opening time is required" instead of a regex complaint about "".
+        open: d.open === '' || d.open === undefined ? null : d.open,
+        close: d.close === '' || d.close === undefined ? null : d.close,
+        closed: false,
+      };
     }
-    return val;
+
+    return out;
   },
   z.object(
     WEEKDAY_ORDER.reduce((shape, day) => {

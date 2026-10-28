@@ -53,9 +53,15 @@ function defaultHours(): WeeklyOpeningHours {
     thursday: { open: '08:30', close: '18:00', closed: false },
     friday: { open: '08:30', close: '18:00', closed: false },
     saturday: { open: '09:00', close: '13:00', closed: false },
-    sunday: { open: '00:00', close: '00:00', closed: true },
+    // A closed day has no times. '00:00' here used to fail the API's own validation, so a
+    // garage that saved this tab without ever touching Sunday was rejected outright.
+    sunday: { open: null, close: null, closed: true },
   };
 }
+
+// What a day reopens to, when it was closed and so has no times to put back.
+const REOPEN_OPEN = '09:00';
+const REOPEN_CLOSE = '17:00';
 
 export default function HoursTab({ config, save, isSaving }: Props) {
   const lang = useLang();
@@ -165,6 +171,24 @@ export default function HoursTab({ config, save, isSaving }: Props) {
     });
   };
 
+  // Closing a day has to clear its times, not just set the flag. The API rejects a closed day
+  // that still carries them, and the time inputs below are hidden while a day reads Closed, so
+  // leaving them in place made the day impossible to close from this screen — and took the
+  // rest of the form down with it, since one bad day fails the whole save.
+  const setDayClosed = (day: keyof WeeklyOpeningHours, closed: boolean) => {
+    const current = hours[day];
+    setHours({
+      ...hours,
+      [day]: closed
+        ? { open: null, close: null, closed: true }
+        : {
+            open: current.open ?? REOPEN_OPEN,
+            close: current.close ?? REOPEN_CLOSE,
+            closed: false,
+          },
+    });
+  };
+
   const handleSave = () => {
     void save({
       weeklyOpeningHours: hours,
@@ -195,7 +219,7 @@ export default function HoursTab({ config, save, isSaving }: Props) {
                 <input
                   type="checkbox"
                   checked={!day.closed}
-                  onChange={(e) => updateDay(key, { closed: !e.target.checked })}
+                  onChange={(e) => setDayClosed(key, !e.target.checked)}
                   className="h-4 w-4 rounded border-slate-300 bg-slate-100 text-brand-600 focus:ring-brand-600"
                 />
                 <span className="text-xs text-slate-500">

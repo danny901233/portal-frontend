@@ -6,6 +6,9 @@
 
 import PDFDocument from 'pdfkit';
 import { LICENCE_DETAILS, type LicenceTier } from './agreementTemplate.js';
+import {
+  clause31, clause32, clause33, clause131, clause132, clause133, freePeriodShape,
+} from './agreementTerms.js';
 
 // Logo lives on GHL CDN — fetched once on first render and cached for the
 // lifetime of the process so PDF rendering stays in-memory + fast.
@@ -34,6 +37,10 @@ export interface AgreementPdfInputs {
   signedByName: string;
   signedByPosition: string;
   signatureImage?: string | null; // PNG data URL — embedded under the signer name
+  // The free period, if one was sold. These were missing entirely, so a customer who was given a
+  // trial received a PDF that never mentioned it — see the note above renderAgreementPdf.
+  freeTrialDays?: number | null;
+  freeUntilBookings?: number | null;
 }
 
 const BRAND = '#3426cf';
@@ -49,6 +56,23 @@ const fmtDate = (d: Date | null): string => (d ? FMT_DATE.format(d) : '—');
 /**
  * Renders the full signed agreement to a PDF Buffer.
  * Resolves once the document is finalised.
+ */
+/**
+ * The signed-copy PDF the customer is emailed and keeps.
+ *
+ * THIS MUST SAY WHAT agreementTemplate.ts SAYS. They are two renderings of one contract — the
+ * HTML is what the customer reads and signs on screen and is captured into
+ * Agreement.templateSnapshot; this is the only copy they are ever sent.
+ *
+ * They were allowed to diverge for sixteen weeks. On 9 July 2026 the HTML moved to a 3-month
+ * Proof Period plus a 12-month Contract Term with no termination for convenience; this file was
+ * left saying "rolling monthly" with 30 days' notice, and had no free-period clauses at all.
+ * Thirteen garages signed one contract on screen and were emailed a materially different one —
+ * found 28 Oct 2026 when Mallory Performance's exit was priced from the database and their PDF
+ * said something else. Their PDF is the document that counts; the screen is not what they keep.
+ *
+ * If you change a term here, change it there, and vice versa. Better still, read
+ * Agreement.templateSnapshot and render that — one source of truth, which is the fix this is not.
  */
 export async function renderAgreementPdf(inputs: AgreementPdfInputs): Promise<Buffer> {
   const logo = await getLogoBuffer();
@@ -133,9 +157,15 @@ function drawDocument(doc: PDFKit.PDFDocument, inputs: AgreementPdfInputs, logo:
   section(doc, '2. Purpose and scope');
   para(doc, 'The Provider agrees to supply, and the Client agrees to subscribe to, the ReceptionMate AI Agent Services for use in managing inbound customer enquiries, bookings, and related communications in connection with the Client’s automotive operations.');
 
+  // Clause 3 and 13 come from agreementTerms.ts, which agreementTemplate.ts also uses. Do not
+  // write the wording here — that is exactly how this file came to promise a rolling monthly
+  // term for sixteen weeks after the agreement stopped being one.
+  const free = freePeriodShape(inputs);
+
   section(doc, '3. Term');
-  numbered(doc, '3.1', `This Agreement shall commence on the agreed "Go Live" date${inputs.goLiveDate ? ` (${fmtDate(inputs.goLiveDate)})` : ''} and continue for a rolling monthly term.`);
-  numbered(doc, '3.2', 'After the Initial Period, the Agreement shall renew automatically on a monthly rolling basis unless terminated in accordance with Clause 13.');
+  numbered(doc, '3.1', clause31(free, inputs.goLiveDate ? ` (${fmtDate(inputs.goLiveDate)})` : ''));
+  numbered(doc, '3.2', clause32(free));
+  numbered(doc, '3.3', clause33());
   para(doc, 'The Provider shall:');
   alphaList(doc, [
     'Host and maintain access to the ReceptionMate Platform;',
@@ -231,11 +261,9 @@ function drawDocument(doc: PDFKit.PDFDocument, inputs: AgreementPdfInputs, logo:
   numbered(doc, '12.2', 'Neither Party shall be liable for any indirect, special, or consequential losses including loss of profit, revenue, or goodwill.');
 
   section(doc, '13. Termination');
-  numbered(doc, '13.1', 'Either Party may terminate this Agreement:');
-  alphaList(doc, [
-    'At any time after the Initial Period of 3 months. After this time, 30 days’ written notice is required.',
-  ]);
-  numbered(doc, '13.2', 'Either Party may terminate immediately if the other Party commits a material breach that remains unremedied after 10 days of written notice.');
+  numbered(doc, '13.1', clause131(free));
+  numbered(doc, '13.2', clause132());
+  numbered(doc, '13.3', clause133());
 
   section(doc, '14. Force Majeure');
   para(doc, 'Neither Party shall be liable for any failure or delay caused by circumstances beyond its reasonable control, including acts of God, network failures, or telecommunications outages.');

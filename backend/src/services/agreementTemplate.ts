@@ -14,6 +14,10 @@
 // in clauses 9, 12, 13 are mis-numbered) are intentional — they mirror the
 // source document verbatim. Fix the source, then bump TEMPLATE_VERSION here.
 
+import {
+  clause31, clause32, clause33, clause131, clause132, clause133, freePeriodShape,
+} from './agreementTerms.js';
+
 export const TEMPLATE_VERSION = '1.2';
 
 export type LicenceTier = 'assist' | 'automate' | 'connect';
@@ -72,15 +76,16 @@ export function renderAgreementHtml(inputs: AgreementInputs): string {
     .map((l) => `<li><strong>${LICENCE_DETAILS[l].name}</strong> — ${LICENCE_DETAILS[l].description}</li>`)
     .join('');
 
+  // Shared with agreementPdf.ts, so the copy the customer is EMAILED cannot say something
+  // different from the one they signed on screen. It did, for sixteen weeks — see
+  // agreementTerms.ts.
+  const free = freePeriodShape(inputs);
+  const hasFreePeriod = free.has;
+  const freePeriodName = free.name;
+  // Clause 5.2 still names the numbers directly, so it needs the raw values as well.
   const trialDays = inputs.freeTrialDays && inputs.freeTrialDays > 0 ? inputs.freeTrialDays : null;
   const freeBookings =
     inputs.freeUntilBookings && inputs.freeUntilBookings > 0 ? inputs.freeUntilBookings : null;
-  const hasFreePeriod = Boolean(trialDays || freeBookings);
-  // How the free period is referred to in the clauses that survive it.
-  const freePeriodName = trialDays ? 'free trial' : 'free period';
-  const freePeriodDesc = trialDays
-    ? `a <strong>${trialDays}-day free trial</strong>`
-    : `a <strong>free period lasting until the Client has taken ${freeBookings} confirmed bookings</strong> through the Services`;
 
   const messagingFee = inputs.messagingFeeGbp ?? 0;
   const messagingCentres = messagingFee > 0
@@ -150,19 +155,9 @@ export function renderAgreementHtml(inputs: AgreementInputs): string {
 
   <section>
     <h2>3. Term</h2>
-    <p><strong>3.1</strong> This Agreement shall commence on the agreed &ldquo;Go Live&rdquo; date${
-      inputs.goLiveDate ? ` (<strong>${fmtDate(inputs.goLiveDate)}</strong>)` : ''
-    } and shall comprise: ${
-      hasFreePeriod
-        ? `(a) ${freePeriodDesc}; (b) an initial fixed term of <strong>three (3) months</strong> (the &ldquo;Proof Period&rdquo;) commencing at the end of the ${freePeriodName}; and (c)`
-        : `(a) an initial fixed term of <strong>three (3) months</strong> (the &ldquo;Proof Period&rdquo;); and (b)`
-    } upon expiry of the Proof Period, a <strong>minimum term of twelve (12) months</strong> (the &ldquo;Contract Term&rdquo;) into which this Agreement shall automatically continue.</p>
-    ${
-      hasFreePeriod
-        ? `<p><strong>3.2</strong> During the ${freePeriodName} the Client may cancel at any time at no cost and shall not be charged. After the ${freePeriodName} the Client is committed to the Proof Period and the subsequent Contract Term and may terminate only in accordance with Clause 13.</p>`
-        : `<p><strong>3.2</strong> The Client is committed to the Proof Period and the subsequent Contract Term and may terminate only in accordance with Clause 13.</p>`
-    }
-    <p><strong>3.3</strong> At the end of the Contract Term, and at the end of each subsequent term, this Agreement shall renew automatically for a further fixed term of twelve (12) months unless either Party gives not less than thirty (30) days&rsquo; written notice before the end of the then-current term.</p>
+    <p><strong>3.1</strong> ${esc(clause31(free, inputs.goLiveDate ? ` (${fmtDate(inputs.goLiveDate)})` : ''))}</p>
+    <p><strong>3.2</strong> ${esc(clause32(free))}</p>
+    <p><strong>3.3</strong> ${esc(clause33())}</p>
 
     <p>The Provider shall:</p>
     <ol type="a">
@@ -281,13 +276,9 @@ export function renderAgreementHtml(inputs: AgreementInputs): string {
 
   <section>
     <h2>13. Termination</h2>
-    <p><strong>13.1</strong> ${
-      hasFreePeriod
-        ? `The Client may cancel at any time during the ${freePeriodName} at no cost. Thereafter the Client is committed`
-        : 'The Client is committed'
-    } to the Proof Period and the Contract Term and may not terminate for convenience during those periods. Should the Client cease to use the Services, or seek to exit, before the end of the then-current committed term other than for cause, the remaining Licence Fees for that term shall remain payable.</p>
-    <p><strong>13.2</strong> Following the Contract Term, and during any subsequent renewal term, either Party may terminate on not less than thirty (30) days&rsquo; written notice given before the end of the then-current term, in accordance with Clause 3.3.</p>
-    <p><strong>13.3</strong> Either Party may terminate immediately if the other Party commits a material breach that remains unremedied after 10 days of written notice, or upon the other Party&rsquo;s insolvency.</p>
+    <p><strong>13.1</strong> ${esc(clause131(free))}</p>
+    <p><strong>13.2</strong> ${esc(clause132())}</p>
+    <p><strong>13.3</strong> ${esc(clause133())}</p>
   </section>
 
   <section>
@@ -364,6 +355,9 @@ export const AGREEMENT_CSS = `
 .rm-sig-img { display: block; max-width: 100%; height: auto; max-height: 110px; background: #ffffff; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px; }
 @media (max-width: 640px) { .rm-sig-grid { grid-template-columns: 1fr; } }
 `;
+
+/** Short alias used by the shared-clause interpolations above. */
+const esc = (s: string): string => escapeHtml(s);
 
 function escapeHtml(s: string): string {
   return s

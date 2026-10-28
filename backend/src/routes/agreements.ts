@@ -813,6 +813,10 @@ async function sendSignedCopies(args: {
     messagingCentresCount?: number | null;
     licences: string[];
     goLiveDate: Date | null;
+    // Same two fields buildSnapshot takes. Their absence here is why the emailed PDF could not
+    // render the free period even after the HTML learned to.
+    freeTrialDays?: number | null;
+    freeUntilBookings?: number | null;
   };
   snapshot: string;
   signedByName: string;
@@ -861,6 +865,10 @@ async function sendSignedCopies(args: {
         messagingCentresCount: args.agreement.messagingCentresCount ?? null,
         licences: args.agreement.licences as LicenceTier[],
         goLiveDate: args.agreement.goLiveDate,
+        // Without these the PDF renders the no-free-period wording even when a trial was sold,
+        // so the copy the customer keeps never mentions the free period they were given.
+        freeTrialDays: args.agreement.freeTrialDays ?? null,
+        freeUntilBookings: args.agreement.freeUntilBookings ?? null,
         effectiveDate: args.signedAt,
         signedByName: args.signedByName,
         signedByPosition: args.signedByPosition,
@@ -1118,6 +1126,8 @@ router.get('/admin/agreements/:id/pdf', authenticate, requireAdmin, async (req: 
       messagingCentresCount: agreement.messagingCentresCount ?? null,
       licences: agreement.licences as LicenceTier[],
       goLiveDate: agreement.goLiveDate,
+      freeTrialDays: agreement.freeTrialDays ?? null,
+      freeUntilBookings: agreement.freeUntilBookings ?? null,
       effectiveDate: agreement.signedAt ?? agreement.externallySignedAt,
       signedByName: agreement.signedByName ?? '',
       // Blank for anything signed before this column existed — the position is in that

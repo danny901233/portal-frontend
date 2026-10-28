@@ -124,7 +124,9 @@ export default function TryClient({ slug }: { slug: string }) {
       const res = await fetch('/api/livekit/demo-token', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prospectSlug: slug, voice: 'leah' }),
+        // No voice. This page has no picker, and a voice sent here overrides the prospect's own
+        // configured one — a hard-coded "leah" here is why every personal demo answered as Leah.
+        body: JSON.stringify({ prospectSlug: slug }),
       });
       if (res.status === 429) throw new Error('You have already tried this recently.');
       if (res.status === 503) throw new Error('All demo lines are busy — try again in a few minutes.');

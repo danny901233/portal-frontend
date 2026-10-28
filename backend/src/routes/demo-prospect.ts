@@ -1,5 +1,5 @@
 // Builds a cold prospect their own AI receptionist, on demand, the first time they click the
-// personal link in our email — so they hear "Good afternoon, Hilltop Motors, Leah speaking"
+// personal link in our email — so they hear "Good afternoon, Hilltop Motors, Sophie speaking"
 // rather than a generic demo.
 //
 // THE WHOLE TRICK, and why there is no Garage row anywhere in this file:
@@ -427,7 +427,10 @@ router.post('/public/demo-prospect/:slug', async (req: Request, res: Response) =
     // if the scrape finds a real address there; otherwise the agent simply does not offer one.
     emailAddress: '',
     weeklyOpeningHours: hours,
-    greetingLine: `[timeofday], ${spokenName}, Leah speaking, how can I help?`,
+    // The name and the voice have to move together. PERSONA_NAME falls back to the voice key
+    // capitalised when agentName is unset (configure_for_garage in the unified agent), so a
+    // mismatch here is an agent reading "Leah speaking" in Sophie's voice.
+    greetingLine: `[timeofday], ${spokenName}, Sophie speaking, how can I help?`,
     // A garage rule rather than a hope. The agent renders customRules under "# Garage rules …
     // They win over the general guidance above", and any rule containing "never" is promoted to a
     // HARD RULE, so this is the strongest lever the config has. Worded with "never" on purpose.
@@ -445,7 +448,7 @@ router.post('/public/demo-prospect/:slug', async (req: Request, res: Response) =
     agentType: 'automate',
     allowBookings: true,
     bookingLeadTimeDays: 1,
-    voice: 'leah',
+    voice: 'sophie',
     // There is nobody to transfer a demo caller to, and an escalation that rings nothing is a
     // worse demo than no escalation at all.
     humanEscalation: false,

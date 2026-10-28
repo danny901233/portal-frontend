@@ -249,7 +249,7 @@ router.post('/livekit/demo-token', async (req: Request, res: Response) => {
   }
 
   const requested = String(req.body?.voice ?? '').toLowerCase();
-  const voice = DEMO_VOICES.has(requested) ? requested : 'leah';
+  const pickedVoice = DEMO_VOICES.has(requested) ? requested : null;
   // Default to Inworld: Olivia is the only British voice among the four expressive engines, and
   // comparing a British agent against an American one tests accent rather than expression.
   const requestedTts = String(req.body?.tts ?? '').toLowerCase();
@@ -262,8 +262,17 @@ router.post('/livekit/demo-token', async (req: Request, res: Response) => {
   // no agent change. The "_web_" segment is what tells the agent this is a browser call, which
   // it uses only to make the greeting non-interruptible (laptop speaker echo reads as a barge-in).
   // A personal link resolves to that prospect's own agent; everything else is the shared demo.
-  const demoAgentId = (useUnified ? await resolveProspectAgentId(req.body?.prospectSlug) : null)
-    ?? DEMO_GARAGE_ID;
+  const prospectAgentId = useUnified ? await resolveProspectAgentId(req.body?.prospectSlug) : null;
+  const demoAgentId = prospectAgentId ?? DEMO_GARAGE_ID;
+
+  // A voice in the dispatch metadata OVERRIDES the garage's configured voice on a web room — that
+  // is what makes the /demo picker work at all. It also meant a prospect's own agent could never
+  // use its own voice: /try sent a hard-coded "leah" with every token request, so all 10,211
+  // personal demos answered as Leah whatever their config said, and changing the config would
+  // have appeared to do nothing. A prospect's agent has no picker, so send no voice for one
+  // unless a voice was actually asked for, and let its config decide. The shared demo keeps its
+  // Leah default, which is what the picker's cards fall back to.
+  const voice = pickedVoice ?? (prospectAgentId ? null : 'leah');
 
   // The lead rides along in the room name, which is the one field that survives the whole trip to
   // the Call row — the agent posts it back, so services/demoLead.ts can read it off the call and
@@ -333,7 +342,7 @@ router.post('/livekit/demo-token', async (req: Request, res: Response) => {
   try {
     const dispatchClient = new AgentDispatchClient(httpUrl, lkKey, lkSecret);
     await dispatchClient.createDispatch(roomName, agentName, {
-      metadata: JSON.stringify({ kind: 'web-demo', voice, ...(expressive && { expressive: true, tts }) }),
+      metadata: JSON.stringify({ kind: 'web-demo', ...(voice && { voice }), ...(expressive && { expressive: true, tts }) }),
     });
   } catch (err) {
     console.error(`[demo] failed to dispatch "${agentName}" into ${roomName}:`, err);

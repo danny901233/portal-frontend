@@ -942,7 +942,19 @@ export const sendAgentConfigWebhook = async (garageId: string) => {
     }
 
     // AUTHORITATIVE: write the runtime config the agent reads, directly to DynamoDB, LAST so it wins.
-    await writeAgentConfigToDynamo(garageId, configuration, knowledgeBase, knowledgeVersion);
+    //
+    // twilioNumber rides along INSIDE the configuration blob, because that blob is the only thing
+    // the agent reads — it was already fetched above and handed to the legacy webhook only. The
+    // agent needs it to present the garage's own ReceptionMate number as the caller ID when it
+    // rings them to hand a caller over. Without it the outbound trunk's fixed +443333701610 is
+    // used, which is ReceptionMate's SALES line: Advanced Service Centre saw that number on every
+    // transferred call, and ringing it back reached our sales agent instead of their customer.
+    await writeAgentConfigToDynamo(
+      garageId,
+      { ...configuration, twilioNumber: garageRecord?.twilioNumber ?? null },
+      knowledgeBase,
+      knowledgeVersion,
+    );
   } catch (error) {
     console.error('[SYNC] Failed to sync agent configuration for', garageId, error);
   }

@@ -70,9 +70,22 @@ const SIP_EDGE = ';edge=frankfurt';
 // ceiling this endpoint is an uncapped way to spend agent, LLM and TTS minutes — and the link goes
 // out to hundreds of people at once. Keyed on the calling number, with a daily total as a backstop
 // for withheld numbers, which all collapse onto one key.
-const PER_CALLER_MAX = 3;
+const PER_CALLER_MAX = Number(process.env.DEMO_PHONE_PER_CALLER_MAX || 3);
 const PER_CALLER_WINDOW_MS = 60 * 60 * 1000;
 const DAILY_MAX = Number(process.env.DEMO_PHONE_DAILY_MAX || 150);
+
+// Our own numbers, exempt from the per-caller ceiling only. Three calls an hour is right for a
+// stranger and wrong for whoever is building these links: on 28 Oct the fourth test call of the
+// hour was refused with "the demo line is busy right now", which reads as an outage rather than a
+// limit, and cost a round of looking for one. Lives in the box .env beside VOICE_BLOCKED_CALLERS
+// so a number can be added without a deploy. Deliberately NOT exempt from the daily total — an
+// exemption that can spend the whole day's budget is a new way to take the line down.
+const EXEMPT_CALLERS = new Set(
+  (process.env.DEMO_PHONE_EXEMPT_CALLERS || '')
+    .split(',')
+    .map((n) => n.replace(/[^\d+]/g, '').trim())
+    .filter(Boolean),
+);
 
 const callsByNumber = new Map<string, { count: number; windowStart: number }>();
 let dayStamp = '';
@@ -85,7 +98,12 @@ const overCeiling = (from: string): string | null => {
   const key = from || 'withheld';
   const now = Date.now();
   const b = callsByNumber.get(key);
-  if (!b || now - b.windowStart >= PER_CALLER_WINDOW_MS) {
+  if (EXEMPT_CALLERS.has(key)) {
+    // Counted so the logs still show the traffic, never refused.
+    callsByNumber.set(key, b && now - b.windowStart < PER_CALLER_WINDOW_MS
+      ? { count: b.count + 1, windowStart: b.windowStart }
+      : { count: 1, windowStart: now });
+  } else if (!b || now - b.windowStart >= PER_CALLER_WINDOW_MS) {
     callsByNumber.set(key, { count: 1, windowStart: now });
   } else if (b.count >= PER_CALLER_MAX) {
     return `${PER_CALLER_MAX} calls from ${key} within the hour`;
@@ -211,7 +229,11 @@ router.all('/demo-prospect-call', async (req: Request, res: Response) => {
   const blocked = overCeiling(from);
   if (blocked) {
     console.warn(`[DEMO_CALL] refusing call from ${from || 'withheld'} — ${blocked}`);
-    return res.type('text/xml').send(say('Sorry, the demo line is busy right now. Please try again later.'));
+    // Say which it is. "Busy" was a lie in both cases and sent us looking for an outage.
+    return res.type('text/xml').send(say(blocked === 'daily cap'
+      ? 'Sorry, the demo line has taken all the calls it can today. Please try again tomorrow.'
+      : "You've already tried the demo a few times in the last hour. "
+        + 'Please give it a little while and call back.'));
   }
   if (!SIP_DOMAIN()) {
     console.error('[DEMO_CALL] LIVEKIT_SIP_DOMAIN_UNIFIED is not set — cannot route the call');

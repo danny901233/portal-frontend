@@ -413,7 +413,7 @@ const sanitizeConfigForResponse = (config: AgentConfigurationPayload) => {
   // 'demo' is the fake diary behind the demo line. It MUST be listed here: anything not in
   // this array is collapsed to 'none' on every save, which would silently leave the demo
   // garage with no diary and no booking tools — the same way a Bookar garage was reset.
-  const KNOWN_PROVIDERS: IntegrationProvider[] = ['garage_hive', 'bookar', 'poole', 'tyresoft', 'demo'];
+  const KNOWN_PROVIDERS: IntegrationProvider[] = ['garage_hive', 'bookar', 'poole', 'tyresoft', 'bosch', 'demo'];
   const sanitizedProvider: IntegrationProvider =
     KNOWN_PROVIDERS.includes(config.integrationProvider as IntegrationProvider)
       ? (config.integrationProvider as IntegrationProvider) : 'none';
@@ -1145,6 +1145,10 @@ router.put(
     const requestedProvider: IntegrationProvider =
       data.integrationProvider === 'garage_hive' ? 'garage_hive'
       : data.integrationProvider === 'demo' ? 'demo'
+      // Bosch must round-trip to the column: the chat router keys on provider === 'bosch',
+      // and leaving it collapsed to 'none' is what made the agent-setup dropdown snap back to
+      // "None" on every save (the spoId survived in the config JSON, but the UI reverted).
+      : data.integrationProvider === 'bosch' ? 'bosch'
       : 'none';
     const rawGarageHive = data.garageHiveSettings ?? {};
     const garageHiveSettings = requestedProvider === 'garage_hive'

@@ -129,6 +129,30 @@ export function resolveShortCallCallback(
   return existing === true;
 }
 
+/**
+ * Same rule and the same shape as resolveShortCallCallback, for the garage's country.
+ *
+ * Written first as an unconditional `data.country === 'IE' ? 'IE' : 'GB'`, which was wrong
+ * twice. A garage user could set it, when admin-only was the requirement — picking the wrong
+ * value breaks plate capture, postcode capture and the currency in one go. And worse, ANY save
+ * that left the field out reset it to 'GB': the garage's own settings tab does not send
+ * country, so the first time IC Garage saved their opening hours they would have quietly become
+ * British again, with Irish plates no longer settling and nothing to say why.
+ *
+ * That is the silent-revert family this file keeps meeting — the outbound-calling toggle above,
+ * and the validator strip that wiped a garage's FAQs. Omitted means UNCHANGED, never default.
+ */
+export function resolveCountry(
+  requested: string | undefined,
+  existing: string | undefined,
+  isStaff: boolean,
+): 'GB' | 'IE' {
+  const current: 'GB' | 'IE' = existing === 'IE' ? 'IE' : 'GB';
+  if (requested !== 'GB' && requested !== 'IE') return current;
+  if (isStaff) return requested;
+  return current;
+}
+
 export const parseIntegrationSettings = (
   providerValue: string | null | undefined,
   rawSettings: Prisma.JsonValue | null | undefined,
@@ -1081,12 +1105,16 @@ router.put(
     // the same shape, as agentScript above.
     // Read it on BOTH paths now: staff who omit the field keep the saved value too, so the
     // existing value has to be in hand either way.
-    const existingCallbackFlag = (
-      await prisma.agentConfiguration.findUnique({
-        where: { garageId },
-        select: { shortCallCallback: true },
-      })
-    )?.shortCallCallback;
+    const existingGated = await prisma.agentConfiguration.findUnique({
+      where: { garageId },
+      select: { shortCallCallback: true, country: true },
+    });
+    const existingCallbackFlag = existingGated?.shortCallCallback;
+    const resolvedCountry = resolveCountry(
+      data.country,
+      existingGated?.country ?? undefined,
+      isStaff,
+    );
     const resolvedShortCallCallback = resolveShortCallCallback(
       data.shortCallCallback,
       existingCallbackFlag ?? undefined,
@@ -1402,9 +1430,7 @@ router.put(
       notificationEmails: data.notificationEmails || [],
       integrationProvider: requestedProvider,
       integrationProviderConfig: integrationProviderConfig || undefined,
-      // Anything but 'IE' is Britain, including undefined — a blank must mean the behaviour
-      // every existing garage already has, not an empty country for the agent to puzzle over.
-      country: data.country === 'IE' ? 'IE' : 'GB',
+      country: resolvedCountry,
       agentType: resolvedAgentType,
       agentScript: resolvedAgentScript,
       enableSmsBookingLinks: data.enableSmsBookingLinks !== false,

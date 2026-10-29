@@ -4,6 +4,7 @@ import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { prisma } from '../db.js';
 import { agentTypeForScript } from '../utils/agentType.js';
+import { computeClosingAmount, renderLeaverEmail } from '../services/leaverNotice.js';
 import { authenticate, authenticateApiKey, requireAdmin, forgetRevocation } from '../middleware/auth.js';
 import { sendInvoiceCopies } from '../services/invoiceCopies.js';
 import { accountForAgentScript } from '../utils/agentAccount.js';
@@ -375,7 +376,42 @@ router.post('/admin/garages/:garageId/schedule-leaving', authenticate, requireAd
       },
     });
     console.log(`[LEAVER] ${req.user?.email} scheduled ${garage.name} to leave on ${when.toISOString().slice(0, 10)}${reason ? ` — ${reason}` : ''}`);
-    res.json({ success: true, name: garage.name, leavingDate: when, reason: reason ?? null });
+
+    // Work out what they owe and STAGE the email rather than sending it. Staged on purpose:
+    // the figure depends on reading advance billing correctly, and this exact account was
+    // mispriced twice in twenty minutes on 29 Oct 2026 — once at six times the real amount.
+    // A wrong number sent to a leaving customer is a dispute; a wrong number shown to us is a
+    // correction. computeClosingAmount refuses to commit when it cannot read the account, and
+    // that refusal has to reach a person, so it is reported here rather than swallowed.
+    let closing = null;
+    try {
+      closing = await computeClosingAmount(garageId);
+      if (closing.confident) {
+        console.log(`[LEAVER] ${garage.name}: closing amount ${(closing.totalPence / 100).toFixed(2)} `
+          + `(${closing.chargeableDays}/${closing.cycleDays} days beyond cover to `
+          + `${closing.paidTo?.toISOString().slice(0, 10)})`);
+      } else {
+        console.warn(`[LEAVER] ${garage.name}: cannot price the closing invoice — `
+          + closing.blockers.join('; '));
+      }
+    } catch (e) {
+      console.error('[LEAVER] closing amount failed:', e);
+    }
+
+    res.json({
+      success: true, name: garage.name, leavingDate: when, reason: reason ?? null,
+      // The draft for the staging screen: the figure, its working, and whether it can be trusted.
+      closing: closing && {
+        confident: closing.confident,
+        blockers: closing.blockers,
+        paidTo: closing.paidTo,
+        chargeableDays: closing.chargeableDays,
+        cycleDays: closing.cycleDays,
+        lines: closing.lines,
+        totalPence: closing.totalPence,
+        email: closing.confident ? renderLeaverEmail(closing) : null,
+      },
+    });
   } catch (error) {
     console.error('[ADMIN] failed to schedule leaving date:', error);
     res.status(500).json({ error: 'Could not set the leaving date' });

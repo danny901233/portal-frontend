@@ -33,6 +33,7 @@ import { raiseNegativeFeedbackTicket } from '../services/feedbackTicket.js';
 import { raiseTicketFromAiCall } from '../services/callTickets.js';
 import { sendDiscordNotification, DISCORD_COLORS } from '../utils/discord.js';
 import { notifyGarageUsers, garageUnreadBadge } from '../utils/push.js';
+import { sendBookingConfirmationSms } from '../services/bookingConfirmationSms.js';
 import { trackConfirmedBooking } from '../services/billing.js';
 import { logCallToHubSpot } from '../services/hubspot.js';
 import { analyzeCall, analyzeDeep } from '../services/callDiagnosis.js';
@@ -574,6 +575,12 @@ router.post('/calls', async (req: Request, res: Response) => {
                 voice: true,
                 notificationEmails: true,
                 integrationProviderConfig: true,
+                // For the booking confirmation text (#38). Both are REQUIRED here: a field
+                // that is not selected arrives as undefined, and `undefined !== false` is
+                // true — so leaving enableSmsBookingLinks out would silently defeat the
+                // per-garage switch rather than defaulting it off.
+                phoneNumber: true,
+                enableSmsBookingLinks: true,
               },
             },
           },
@@ -913,6 +920,33 @@ router.post('/calls', async (req: Request, res: Response) => {
           badge,
         });
       })();
+    }
+
+    // The booking confirmation text — receptionmate-agents#38.
+    //
+    // The agent has been telling callers "you'll get a confirmation link, it's sent
+    // automatically" since the feature shipped, and nothing sent one: SmsBookingLink had zero
+    // rows all time. This is the send that was missing. Same fire-and-forget shape as the push
+    // above, and the same isTestCaller guard, so our own test numbers never get a real text.
+    //
+    // TWO locks, both required. enableSmsBookingLinks has been switched on for 41 garages since
+    // long before anything could send, so honouring it alone would text several hundred real
+    // customers on the first deploy. BOOKING_SMS_GARAGE_IDS is empty by default, which means
+    // nobody, and is how this gets rolled out one garage at a time.
+    if (payload.confirmedBooking && !isTestCaller(payload.customerPhone, payload.fromNumber)) {
+      void sendBookingConfirmationSms({
+        garageId: payload.garageId,
+        garageName:
+          (createdCall.garage?.agentConfiguration?.branchName || '').trim() ||
+          (createdCall.garage?.name || '').trim() ||
+          'the garage',
+        garagePhone: createdCall.garage?.agentConfiguration?.phoneNumber ?? null,
+        customerPhone: customerPhone || payload.customerPhone || null,
+        bookingAt: createdCall.bookingAt ?? null,
+        registrationNumber: payload.registrationNumber ?? null,
+        smsEnabled:
+          createdCall.garage?.agentConfiguration?.enableSmsBookingLinks !== false,
+      });
     }
 
     // Send to HubSpot if configured

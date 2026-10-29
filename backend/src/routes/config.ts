@@ -5,7 +5,8 @@ import { Router } from 'express';
 import { prisma } from '../db.js';
 import { authenticate } from '../middleware/auth.js';
 import { requireManagerLive } from '../middleware/auth.js';
-import { resolveAllowedGarages } from '../utils/auth.js';
+import { mayAccessGarage } from '../utils/auth.js';
+import { agentTypeForScript } from '../utils/agentType.js';
 import { upsertAgentConfigurationSchema, weeklyOpeningHoursSchema, websiteScanSchema } from '../utils/validators.js';
 import multer from 'multer';
 import { randomUUID } from 'node:crypto';
@@ -804,9 +805,7 @@ router.get(
   requireManagerLive,
   async (req: Request, res: Response) => {
     const { garageId } = req.params;
-    const allowedGarages = resolveAllowedGarages(req.user);
-
-    if (!allowedGarages.includes(garageId)) {
+    if (!mayAccessGarage(req.user, garageId)) {
       return res.status(403).json({ error: 'Forbidden' });
     }
 
@@ -1032,9 +1031,7 @@ router.put(
   requireManagerLive,
   async (req: Request, res: Response) => {
     const { garageId } = req.params;
-    const allowedGarages = resolveAllowedGarages(req.user);
-
-    if (!allowedGarages.includes(garageId)) {
+    if (!mayAccessGarage(req.user, garageId)) {
       return res.status(403).json({ error: 'Forbidden' });
     }
 
@@ -1098,7 +1095,7 @@ router.put(
     // agentType is DERIVED from the agent script — the script is the single source of truth.
     // Only the Assist agent is message-only; every other script books. Deriving it makes type and
     // script structurally unable to drift (drift previously mis-routed assist garages to a dead account).
-    const resolvedAgentType: 'assist' | 'automate' = resolvedAgentScript === 'Assist-agent' ? 'assist' : 'automate';
+    const resolvedAgentType = agentTypeForScript(resolvedAgentScript);
 
     const normalizedWeeklyOpeningHours = data.weeklyOpeningHours
       ? cloneWeeklyOpeningHours(data.weeklyOpeningHours)
@@ -1522,9 +1519,7 @@ router.post(
   authenticate,
   async (req: Request, res: Response) => {
     const { garageId } = req.params;
-    const allowedGarages = resolveAllowedGarages(req.user);
-
-    if (!allowedGarages.includes(garageId)) {
+    if (!mayAccessGarage(req.user, garageId)) {
       return res.status(403).json({ error: 'Forbidden' });
     }
 
@@ -1602,8 +1597,7 @@ router.post(
   handleKnowledgeUpload,
   async (req: Request, res: Response) => {
     const { garageId } = req.params;
-    const allowedGarages = resolveAllowedGarages(req.user);
-    if (!allowedGarages.includes(garageId)) {
+    if (!mayAccessGarage(req.user, garageId)) {
       return res.status(403).json({ error: 'Forbidden' });
     }
 
@@ -1672,8 +1666,7 @@ router.delete(
   requireManagerLive,
   async (req: Request, res: Response) => {
     const { garageId, uploadId } = req.params;
-    const allowedGarages = resolveAllowedGarages(req.user);
-    if (!allowedGarages.includes(garageId)) {
+    if (!mayAccessGarage(req.user, garageId)) {
       return res.status(403).json({ error: 'Forbidden' });
     }
     const result = await prisma.agentKnowledgeDocument.deleteMany({
@@ -1872,8 +1865,7 @@ router.post(
   servicesCsvUpload.single('file'),
   async (req: Request, res: Response) => {
     const { garageId } = req.params;
-    const allowedGarages = resolveAllowedGarages(req.user);
-    if (!allowedGarages.includes(garageId)) {
+    if (!mayAccessGarage(req.user, garageId)) {
       return res.status(403).json({ error: 'Forbidden' });
     }
     if (!req.file?.buffer) {
@@ -1935,8 +1927,7 @@ router.delete(
   requireManagerLive,
   async (req: Request, res: Response) => {
     const { garageId } = req.params;
-    const allowedGarages = resolveAllowedGarages(req.user);
-    if (!allowedGarages.includes(garageId)) {
+    if (!mayAccessGarage(req.user, garageId)) {
       return res.status(403).json({ error: 'Forbidden' });
     }
     const existing = await prisma.agentConfiguration.findUnique({

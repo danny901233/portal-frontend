@@ -1,7 +1,7 @@
 import type { Request, Response } from 'express';
 import { Router } from 'express';
 import { authenticate } from '../middleware/auth.js';
-import { resolveAllowedGarages } from '../utils/auth.js';
+import { mayAccessGarage } from '../utils/auth.js';
 import { prisma } from '../db.js';
 
 const router = Router();
@@ -25,8 +25,7 @@ router.post(
     const { voiceId, lang } = req.body;
     const isFrench = lang === 'fr';
 
-    const allowedGarages = resolveAllowedGarages(req.user);
-    if (!allowedGarages.includes(garageId)) {
+    if (!mayAccessGarage(req.user, garageId)) {
       return res.status(403).json({ error: 'Forbidden' });
     }
 

@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { prisma } from '../db.js';
+import { agentTypeForScript } from '../utils/agentType.js';
 import { authenticate, authenticateApiKey, requireAdmin, forgetRevocation } from '../middleware/auth.js';
 import { sendInvoiceCopies } from '../services/invoiceCopies.js';
 import { accountForAgentScript } from '../utils/agentAccount.js';
@@ -657,6 +658,9 @@ router.post('/admin/businesses/:businessId/branches', authenticateApiKey, requir
       interruptionSensitivity: 0.5,
       allowFastFitOnly: false,
       integrationProvider: 'none',
+      // No agentScript on this path, so the script column default applies and the type is
+      // derived from it rather than left to its own, inconsistent default.
+      agentType: agentTypeForScript(undefined),
     },
   });
 
@@ -1224,6 +1228,9 @@ router.post('/admin/onboard', authenticateApiKey, requireAdmin, async (req, res)
         allowFastFitOnly: false,
         // Booking system pick from the quick-onboard modal (defaults to 'none').
         integrationProvider: parsed.data.integrationProvider,
+        // Derived, never defaulted: the column default is 'assist' and nothing used to
+        // write it, so an Automate sale was born labelled Assist. See utils/agentType.ts.
+        agentType: agentTypeForScript(parsed.data.agentScript),
         // Routing pick from the quick-onboard modal (defaults to Assist-agent).
         agentScript: parsed.data.agentScript,
       },
@@ -1758,6 +1765,7 @@ router.post('/admin/businesses/:businessId/branches/batch', authenticateApiKey, 
         interruptionSensitivity: 0.5,
         allowFastFitOnly: false,
         integrationProvider: b.integrationProvider,
+        agentType: agentTypeForScript(b.agentScript),
         agentScript: b.agentScript,
       },
     });

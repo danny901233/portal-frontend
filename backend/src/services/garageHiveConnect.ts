@@ -20,11 +20,12 @@ import { sendOpsSms } from '../utils/opsAlerts.js';
 import { setOnboardingStage } from '../utils/onboardingStage.js';
 import { sendAgentConfigWebhook } from '../routes/config.js';
 import { sendEmail, brandedEmailShell } from '../utils/email.js';
+import { buildGettingReadyEmail, GH_OTHER_GUIDE_URL } from './gettingReadyEmail.js';
 
 const GH_BASE = 'https://onlinebooking.garagehive.co.uk/api/external-booking';
 const PORTAL_URL = (process.env.PORTAL_URL || 'https://portal.receptionmate.co.uk').replace(/\/$/, '');
 // GarageHive's own guide for adding the "Other" service package the agent needs to book custom jobs.
-const GH_OTHER_GUIDE_URL = 'https://garagehive-co.slite.com/app/docs/YzHdXMeW8CwmE3/How-to-Set-Up-an-Other-Service-Package-for-Custom-Online-Bookings';
+
 
 // The agent a newly connected GarageHive garage is put on. Was receptionmate-agent-v3; the
 // unified agent now serves GarageHive garages, so new connections land there.
@@ -304,6 +305,7 @@ export const sendGarageHiveGettingReady = async (garageId: string): Promise<bool
     select: {
       id: true,
       name: true,
+      businessId: true,
       agentConfiguration: {
         select: { integrationProviderConfig: true, agentScript: true, integrationProvider: true },
       },
@@ -331,21 +333,58 @@ export const sendGarageHiveGettingReady = async (garageId: string): Promise<bool
     where: { garageId },
     data: { integrationProviderConfig: { ...ipc, gettingReadyEmailedAt: new Date().toISOString() } },
   });
-  const body =
-    `<tr><td style="padding: 32px;">` +
-    `<h1 style="margin:0 0 14px;font-size:20px;color:#0f172a;font-weight:700;">Getting ${garage.name} ready</h1>` +
-    `<p style="margin:0 0 12px;font-size:15px;line-height:1.55;color:#475569;">Thanks for signing. Your ReceptionMate agent books straight into your <strong>existing Garage Hive online booking system</strong> — nothing new to learn, and your diary stays exactly as it is.</p>` +
-    `<p style="margin:0 0 12px;font-size:15px;line-height:1.55;color:#475569;">One thing to set up in Garage Hive while we finish your agent: add an <strong>“Other”</strong> service package, so the agent can book custom jobs that don't match a standard service. Garage Hive's guide walks you through it — <a href="${GH_OTHER_GUIDE_URL}" style="color:#3426cf;font-weight:600;">How to set up an “Other” service package</a>.</p>` +
-    `<p style="margin:0;font-size:15px;line-height:1.55;color:#475569;">Do this whenever suits — we'll email you again the moment your agent is live.</p>` +
-    `</td></tr>`;
+  // The email now carries the Garage Link Advanced steps, and those name the application the
+  // garage has to approve. Without the client ID the whole email is unactionable — it would ask
+  // them to paste a blank into Business Central — so a missing value is logged loudly and
+  // nothing is sent, the same rule as GARAGEHIVE_CONNECT_EMAIL_TO below.
+  const clientId = (process.env.GARAGEHIVE_CLIENT_ID || '').trim();
+  if (!clientId) {
+    console.error(
+      '[GH-READY] GARAGEHIVE_CLIENT_ID is not set — NOT sending the getting-ready email for',
+      garageId,
+    );
+    return false;
+  }
+
+  // A real first name if we have one. This fires right after signing, so the signatory is the
+  // best source; the business contact is the fallback. User has no name column at all.
+  const [signed, business, branchCount] = await Promise.all([
+    garage.businessId
+      ? prisma.agreement.findFirst({
+          where: { businessId: garage.businessId, signedByName: { not: null } },
+          orderBy: { signedAt: 'desc' },
+          select: { signedByName: true },
+        })
+      : null,
+    garage.businessId
+      ? prisma.business.findUnique({
+          where: { id: garage.businessId },
+          select: { contactName: true },
+        })
+      : null,
+    garage.businessId
+      ? prisma.garage.count({ where: { businessId: garage.businessId, archivedAt: null } })
+      : 1,
+  ]);
+  const fullName = (signed?.signedByName || business?.contactName || '').trim();
+  const firstName = fullName.split(/\s+/)[0] || '';
+
+  const email = buildGettingReadyEmail({
+    garageName: garage.name,
+    firstName,
+    branchCount: branchCount || 1,
+    clientId,
+  });
   void sendEmail({
     to: [manager.email],
-    subject: `Getting ${garage.name} ready on ReceptionMate`,
-    text:
-      `Thanks for signing. Your ReceptionMate agent books straight into your existing Garage Hive online booking system.\n\n` +
-      `One thing to set up in Garage Hive while we finish your agent: add an "Other" service package so the agent can book custom jobs. ` +
-      `Garage Hive's guide: ${GH_OTHER_GUIDE_URL}\n\nDo this whenever suits — we'll email you again the moment your agent is live.`,
-    html: brandedEmailShell(body),
+    replyTo: email.replyTo,
+    subject: email.subject,
+    text: email.text,
+    html: email.html,
+    // Tagged so /admin/email-log can tell this apart from every other send. Every row in that
+    // table currently reads template "unknown", which tells you an email went but not which one.
+    template: 'gh-getting-ready',
+    garageId,
   });
   return true;
 };

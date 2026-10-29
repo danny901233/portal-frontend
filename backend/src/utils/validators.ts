@@ -309,6 +309,12 @@ export const upsertAgentConfigurationSchema = z.object({
   tyresoftSettings: tyresoftSettingsSchema,
   bookarSettings: z.object({ bookarClientId: optionalBoundedString(200), bookarClientSecret: optionalBoundedString(1000), bookarApiBase: optionalBoundedString(500) }).optional(),
   pooleSettings: z.object({ branchKey: optionalBoundedString(500), tenant: optionalBoundedString(100), branchCode: optionalBoundedString(100) }).optional(),
+  // Which country's registration and postcode formats the voice agent uses. Admin-only, and
+  // 'GB' for every garage but IC Garage LTD (Naas, Co. Kildare). Declared HERE as well as in
+  // the save handler for the reason the two comments below already record: the body is
+  // zod-parsed first, so an undeclared field is stripped and never saves — the agent would go
+  // on reading an Irish garage as British with nothing in the logs to say why.
+  country: z.enum(['GB', 'IE']).optional(),
   agentType: z.enum(['assist', 'automate']).optional(),
   agentScript: z.enum(['receptionmate-agent', 'receptionmate-agent-v3', 'tyresoft-agent', 'MMH-agent', 'bookar-agent', 'poole-agent', 'Assist-agent', 'GarageHive-agent', 'unified-agent']).optional(),
   enableSmsBookingLinks: z.boolean().optional(),

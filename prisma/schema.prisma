@@ -591,6 +591,10 @@ model AgentConfiguration {
   notificationEmails        String[] @default([])
   integrationProvider       String   @default("none")
   integrationProviderConfig Json?
+  // GB | IE — which country's registration and postcode formats the voice agent uses. Admin
+  // only, and GB for every garage but IC Garage LTD (Naas, Co. Kildare). The default means
+  // every existing row is already correct and no backfill is needed.
+  country                   String   @default("GB")
   agentType                 String   @default("assist")
   agentScript               String   @default("receptionmate-agent")
   enableSmsBookingLinks     Boolean  @default(true)

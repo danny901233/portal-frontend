@@ -292,6 +292,10 @@ export interface AgentConfiguration {
   garageHiveSettings: GarageHiveSettings;
   tyresoftSettings: TyresoftSettings;
   hubspotSettings: HubspotSettings;
+  /** GB | IE. Admin-only; drives the agent's plate, postcode, currency and NCT handling.
+   *  Optional because config objects built before this field existed do not carry it, and
+   *  every reader treats anything that is not 'IE' as 'GB'. The API always sends it. */
+  country?: 'GB' | 'IE';
   agentType: AgentType;
   agentScript: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent' | 'GarageHive-agent' | 'MMH-agent' | 'unified-agent';
   enableSmsBookingLinks: boolean;

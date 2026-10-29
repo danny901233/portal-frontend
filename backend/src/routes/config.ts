@@ -554,6 +554,7 @@ export const buildConfigurationResponse = (configuration: PrismaAgentConfigurati
     dropOffMessage: configuration.dropOffMessage || 'drop your vehicle off between 8am and half ten in the morning',
     dropOffExcludeServices: configuration.dropOffExcludeServices || ['MOT'],
     notificationEmails: configuration.notificationEmails || [],
+    country: ((configuration as Record<string, unknown>).country === 'IE' ? 'IE' : 'GB') as 'GB' | 'IE',
     agentType: (configuration.agentType === 'automate' ? 'automate' : 'assist') as 'assist' | 'automate',
     enableSmsBookingLinks: configuration.enableSmsBookingLinks !== false,
     humanEscalation: (configuration as Record<string, unknown>).humanEscalation !== false,
@@ -1401,6 +1402,9 @@ router.put(
       notificationEmails: data.notificationEmails || [],
       integrationProvider: requestedProvider,
       integrationProviderConfig: integrationProviderConfig || undefined,
+      // Anything but 'IE' is Britain, including undefined — a blank must mean the behaviour
+      // every existing garage already has, not an empty country for the agent to puzzle over.
+      country: data.country === 'IE' ? 'IE' : 'GB',
       agentType: resolvedAgentType,
       agentScript: resolvedAgentScript,
       enableSmsBookingLinks: data.enableSmsBookingLinks !== false,

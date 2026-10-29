@@ -94,6 +94,14 @@ export default function AdminTab({ config, save, isSaving }: Props) {
       ],
       agentScriptHint:
         'Saving with a different agent script triggers the onboarding service to update the SIP dispatch rule. Assist-agent routes to LiveKit Account 2; the others stay on Account 1.',
+      countryLabel: 'Country',
+      countryGB: 'United Kingdom',
+      countryIE: 'Ireland (Republic)',
+      countryHint:
+        'Changes how the agent reads registrations and postcodes, which currency it quotes in, '
+        + 'and whether it talks about MOTs or the NCT. Northern Ireland is United Kingdom — it '
+        + 'uses UK plates, BT postcodes and sterling. Only pick Ireland for a garage in the '
+        + 'Republic.',
       bookingSystemLabel: 'Booking system',
       bookingSystemHint: 'Which diary this garage books into. The unified agent uses the adapter you pick here.',
       bsNone: 'None — take messages only',
@@ -177,6 +185,14 @@ export default function AdminTab({ config, save, isSaving }: Props) {
       ],
       agentScriptHint:
         'Enregistrer avec un script d’agent différent déclenche la mise à jour de la règle de dispatch SIP par le service de mise en service. Assist-agent est routé vers LiveKit Account 2 ; les autres restent sur Account 1.',
+      countryLabel: 'Pays',
+      countryGB: 'Royaume-Uni',
+      countryIE: 'Irlande (République)',
+      countryHint:
+        'Modifie la lecture des immatriculations et des codes postaux par l’agent, la devise '
+        + 'des tarifs, et s’il parle du MOT ou du NCT. L’Irlande du Nord relève du Royaume-Uni '
+        + '— plaques britanniques, codes postaux BT et livre sterling. Ne choisissez l’Irlande '
+        + 'que pour un garage en République d’Irlande.',
       bookingSystemLabel: 'Système de réservation',
       bookingSystemHint: 'L’agenda dans lequel ce garage réserve. L’agent unifié utilise l’adaptateur choisi ici.',
       bsNone: 'Aucun — messages uniquement',
@@ -240,6 +256,9 @@ export default function AdminTab({ config, save, isSaving }: Props) {
   const [integrationProvider, setIntegrationProvider] = useState<IntegrationProvider>(
     (config.integrationProvider as IntegrationProvider) ?? 'none'
   );
+  // Anything that is not explicitly IE is GB, so a garage saved before this field existed
+  // stays British rather than arriving here as undefined.
+  const [country, setCountry] = useState<'GB' | 'IE'>(config.country === 'IE' ? 'IE' : 'GB');
   const [gh, setGh] = useState<GarageHiveSettings>({
     ...EMPTY_GH,
     ...(config.garageHiveSettings ?? {}),
@@ -291,6 +310,7 @@ export default function AdminTab({ config, save, isSaving }: Props) {
     void save({
       agentType,
       agentScript,
+      country,
       integrationProvider: isGhAgent ? 'garage_hive' : integrationProvider,
       garageHiveSettings: gh,
       tyresoftSettings: ts,
@@ -375,6 +395,25 @@ export default function AdminTab({ config, save, isSaving }: Props) {
         <p className="mt-2 text-xs text-slate-500">
           {c.agentScriptHint}
         </p>
+      </div>
+
+      {/* Admin-only and GB for everyone but IC Garage LTD (Naas). Not on the garage's own
+          settings tab on purpose: picking the wrong one here breaks plate capture, postcode
+          capture and the currency all at once, and the symptom is a plate that never settles
+          rather than an error anybody could act on. */}
+      <div>
+        <label className="mb-2 block text-sm font-medium text-slate-700">
+          {c.countryLabel}
+        </label>
+        <select
+          value={country}
+          onChange={(e) => setCountry(e.target.value === 'IE' ? 'IE' : 'GB')}
+          className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
+        >
+          <option value="GB">{c.countryGB}</option>
+          <option value="IE">{c.countryIE}</option>
+        </select>
+        <p className="mt-1 text-xs text-slate-500">{c.countryHint}</p>
       </div>
 
       {/* The unified agent's diary comes from integrationProvider, not from the script, so this

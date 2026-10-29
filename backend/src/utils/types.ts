@@ -250,6 +250,9 @@ export type AgentConfigurationPayload = {
   garageHiveSettings: GarageHiveSettings;
   tyresoftSettings?: TyresoftSettings;
   hubspotSettings?: HubspotSettings;
+  /** GB | IE — which country's registration and postcode formats the voice agent uses.
+   *  Admin-only, and 'GB' for every garage but IC Garage LTD (Naas, Co. Kildare). */
+  country?: 'GB' | 'IE';
   agentType: AgentType;
   // 'bookar-agent' is accepted by the validator and used in config.ts but was missing here,
   // which is what made three of the agentScript comparisons fail to compile.

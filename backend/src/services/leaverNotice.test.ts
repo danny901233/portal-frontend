@@ -28,6 +28,8 @@ const MALLORY: ClosingAmount = {
   blockers: [],
   garageName: 'Mallory Performance Ltd',
   endsOn: new Date('2026-11-26T23:59:00Z'),
+  noticeGivenOn: new Date('2026-10-27T00:00:00Z'),
+  noticeDays: 30,
   paidTo: new Date('2026-11-20T00:00:00Z'),
   chargeableDays: 6,
   cycleDays: 30,
@@ -81,6 +83,35 @@ test('the email states the date, what stops, and the arithmetic', () => {
     assert.ok(body.includes('6/30 of £399.00'), 'the working, so it can be checked not queried');
     assert.ok(body.includes('20 November 2026'), 'what they are paid up to');
   }
+});
+
+test('the email explains WHY that date — the month\'s notice', () => {
+  const { html, text } = renderLeaverEmail(MALLORY);
+  for (const body of [html, text]) {
+    assert.ok(body.includes('27 October 2026'), 'the date notice was given');
+    assert.ok(/30 days' written notice/.test(body), 'the contractual term');
+    assert.ok(/one month/.test(body), 'in the words a customer uses');
+    assert.ok(body.includes('26 November 2026'), 'and therefore the last day');
+  }
+});
+
+test('it stays quiet about the notice arithmetic when the dates do not support it', () => {
+  // A date agreed as a favour, or notice taken verbally weeks earlier. Telling a customer
+  // "your agreement requires 30 days so service ends X" when the gap is 9 days contradicts
+  // their own paperwork, so the sentence is dropped and only the date is stated.
+  const odd = { ...MALLORY, noticeGivenOn: new Date('2026-11-17T00:00:00Z'), noticeDays: 9 };
+  const { html, text } = renderLeaverEmail(odd);
+  for (const body of [html, text]) {
+    assert.ok(!/written notice/.test(body), 'no claim about the notice term');
+    assert.ok(body.includes('26 November 2026'), 'the closing date is still stated plainly');
+  }
+});
+
+test('no recorded notice date means no notice sentence', () => {
+  const none = { ...MALLORY, noticeGivenOn: null, noticeDays: null };
+  const { text } = renderLeaverEmail(none);
+  assert.ok(!/written notice/.test(text));
+  assert.ok(text.includes('26 November 2026'));
 });
 
 test('it does not sign off as a person', () => {

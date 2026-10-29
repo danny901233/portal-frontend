@@ -154,6 +154,26 @@ async function getOrCreateContact(
 
 // ─── LIST ──────────────────────────────────────────────────────────────────
 
+// The watchdog's own mail: paired "ALERT" and "recovered" notices, roughly four
+// fifths of everything open. Matched on the TITLE, deliberately, not the sender:
+// noreply@receptionmate.co.uk also sends DVLA licence checks, website leads, ops
+// boards and per-call notifications, and a sender-based rule would sweep those
+// into a mass close. Verified against the whole table — every ticket matching
+// this begins with the alert or recovery emoji, and nothing else does.
+export const ALERT_TICKET_WHERE: Prisma.TicketWhereInput = {
+  OR: [
+    { title: { contains: 'ReceptionMate ALERT' } },
+    { title: { contains: 'issue(s) recovered' } },
+  ],
+};
+
+const withGroup = (where: Prisma.TicketWhereInput, group: string | undefined) => {
+  if (group !== 'alerts' && group !== 'others') return where;
+  const and = Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : [];
+  where.AND = [...and, group === 'alerts' ? ALERT_TICKET_WHERE : { NOT: ALERT_TICKET_WHERE }];
+  return where;
+};
+
 router.get('/admin/tickets', authenticate, requireAdmin, async (req: Request, res: Response) => {
   const q = req.query as Record<string, string | undefined>;
   const where: Prisma.TicketWhereInput = {};
@@ -182,6 +202,10 @@ router.get('/admin/tickets', authenticate, requireAdmin, async (req: Request, re
     delete where.status;
   }
 
+  // Applied after the rest so a reference search still wins: that deletes the
+  // status filter to find a closed ticket, and must not be narrowed by a group.
+  if (!q.ref) withGroup(where, q.group);
+
   const take = Math.min(parseInt(q.limit || '50', 10), 200);
 
   const tickets = await prisma.ticket.findMany({
@@ -203,15 +227,19 @@ router.get('/admin/tickets', authenticate, requireAdmin, async (req: Request, re
 
 router.get('/admin/tickets/queue-counts', authenticate, requireAdmin, async (req: Request, res: Response) => {
   if (!req.user) return res.status(401).json({ error: 'Unauthorised' });
-  const [unassigned, mineOpen, pendingStale] = await Promise.all([
+  const notClosed = { status: { not: TicketStatus.closed } } as const;
+  const [unassigned, mineOpen, pendingStale, alertsOpen, othersOpen] = await Promise.all([
     prisma.ticket.count({ where: { assigneeId: null, status: { in: [TicketStatus.new_, TicketStatus.open] } } }),
     prisma.ticket.count({ where: { assigneeId: req.user.userId, status: TicketStatus.open } }),
     // Same definition as the sweep and the ?stale=1 list, so the chip's number
     // is the list's length.
     prisma.ticket.count({ where: staleWhere(REMIND_AFTER_DAYS) }),
+    // What the two group tabs show, so each tab's number is its list's length.
+    prisma.ticket.count({ where: { AND: [ALERT_TICKET_WHERE, notClosed] } }),
+    prisma.ticket.count({ where: { AND: [{ NOT: ALERT_TICKET_WHERE }, notClosed] } }),
   ]);
 
-  return res.json({ unassigned, mineOpen, pendingStale });
+  return res.json({ unassigned, mineOpen, pendingStale, alertsOpen, othersOpen });
 });
 
 // ─── DETAIL ────────────────────────────────────────────────────────────────
@@ -292,6 +320,52 @@ router.get('/admin/tickets/sent', authenticate, requireAdmin, async (req: Reques
   });
 
   return res.json({ messages });
+});
+
+// ─── CLOSE EVERY OPEN WATCHDOG ALERT ───────────────────────────────────────
+// Roughly 80% of the open queue is the watchdog talking to itself, and the UI
+// closes one ticket per press. This closes the lot.
+//
+// It takes NO ids and NO filter from the caller. The predicate is fixed here, in
+// the server, because the sender these share is also the sender of DVLA licence
+// checks and website leads: a bulk close driven by a client-supplied list is how
+// one of those gets buried. The worst a bad request can do is close alerts.
+//
+// MUST stay above '/admin/tickets/:id' — Express would otherwise read
+// "close-alerts" as a ticket id.
+router.post('/admin/tickets/close-alerts', authenticate, requireAdmin, async (req: Request, res: Response) => {
+  if (!req.user) return res.status(401).json({ error: 'Unauthorised' });
+
+  const targets = await prisma.ticket.findMany({
+    where: { AND: [ALERT_TICKET_WHERE, { status: { not: TicketStatus.closed } }] },
+    select: { id: true, status: true },
+  });
+  if (!targets.length) return res.json({ closed: 0 });
+
+  const now = new Date();
+  const authorUserId = req.user.userId;
+  await prisma.$transaction([
+    prisma.ticket.updateMany({
+      where: { id: { in: targets.map((t) => t.id) } },
+      data: { status: TicketStatus.closed, closedAt: now },
+    }),
+    // One entry each, so the audit trail reads the same as a close by hand and
+    // says which pass did it.
+    prisma.ticketEntry.createMany({
+      data: targets.map((t) => ({
+        ticketId: t.id,
+        kind: TicketEntryKind.status_change,
+        authorUserId,
+        body: `Status: ${dbStatusOut(t.status)} → closed (bulk close, watchdog alerts)`,
+      })),
+    }),
+  ]);
+
+  // Same mailbox bookkeeping as a single close, fire-and-forget per ticket so a
+  // slow mailbox cannot hold the response open.
+  for (const t of targets) void fileTicketMail(t.id, 'archive');
+
+  return res.json({ closed: targets.length });
 });
 
 router.get('/admin/tickets/:id', authenticate, requireAdmin, async (req: Request, res: Response) => {

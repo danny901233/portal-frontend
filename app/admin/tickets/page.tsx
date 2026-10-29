@@ -17,6 +17,7 @@ import {
   replyToTicket,
   addTicketNote,
   changeTicketStatus,
+  closeAlertTickets,
   composeTicket,
   markTicketSpam,
   markTicketNotSpam,
@@ -114,6 +115,11 @@ export default function AdminTicketsPage() {
   // filed and closed on the way in, which buries the handful of things that
   // actually want attention.
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('new');
+  // Watchdog alerts are most of the queue, so they get their own view. 'all'
+  // keeps the old behaviour for anyone who ignores the row.
+  const [groupFilter, setGroupFilter] = useState<'all' | 'alerts' | 'others'>('all');
+  const [confirmCloseAlerts, setConfirmCloseAlerts] = useState(false);
+  const [closingAlerts, setClosingAlerts] = useState(false);
   const [search, setSearch] = useState('');
   const [pendingDraftLoad, setPendingDraftLoad] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -189,6 +195,7 @@ export default function AdminTicketsPage() {
         : statusFilter === 'spam' ? { category: 'spam' }
         : statusFilter === 'stale' ? { stale: true }
         : { status: statusFilter };
+      if (groupFilter !== 'all' && !search.trim()) filters.group = groupFilter;
       const [t, c] = await Promise.all([
         fetchTickets(filters),
         fetchTicketQueueCounts(),
@@ -200,7 +207,7 @@ export default function AdminTicketsPage() {
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load tickets');
     }
-  }, [statusFilter, search]);
+  }, [statusFilter, search, groupFilter]);
 
   const loadThread = useCallback(async (id: string) => {
     try {
@@ -492,6 +499,92 @@ export default function AdminTicketsPage() {
           )}
         </div>
       </div>
+
+      {/* Alerts vs the rest. Sits under the status filters and above the list. */}
+      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2">
+        <div className="flex flex-wrap gap-1.5">
+          {([
+            ['all', 'All'],
+            ['alerts', `Alerts${counts ? ` · ${counts.alertsOpen}` : ''}`],
+            ['others', `Everything else${counts ? ` · ${counts.othersOpen}` : ''}`],
+          ] as const).map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              aria-pressed={groupFilter === key}
+              onClick={() => { setGroupFilter(key); setSelectedId(null); setSelected(null); setComposing(false); }}
+              className={`rounded-md border px-3 py-1 text-xs font-medium transition ${
+                groupFilter === key
+                  ? 'border-brand-600 bg-brand-50 text-brand-700'
+                  : 'border-slate-300 bg-white text-slate-700 hover:border-brand-600 hover:text-brand-600'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        {groupFilter === 'alerts' && !!counts?.alertsOpen && (
+          <button
+            type="button"
+            onClick={() => setConfirmCloseAlerts(true)}
+            className="ml-auto rounded-md border border-rose-700 bg-white px-3 py-1 text-xs font-semibold text-rose-700 transition hover:bg-rose-50"
+          >
+            Close all {counts.alertsOpen} alerts
+          </button>
+        )}
+      </div>
+
+      {confirmCloseAlerts && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl">
+            <h2 className="text-lg font-semibold text-slate-900">
+              Close {counts?.alertsOpen ?? 0} alerts?
+            </h2>
+            <p className="mt-2 text-sm text-slate-600">
+              This closes every open watchdog alert and recovery notice. Only tickets titled
+              <span className="mx-1 rounded bg-slate-100 px-1.5 py-0.5 font-mono text-xs">ReceptionMate ALERT</span>
+              or
+              <span className="mx-1 rounded bg-slate-100 px-1.5 py-0.5 font-mono text-xs">issue(s) recovered</span>
+              are affected — DVLA checks, website leads and customer mail are never included, even though
+              they share a sender.
+            </p>
+            <p className="mt-2 text-xs text-slate-500">
+              Each one is archived in Outlook too. A reply reopens a closed ticket, so nothing is lost.
+            </p>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                disabled={closingAlerts}
+                onClick={() => setConfirmCloseAlerts(false)}
+                className="rounded-md border border-slate-300 bg-white px-4 py-1.5 text-sm font-medium text-slate-700 hover:border-slate-500 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={closingAlerts}
+                onClick={async () => {
+                  setClosingAlerts(true);
+                  try {
+                    await closeAlertTickets();
+                    setConfirmCloseAlerts(false);
+                    setSelectedId(null);
+                    setSelected(null);
+                    await loadList();
+                  } catch (e) {
+                    setError(e instanceof Error ? e.message : 'Could not close the alerts');
+                  } finally {
+                    setClosingAlerts(false);
+                  }
+                }}
+                className="rounded-md bg-rose-700 px-4 py-1.5 text-sm font-semibold text-white hover:bg-rose-800 disabled:opacity-50"
+              >
+                {closingAlerts ? 'Closing…' : `Close ${counts?.alertsOpen ?? 0} alerts`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {search.trim() && (
         <p className="text-xs text-slate-500">

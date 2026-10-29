@@ -452,6 +452,8 @@ export const sendGarageHiveConnectRequest = async (businessId: string): Promise<
       `its own and we will pick the rest up later - the diary still works without them.\n\n` +
       `${link}\n\nLink valid 14 days.`,
     html: brandedEmailShell(body),
+    template: 'gh-connect-request',
+    businessId,
   });
   console.log(
     `[GH-CONNECT] connect request sent to ${to.join(', ')}${cc.length ? ` (cc ${cc.join(', ')})` : ''} for ${name}`,

@@ -1,6 +1,7 @@
 import nodemailer from 'nodemailer';
 import type { TranscriptEntry } from './types.js';
 import { prisma } from '../db.js';
+import { isOnboardingEmail, noteOnboardingEmail } from '../services/onboardingCrmNote.js';
 
 /** What a transport reports back. `providerMessageId` is Mailgun's id, which its webhooks
  *  later post against to turn "sent" into "delivered" or "bounced". */
@@ -287,6 +288,25 @@ const recordEmail = async (
     });
   } catch (error) {
     console.error('[EMAIL_LOG] failed to record email send:', error);
+  }
+
+  // A HighLevel timeline note, for ONBOARDING emails only. HighLevel is the sales pipeline and
+  // owns a garage until it goes live; the portal is the CRM after that. The allow-list inside
+  // noteOnboardingEmail is what keeps this useful — hooking every email from here would push
+  // call summaries, arrears warnings and ticket replies into the timeline and bury the six that
+  // describe an onboarding.
+  //
+  // Deliberately not awaited, and it swallows its own errors. The customer's email has already
+  // been sent by the time we get here; a slow or failing CRM must not delay this function or
+  // surface as a failed send.
+  if (outcome.sent && isOnboardingEmail(options.template)) {
+    void noteOnboardingEmail({
+      template: options.template,
+      subject: options.subject,
+      to: options.to,
+      garageId: options.garageId,
+      businessId: options.businessId,
+    });
   }
 };
 

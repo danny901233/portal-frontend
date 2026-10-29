@@ -805,6 +805,9 @@ const SIGNED_COPY_BCC = 'hello@receptionmate.co.uk';
 async function sendSignedCopies(args: {
   agreement: {
     type?: string;
+    // The caller already passes the whole Agreement row; this type just narrowed it to the fee
+    // fields. Needed so the signed-copy email can be noted against the right HighLevel contact.
+    businessId?: string | null;
     clientName: string;
     setupFeeGbp: number;
     licenceFeeGbp: number;
@@ -889,6 +892,8 @@ async function sendSignedCopies(args: {
       html: intro,
       text,
       attachments: [attachment],
+      template: 'agreement-signed',
+      businessId: args.agreement.businessId,
     });
   } catch (err) {
     console.error('[AGREEMENT] failed to send signed copies:', err);
@@ -1041,7 +1046,15 @@ router.post('/admin/agreements/:id/send', authenticate, requireAdmin, async (req
   const text = `Your ReceptionMate service agreement is ready to sign.\n\nReview and sign here: ${signUrl}\n\nThis link is valid for 14 days.\n\n— The ReceptionMate team`;
 
   // The body says "If you have any questions, just reply to this email."
-  const sent = await sendEmail({ to: [toEmail], replyTo: SUPPORT_REPLY_TO, subject, html: brandedEmailShell(body), text });
+  const sent = await sendEmail({
+    to: [toEmail],
+    replyTo: SUPPORT_REPLY_TO,
+    subject,
+    html: brandedEmailShell(body),
+    text,
+    template: 'agreement-sent',
+    businessId: agreement.businessId,
+  });
   if (!sent) {
     return res.status(500).json({ error: 'Failed to send email' });
   }

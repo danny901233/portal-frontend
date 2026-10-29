@@ -75,6 +75,11 @@ model Garage {
   stripeSubscriptionId String?
   trialEndsAt          DateTime?
   ghlOpportunityId     String?
+  // The HighLevel CONTACT, as opposed to the opportunity above. Notes attach to a contact, and
+  // this id only ever existed on PendingSignup — it was never carried across when the garage was
+  // created, so there was nothing to write an onboarding note to. Resolved from the business's
+  // contact phone on first use and cached here: one lookup per garage, not one per email.
+  ghlContactId         String?
 
   // Arrears timer: set when a Stripe card charge fails. Once this is older than the grace
   // period (2 days) the garage is auto-locked (accessRestricted = true). Cleared when a

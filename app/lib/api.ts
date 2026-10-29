@@ -1258,9 +1258,15 @@ export interface TicketQueueCounts {
   unassigned: number;
   mineOpen: number;
   pendingStale: number;
+  /** Open watchdog alert/recovery tickets — the Alerts tab's number. */
+  alertsOpen: number;
+  /** Everything else still open — the Everything else tab's number. */
+  othersOpen: number;
 }
 
 export interface TicketListFilters {
+  /** Split the queue by whether it is watchdog noise. Omitted = both. */
+  group?: 'alerts' | 'others';
   status?: TicketStatus;
   assigneeId?: string | 'unassigned';
   channel?: TicketChannel;
@@ -1286,6 +1292,15 @@ export const fetchTickets = async (filters: TicketListFilters = {}): Promise<{ t
 
 export const fetchTicketQueueCounts = async (): Promise<TicketQueueCounts> => {
   const { data } = await api.get('/api/admin/tickets/queue-counts');
+  return data;
+};
+
+/**
+ * Close every open watchdog alert. Sends no ids — the server decides what
+ * counts as an alert, so this cannot be pointed at anything else.
+ */
+export const closeAlertTickets = async (): Promise<{ closed: number }> => {
+  const { data } = await api.post('/api/admin/tickets/close-alerts');
   return data;
 };
 

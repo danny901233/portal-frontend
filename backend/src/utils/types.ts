@@ -46,7 +46,7 @@ export type WeeklyOpeningHours = Record<DayOfWeek, DailyOpeningHours>;
 
 export type ResponseSpeed = 'slow' | 'normal' | 'fast';
 
-export type IntegrationProvider = 'none' | 'garage_hive' | 'bookar' | 'poole' | 'tyresoft' | 'demo';
+export type IntegrationProvider = 'none' | 'garage_hive' | 'bookar' | 'poole' | 'tyresoft' | 'bosch' | 'demo';
 
 export type AgentType = 'assist' | 'automate';
 
@@ -82,6 +82,15 @@ export type PooleSettings = {
   branchKey?: string;
   tenant?: string;
   branchCode?: string;
+};
+
+// Bosch Car Service. Unlike every other diary, the API token is shared across the whole
+// BCS network (it lives in the agent's env, not here), so the ONLY per-garage credential
+// is the service-point UUID. commitLive is the per-garage opt-in that lets the agent write
+// a real booking instead of taking a message — off until a supervised booking is confirmed.
+export type BoschSettings = {
+  boschSpoId?: string;
+  boschCommitLive?: boolean;
 };
 
 export type TyresoftSettings = {

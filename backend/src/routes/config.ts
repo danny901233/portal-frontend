@@ -31,7 +31,7 @@ import {
   createDefaultGarageHiveSettings,
   createDefaultHubspotSettings,
   createDefaultTyresoftSettings,
-  createDefaultWeeklyOpeningHours, BookarSettings, PooleSettings } from '../utils/types.js';
+  createDefaultWeeklyOpeningHours, BookarSettings, PooleSettings, BoschSettings } from '../utils/types.js';
 import type {
   AgentConfigurationPayload,
   GarageHiveSettings,
@@ -157,7 +157,7 @@ export const parseIntegrationSettings = (
   providerValue: string | null | undefined,
   rawSettings: Prisma.JsonValue | null | undefined,
   agentScript?: string | null,
-): { integrationProvider: IntegrationProvider; garageHiveSettings: GarageHiveSettings; tyresoftSettings: TyresoftSettings; bookarSettings?: BookarSettings; pooleSettings?: PooleSettings } => {
+): { integrationProvider: IntegrationProvider; garageHiveSettings: GarageHiveSettings; tyresoftSettings: TyresoftSettings; bookarSettings?: BookarSettings; pooleSettings?: PooleSettings; boschSettings?: BoschSettings } => {
   // The unified agent can carry ANY of the diaries, so unlike the single-diary scripts below it
   // has to surface every credential block it holds — the Booking system dropdown decides which
   // one it actually uses. Without this the read fell straight through to the generic case and
@@ -184,6 +184,12 @@ export const parseIntegrationSettings = (
       bookarClientSecret: str(raw.bookarClientSecret),
       bookarApiBase: str(raw.bookarApiBase) || 'https://partners.bookar.app',
     };
+    // Bosch is stored flat (boschSpoId / boschCommitLive) — the shape both adapters read.
+    const boschSettings: BoschSettings = {
+      boschSpoId: str(raw.boschSpoId) || str((raw.bosch as Record<string, unknown> | undefined)?.spoId),
+      boschCommitLive: raw.boschCommitLive === true
+        || (raw.bosch as Record<string, unknown> | undefined)?.commitLive === true,
+    };
     // Garage Hive is stored flat on most rows but nested under `garagehive` on others — the chat
     // agent, the chat router and the generic read below all accept both shapes. Reading only the
     // flat one here handed the form an EMPTY credentials block while the keys sat in the database,
@@ -200,7 +206,7 @@ export const parseIntegrationSettings = (
     // it says "None" while the agent is booking into Poole.
     // 'demo' must be here too, and it can ONLY come from this list: the fallback below infers a
     // diary from credentials, and the demo diary has none, so it would always resolve to 'none'.
-    const declared = (['garage_hive', 'bookar', 'poole', 'tyresoft', 'demo'] as IntegrationProvider[])
+    const declared = (['garage_hive', 'bookar', 'poole', 'tyresoft', 'bosch', 'demo'] as IntegrationProvider[])
       .find((k) => k === providerValue);
     const integrationProvider: IntegrationProvider = declared
       ?? (pooleSettings.branchKey && pooleSettings.tenant
@@ -209,10 +215,12 @@ export const parseIntegrationSettings = (
         ? 'bookar'
         : (tyresoftSettings.tsApiKey || tyresoftSettings.tsWorkspace)
         ? 'tyresoft'
+        : boschSettings.boschSpoId
+        ? 'bosch'
         : (garageHiveSettings.apiKey && garageHiveSettings.customerId)
         ? 'garage_hive'
         : 'none');
-    return { integrationProvider, garageHiveSettings, tyresoftSettings, bookarSettings, pooleSettings };
+    return { integrationProvider, garageHiveSettings, tyresoftSettings, bookarSettings, pooleSettings, boschSettings };
   }
 
   // Tyresoft agent takes priority — check agentScript first regardless of integrationProvider
@@ -1345,6 +1353,15 @@ router.put(
                     tenant: (data.pooleSettings.tenant || '').trim(),
                     branchCode: (data.pooleSettings.branchCode || '').trim(),
                   },
+                }
+              : {}),
+            // Bosch: flat boschSpoId + boschCommitLive, the shape both adapters read. Keyed on
+            // the service-point id being present, like bookar keys on its client id. Once set it
+            // survives later saves via the `...unifiedExistingConfig` spread above.
+            ...(data.boschSettings?.boschSpoId
+              ? {
+                  boschSpoId: (data.boschSettings.boschSpoId || '').trim(),
+                  boschCommitLive: data.boschSettings.boschCommitLive === true,
                 }
               : {}),
             ...(typeof rawTyresoft.tsWorkspace === 'string' && rawTyresoft.tsWorkspace

@@ -59,6 +59,20 @@ const EMPTY_PL: PooleSettings = {
   branchCode: '',
 };
 
+// Bosch Car Service. The API token is shared across the whole BCS network (it lives in the
+// agent env, not here), so the only per-garage settings are the service-point id and the
+// live-booking opt-in. Local type for the same reason PooleSettings is — app/types carries
+// no integration settings interfaces.
+type BoschSettings = {
+  boschSpoId?: string;
+  boschCommitLive?: boolean;
+};
+
+const EMPTY_BOSCH: BoschSettings = {
+  boschSpoId: '',
+  boschCommitLive: false,
+};
+
 export default function AdminTab({ config, save, isSaving }: Props) {
   const lang = useLang();
   const c = {
@@ -109,6 +123,7 @@ export default function AdminTab({ config, save, isSaving }: Props) {
       bsBookar: 'Bookar (Vitara Commerce)',
       bsPoole: 'Poole (AutoSage)',
       bsTyresoft: 'Tyresoft',
+      bsBosch: 'Bosch Car Service',
       bsDemo: 'Demo — fake diary, nothing really books',
       diaryLabel: 'Diary integration',
       notConnected: 'Not connected',
@@ -152,6 +167,12 @@ export default function AdminTab({ config, save, isSaving }: Props) {
       plTenantHint: 'Multi-tenant slug from AutoSage. Required on live prod (alpha.autosage.co.uk); leave blank only for single-tenant sandbox garages.',
       plBranchCode: 'Branch code (optional)',
       plBranchCodeHint: 'Optional sanity check. If set, must match the branch this API key belongs to — otherwise requests fail with 400.',
+      boschCredsTitle: 'Bosch Car Service credentials',
+      boschSharedTokenHint: 'No API key needed here — the Bosch network token is shared and lives in the agent. Only this garage’s service-point ID is required.',
+      boschSpoId: 'Service-point ID',
+      boschSpoIdHint: 'The garage’s Bosch Car Service service-point UUID (from their MyBCS / Mobility Media account). This is the only per-garage value.',
+      boschCommitLive: 'Allow live bookings',
+      boschCommitLiveHint: 'Off: the agent quotes and checks availability but takes a message instead of booking (safe for testing). On: the agent writes real bookings into the garage’s Bosch diary. Turn on only after a supervised test booking.',
     },
     fr: {
       title: 'Routage (personnel uniquement)',
@@ -200,6 +221,7 @@ export default function AdminTab({ config, save, isSaving }: Props) {
       bsBookar: 'Bookar (Vitara Commerce)',
       bsPoole: 'Poole (AutoSage)',
       bsTyresoft: 'Tyresoft',
+      bsBosch: 'Bosch Car Service',
       bsDemo: 'Démo — agenda fictif, aucune réservation réelle',
       diaryLabel: 'Intégration d’agenda',
       notConnected: 'Non connecté',
@@ -243,6 +265,12 @@ export default function AdminTab({ config, save, isSaving }: Props) {
       plTenantHint: "Slug multi-locataire d'AutoSage. Requis en production (alpha.autosage.co.uk) ; laissez vide uniquement pour les agences sandbox mono-locataire.",
       plBranchCode: "Code d'agence (optionnel)",
       plBranchCodeHint: "Vérification optionnelle. S'il est renseigné, il doit correspondre à l'agence de la clé API — sinon les requêtes échouent avec 400.",
+      boschCredsTitle: 'Identifiants Bosch Car Service',
+      boschSharedTokenHint: "Aucune clé API ici — le jeton réseau Bosch est partagé et réside dans l'agent. Seul l'identifiant de point de service de ce garage est requis.",
+      boschSpoId: 'Identifiant du point de service',
+      boschSpoIdHint: "L'UUID du point de service Bosch Car Service du garage (depuis son compte MyBCS / Mobility Media). C'est la seule valeur propre au garage.",
+      boschCommitLive: 'Autoriser les réservations réelles',
+      boschCommitLiveHint: "Désactivé : l'agent propose des devis et vérifie les disponibilités mais prend un message au lieu de réserver (sans risque pour les tests). Activé : l'agent crée de vraies réservations dans l'agenda Bosch du garage. À activer uniquement après une réservation test supervisée.",
     },
   }[lang];
   const AGENT_TYPE_OPTIONS = c.agentTypeOptions as { value: AgentType; label: string; description: string }[];
@@ -275,6 +303,10 @@ export default function AdminTab({ config, save, isSaving }: Props) {
     ...EMPTY_PL,
     ...((config as unknown as { pooleSettings?: PooleSettings }).pooleSettings ?? {}),
   });
+  const [bosch, setBosch] = useState<BoschSettings>({
+    ...EMPTY_BOSCH,
+    ...((config as unknown as { boschSettings?: BoschSettings }).boschSettings ?? {}),
+  });
   useEffect(() => {
     setAgentType((config.agentType as AgentType) ?? 'assist');
     setAgentScript((config.agentScript as AgentScript) ?? 'receptionmate-agent-v3');
@@ -283,6 +315,7 @@ export default function AdminTab({ config, save, isSaving }: Props) {
     setTs({ ...EMPTY_TS, ...(config.tyresoftSettings ?? {}) });
     setBk({ ...EMPTY_BK, ...(config.bookarSettings ?? {}) });
     setPl({ ...EMPTY_PL, ...((config as unknown as { pooleSettings?: PooleSettings }).pooleSettings ?? {}) });
+    setBosch({ ...EMPTY_BOSCH, ...((config as unknown as { boschSettings?: BoschSettings }).boschSettings ?? {}) });
   }, [config]);
 
   // GH misconfig warning: fires on GH-family agents when any of the 4 required
@@ -316,6 +349,7 @@ export default function AdminTab({ config, save, isSaving }: Props) {
       tyresoftSettings: ts,
       bookarSettings: bk,
       pooleSettings: pl,
+      boschSettings: bosch,
     } as Partial<AgentConfiguration>);
   };
 
@@ -433,6 +467,7 @@ export default function AdminTab({ config, save, isSaving }: Props) {
             <option value="bookar">{c.bsBookar}</option>
             <option value="poole">{c.bsPoole}</option>
             <option value="tyresoft">{c.bsTyresoft}</option>
+            <option value="bosch">{c.bsBosch}</option>
             <option value="demo">{c.bsDemo}</option>
           </select>
           <p className="mt-1 text-xs text-slate-500">{c.bookingSystemHint}</p>
@@ -513,6 +548,39 @@ export default function AdminTab({ config, save, isSaving }: Props) {
                 className="w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-900 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
               />
             </Field>
+          </div>
+        </div>
+      )}
+
+      {agentScript === 'unified-agent' && integrationProvider === 'bosch' && (
+        <div>
+          <label className="mb-2 block text-sm font-medium text-slate-700">
+            {c.diaryLabel}
+          </label>
+          <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <h3 className="text-sm font-semibold text-slate-900">{c.boschCredsTitle}</h3>
+            <p className="text-xs text-slate-500">{c.boschSharedTokenHint}</p>
+            <Field label={c.boschSpoId} hint={c.boschSpoIdHint}>
+              <input
+                type="text"
+                value={bosch.boschSpoId ?? ''}
+                onChange={(e) => setBosch({ ...bosch, boschSpoId: e.target.value })}
+                placeholder="e.g. 3f8a1c2e-…-9b7d"
+                className="w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-900 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
+              />
+            </Field>
+            <label className="flex items-start gap-2 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                checked={bosch.boschCommitLive === true}
+                onChange={(e) => setBosch({ ...bosch, boschCommitLive: e.target.checked })}
+                className="mt-0.5 h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-600"
+              />
+              <span>
+                <span className="font-medium">{c.boschCommitLive}</span>
+                <span className="mt-0.5 block text-xs text-slate-500">{c.boschCommitLiveHint}</span>
+              </span>
+            </label>
           </div>
         </div>
       )}

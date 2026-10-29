@@ -304,11 +304,14 @@ export const upsertAgentConfigurationSchema = z.object({
   // 'none' + 'garage_hive'; Poole/Bookar/Tyresoft agents were 400-ing on save
   // because the frontend UI sent their provider name and this validator
   // rejected it. If you add another integration to the type, add it here too.
-  integrationProvider: z.enum(['none', 'garage_hive', 'bookar', 'poole', 'tyresoft', 'demo']).optional(),
+  integrationProvider: z.enum(['none', 'garage_hive', 'bookar', 'poole', 'tyresoft', 'bosch', 'demo']).optional(),
   garageHiveSettings: garageHiveSettingsSchema,
   tyresoftSettings: tyresoftSettingsSchema,
   bookarSettings: z.object({ bookarClientId: optionalBoundedString(200), bookarClientSecret: optionalBoundedString(1000), bookarApiBase: optionalBoundedString(500) }).optional(),
   pooleSettings: z.object({ branchKey: optionalBoundedString(500), tenant: optionalBoundedString(100), branchCode: optionalBoundedString(100) }).optional(),
+  // Bosch Car Service: only a per-garage service-point id + the live-booking opt-in; the
+  // API token is shared across the BCS network and lives in the agent env, not here.
+  boschSettings: z.object({ boschSpoId: optionalBoundedString(100), boschCommitLive: z.boolean().optional() }).optional(),
   // Which country's registration and postcode formats the voice agent uses. Admin-only, and
   // 'GB' for every garage but IC Garage LTD (Naas, Co. Kildare). Declared HERE as well as in
   // the save handler for the reason the two comments below already record: the body is

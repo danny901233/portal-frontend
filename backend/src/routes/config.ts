@@ -1358,7 +1358,14 @@ router.put(
             // Bosch: flat boschSpoId + boschCommitLive, the shape both adapters read. Keyed on
             // the service-point id being present, like bookar keys on its client id. Once set it
             // survives later saves via the `...unifiedExistingConfig` spread above.
-            ...(data.boschSettings?.boschSpoId
+            //
+            // STAFF ONLY. Unlike every other diary, the BCS api-token is shared across the whole
+            // network, so a service-point id is the ONLY thing standing between a garage and
+            // another garage's Bosch diary — a non-staff caller who set boschSpoId to a rival's
+            // UUID could read and book their appointments. A non-staff save is ignored here and
+            // the stored values (spread in via `...unifiedExistingConfig`) stand, the same gate
+            // resolveShortCallCallback/country use.
+            ...(isStaff && data.boschSettings?.boschSpoId
               ? {
                   boschSpoId: (data.boschSettings.boschSpoId || '').trim(),
                   boschCommitLive: data.boschSettings.boschCommitLive === true,

@@ -23,6 +23,7 @@
  * stays sub-millisecond even on big tenants.
  */
 
+import cron from 'node-cron';
 import path from 'path';
 import { readdir, access } from 'fs/promises';
 import { createReadStream } from 'fs';
@@ -251,16 +252,33 @@ export async function ingestTyresoftGarage(garageId: string, branchName: string)
   console.log(`[tyresoft-ingest] ${branchName}: snapshot committed`);
 }
 
-/** CLI entry: iterate every Tyresoft-integrated garage with recognition enabled. */
+/**
+ * Every Tyresoft garage with recognition on. CLI entry, and what the nightly cron calls.
+ *
+ * NOT a strict `integrationProvider: 'tyresoft'` filter, for the same reason the caller
+ * endpoint does not use one: Elite Autocare and Lurgan Tyre Centre both still read "none"
+ * while carrying full Tyresoft credentials, because the config validator rejected the real
+ * value for months. The agent infers the provider from the credentials (build_diary in
+ * diaries/__init__.py) and so does routes/tyresoft.ts — a strict filter here would quietly
+ * skip the only two real Tyresoft garages and leave their tables empty for ever.
+ */
 export async function runAll() {
   // branchName lives on AgentConfiguration, not Garage — same lookup the tyre-stock
   // route uses to resolve the SFTP folder (routes/agentWebhook.ts).
-  const garages = await prisma.agentConfiguration.findMany({
-    where: {
-      integrationProvider: 'tyresoft',
-      callerRecognitionEnabled: true,
+  const all = await prisma.agentConfiguration.findMany({
+    where: { callerRecognitionEnabled: true },
+    select: {
+      garageId: true,
+      branchName: true,
+      integrationProvider: true,
+      integrationProviderConfig: true,
     },
-    select: { garageId: true, branchName: true },
+  });
+  const garages = all.filter((g: any) => {
+    if (g.integrationProvider === 'tyresoft') return true;
+    if (g.integrationProvider && g.integrationProvider !== 'none') return false;
+    const c = (g.integrationProviderConfig ?? {}) as Record<string, unknown>;
+    return Boolean(c.tsApiKey || c.tsWorkspace);
   });
   console.log(`[tyresoft-ingest] starting: ${garages.length} garage(s)`);
   for (const g of garages) {
@@ -279,4 +297,28 @@ if (invokedDirectly) {
     console.error('[tyresoft-ingest] fatal:', e);
     prisma.$disconnect().finally(() => process.exit(1));
   });
+}
+
+/**
+ * Nightly, 03:20 UK.
+ *
+ * Off-peak on purpose: the job deletes and re-inserts ~30K rows per garage inside one
+ * transaction, and the caller endpoint reads the same table. 03:20 rather than 03:00 so it is
+ * not racing whatever else fires on the hour.
+ *
+ * Dormant unless TYRESOFT_INGEST=on. Nothing scheduled this job until 30 Oct 2026 — it existed
+ * only as a CLI entry, which meant that on deploy the table would have stayed empty for ever
+ * and caller recognition would have answered NO_MATCH to everyone, with nothing in the logs
+ * saying why. The flag is so turning it on is a decision rather than a side effect of a deploy.
+ */
+export function initTyresoftIngestCron() {
+  if (process.env.TYRESOFT_INGEST !== 'on') {
+    console.log('[tyresoft-ingest] cron dormant (set TYRESOFT_INGEST=on to enable)');
+    return;
+  }
+  cron.schedule('20 3 * * *', async () => {
+    try { await runAll(); }
+    catch (e) { console.error('[tyresoft-ingest] nightly run failed:', e); }
+  }, { timezone: 'Europe/London' });
+  console.log('[tyresoft-ingest] cron scheduled: 03:20 Europe/London');
 }

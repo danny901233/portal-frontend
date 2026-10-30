@@ -41,6 +41,36 @@ function iso(d: Date | null | undefined): string | undefined {
   return d ? d.toISOString().slice(0, 10) : undefined;
 }
 
+/**
+ * Is this a Tyresoft garage?
+ *
+ * The flag alone is not enough, and matching the agent here is the whole point. `build_diary`
+ * in the agent (diaries/__init__.py) infers the provider from the credentials when the flag
+ * still says "none":
+ *
+ *     elif config.get("tsApiKey") or config.get("tsWorkspace"):
+ *         key = "tyresoft"
+ *
+ * Elite Autocare and Lurgan Tyre Centre are both in exactly that state today — full Tyresoft
+ * credentials, `connectedAt` and `goLiveEmailedAt` on Lurgan, and `integrationProvider` still
+ * "none" because the config validator rejected the value for months before it was widened.
+ * The agent has been running the Tyresoft adapter for them regardless.
+ *
+ * A strict flag check here would have meant this endpoint answering NO_MATCH for the only two
+ * real Tyresoft garages while the agent happily asked it the question — a mismatch nobody
+ * would see, because a caller who is not recognised looks exactly like a caller we have never
+ * met.
+ */
+function isTyresoftGarage(cfg: {
+  integrationProvider: string | null;
+  integrationProviderConfig: unknown;
+}): boolean {
+  if (cfg.integrationProvider === 'tyresoft') return true;
+  if (cfg.integrationProvider && cfg.integrationProvider !== 'none') return false;
+  const c = (cfg.integrationProviderConfig ?? {}) as Record<string, unknown>;
+  return Boolean(c.tsApiKey || c.tsWorkspace);
+}
+
 async function getTyresoftCallerProfile(
   garageId: string,
   rawPhone: string,
@@ -49,10 +79,14 @@ async function getTyresoftCallerProfile(
   // via Agent Setup → Booking & Transfers → Caller Recognition.
   const cfg = await prisma.agentConfiguration.findUnique({
     where: { garageId },
-    select: { callerRecognitionEnabled: true, integrationProvider: true },
+    select: {
+      callerRecognitionEnabled: true,
+      integrationProvider: true,
+      integrationProviderConfig: true,
+    },
   });
   if (!cfg?.callerRecognitionEnabled) return NO_MATCH;
-  if (cfg.integrationProvider !== 'tyresoft') return NO_MATCH;
+  if (!isTyresoftGarage(cfg)) return NO_MATCH;
 
   const phone = normalisePhone(rawPhone);
   if (!phone) return NO_MATCH;

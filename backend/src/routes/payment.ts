@@ -53,11 +53,29 @@ router.get('/payment/method', authenticate, async (req: Request, res: Response) 
         stripeCustomerId: true, stripeSubscriptionId: true, subscriptionCostGbp: true,
         trialEndDate: true,
         agentConfiguration: { select: { agentType: true } },
+        business: { select: { billingMethod: true } },
       },
     });
     if (!garage) return res.status(404).json({ error: 'No garage found for this account' });
 
-    const isCard = !garage.hasVoiceAccess
+    // AN EXPLICIT CHOICE BEATS THE PRODUCT INFERENCE.
+    //
+    // The rule below reads how a customer pays off WHAT THEY BOUGHT: Connect and Assist by
+    // card, Automate by Direct Debit. That held while every Automate garage was British, and
+    // broke the first time one was not. IC Garage LTD is in Ireland; signing up on Direct Debit
+    // gave them a SEPA Core mandate, and GoCardless will only charge that in EUR:
+    //
+    //   [BILLING] FIRST-MONTH CHARGE FAILED for accounts@icgarage.net: £478.80 NOT collected
+    //   must be EUR for a sepa_core mandate
+    //
+    // Business.billingMethod already carries the answer — it is what the onboarding modal
+    // sets and what the agreement flow reads — and this route was the one place that ignored
+    // it, so moving a customer to card changed nothing where it counted. Set, it decides;
+    // unset, the product inference stands and no existing garage moves.
+    const chosen = garage.business?.billingMethod ?? null;
+    const isCard = chosen === 'stripe_card' ? true
+      : chosen === 'directdebit' ? false
+      : !garage.hasVoiceAccess
       ? true                                              // Connect — card
       : garage.agentConfiguration?.agentType === 'assist'; // Assist — card; Automate — Direct Debit
 

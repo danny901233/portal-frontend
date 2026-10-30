@@ -162,6 +162,28 @@ function mapVehicle(raw: Record<string, string>): VehicleRow | null {
 }
 
 /** Ingest a single Tyresoft garage: swap in the latest customer + vehicle snapshots. */
+/**
+ * Should this import be refused? Returns the reason, or null to proceed.
+ *
+ * Pure and exported so the decision can be tested without a database — the thing it guards
+ * against is rare and destructive, which is exactly the combination that never gets exercised
+ * by hand.
+ */
+export function refuseImport(
+  { incoming, existing, floor, force }:
+  { incoming: number; existing: number; floor: number; force: boolean },
+): string | null {
+  if (existing === 0) return null;                 // first run — nothing to lose
+  if (incoming === 0) return 'empty customer file.';   // never legitimate, force or not
+  if (force) return null;
+  if (incoming < existing * floor) {
+    return `incoming file has ${incoming} customers against ${existing} already stored `
+      + `(floor ${Math.round(floor * 100)}%). Keeping the existing snapshot. If this shrink is `
+      + `real, re-run with TYRESOFT_INGEST_FORCE=1.`;
+  }
+  return null;
+}
+
 export async function ingestTyresoftGarage(garageId: string, branchName: string) {
   const folder = path.join(SFTP_BASE, slugifyBranchName(branchName));
   try { await access(folder); }
@@ -179,6 +201,33 @@ export async function ingestTyresoftGarage(garageId: string, branchName: string)
   const customers = customerRaw.map(mapCustomer).filter((c): c is CustomerRow => !!c);
   const vehicles = vehicleRaw.map(mapVehicle).filter((v): v is VehicleRow => !!v);
   console.log(`[tyresoft-ingest] ${branchName}: ${customers.length} customers, ${vehicles.length} vehicles`);
+
+  // ── Refuse an import that would gut the table ────────────────────────────
+  //
+  // This job DELETES everything for the garage and re-inserts from the file, which is correct
+  // only if every file really is a full snapshot. Nobody has confirmed that with Tyresoft yet,
+  // and the same shape of accident happens anyway: a half-written SFTP upload, a failed export,
+  // a truncated transfer. Elite's real file is 29,646 customers — a 200-row file arriving on a
+  // Sunday night would silently leave caller recognition answering NO_MATCH for everyone, and
+  // the only clue would be that it stopped working.
+  //
+  // So: if we hold rows and the incoming file is less than SHRINK_FLOOR of them, keep what we
+  // have and log loudly. A stale snapshot is wrong by a day. An empty one is wrong until
+  // somebody notices.
+  //
+  // A genuine shrink past the floor — a garage really did lose most of its customers — needs
+  // TYRESOFT_INGEST_FORCE=1 for one run. Deliberately manual: it should take a person deciding.
+  const existing = await prisma.tyresoftCustomer.count({ where: { garageId } });
+  const refusal = refuseImport({
+    incoming: customers.length,
+    existing,
+    floor: Number(process.env.TYRESOFT_SHRINK_FLOOR || 0.5),
+    force: process.env.TYRESOFT_INGEST_FORCE === '1',
+  });
+  if (refusal) {
+    console.error(`[tyresoft-ingest] ${branchName}: REFUSED — ${refusal}`);
+    return;
+  }
 
   // Full-snapshot replace: delete-then-insert in a transaction so the endpoint never
   // sees a half-replaced table. For 29K rows this is tolerable at off-peak.

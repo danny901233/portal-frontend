@@ -52,6 +52,13 @@ router.get(
           messagingSubscriptionCostGbp: true,
           includedMessages: true,
           costPerMessageGbp: true,
+          // How this customer PAYS lives on the Business, not the garage — a group settles
+          // once for all its branches. Returned here because this is the only screen that
+          // edits billing, and until now the field could be set at onboarding and never
+          // changed: IC Garage LTD signed up on Direct Debit with an Irish SEPA mandate,
+          // which GoCardless will only charge in EUR, so a £478.80 invoice could not be
+          // collected and nothing in the portal could move them to card.
+          business: { select: { id: true, billingMethod: true, _count: { select: { garages: true } } } },
         },
       });
 
@@ -59,7 +66,17 @@ router.get(
         return res.status(404).json({ error: 'Garage not found' });
       }
 
-      res.json({ success: true, config: garage });
+      const { business, ...rest } = garage as any;
+      res.json({
+        success: true,
+        config: {
+          ...rest,
+          billingMethod: business?.billingMethod ?? null,
+          // So the UI can warn before a change reaches a sibling branch. Six businesses
+          // currently have more than one garage.
+          billingMethodAppliesToGarages: business?._count?.garages ?? 1,
+        },
+      });
     } catch (error) {
       console.error('Failed to fetch billing config:', error);
       res.status(500).json({ error: 'Failed to fetch billing configuration' });
@@ -84,6 +101,10 @@ router.put(
         trialDays: z.number().int().min(0).optional(),
         requiresBookingActivation: z.boolean().optional(),
         bookingsRequiredForActivation: z.number().int().min(1).optional(),
+        // Business-level: see the GET above. The same three values the onboarding modal
+        // offers, so a garage can be moved between them afterwards instead of being stuck
+        // with whatever it was created on.
+        billingMethod: z.enum(['directdebit', 'stripe_card', 'invoice']).optional(),
         // Messaging (webchat / WhatsApp) subscription billing — previously DB-only with no UI.
         hasMessagingAccess: z.boolean().optional(),
         messagingSubscriptionCostGbp: z.number().min(0).optional(),
@@ -96,7 +117,7 @@ router.put(
         return res.status(400).json({ error: 'Invalid request', details: result.error.flatten() });
       }
 
-      const { trialDays, ...billingData } = result.data;
+      const { trialDays, billingMethod, ...billingData } = result.data;
 
       // Calculate trialEndDate from trialDays
       const updateData: any = { ...billingData };
@@ -115,7 +136,25 @@ router.put(
         data: updateData,
       });
 
-      res.json({ success: true, config: garage });
+      // Business-level and deliberately a separate write: it reaches every branch of a group,
+      // so it must not ride along inside the garage update as though it were a garage field.
+      let appliedBillingMethod: string | null = null;
+      if (billingMethod && garage.businessId) {
+        const business = await prisma.business.update({
+          where: { id: garage.businessId },
+          data: { billingMethod },
+          select: { billingMethod: true, _count: { select: { garages: true } } },
+        });
+        appliedBillingMethod = business.billingMethod;
+        console.log(
+          `[BILLING] ${garage.name}: billing method -> ${billingMethod} ` +
+          `(business ${garage.businessId}, ${business._count.garages} garage(s))`);
+      }
+
+      res.json({
+        success: true,
+        config: { ...garage, ...(appliedBillingMethod ? { billingMethod: appliedBillingMethod } : {}) },
+      });
     } catch (error) {
       console.error('Failed to update billing config:', error);
       res.status(500).json({ error: 'Failed to update billing configuration' });

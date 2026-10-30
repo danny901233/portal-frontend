@@ -387,13 +387,20 @@ export const upsertAgentConfigurationSchema = z.object({
   const apiKey = typeof settings.apiKey === 'string' ? settings.apiKey.trim() : '';
   const locationId = typeof settings.locationId === 'string' ? settings.locationId.trim() : '';
 
-  if (!instanceUrl) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: 'Provide the Garage Hive instance name before saving.',
-      path: ['garageHiveSettings', 'instanceUrl'],
-    });
-  }
+  // NOT REQUIRED, because nothing reads it. instanceUrl is declared in types.ts, validated
+  // here, and consumed by no caller: the diary adapter works from apiKey + customerId against a
+  // fixed base, and the only mention in the agent is a comment. Requiring it blocked SAVES.
+  //
+  // IC Garage LTD, 30 Oct 2026: a live customer could not save their agent config at all. The
+  // form asks for an "Instance URL" and its placeholder shows "https://yourgarage.garagehive.
+  // co.uk" — but the rule below rejects anything containing "://", and the error said "Provide
+  // the Garage Hive instance name", a phrase that appears nowhere on the form. Follow the
+  // placeholder and you are refused; leave it blank and you are refused. VICPros hit the same
+  // thing the day before, and Cartopia, Testwood Lakes and VWGS Performance are all stored
+  // without one, so they would have been next.
+  //
+  // The format rules below are KEPT: if somebody does type a value it should still be the
+  // instance name rather than a URL, so the field stays meaningful for whoever reads it.
 
   if (instanceUrl) {
     const instancePattern = /^[A-Za-z0-9._-]+$/;

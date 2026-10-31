@@ -31,6 +31,7 @@ import widgetRouter from './routes/widget.js';
 import chatRouter from './routes/chat.js';
 import conversationsRouter from './routes/conversations.js';
 import outboundRouter from './routes/outbound.js';
+import tyresoftRouter from './routes/tyresoft.js';
 import templatesRouter from './routes/templates.js';
 import metaWhatsappWebhook from './routes/webhooks/meta-whatsapp.js';
 import metaFacebookWebhook from './routes/webhooks/meta-facebook.js';
@@ -58,6 +59,7 @@ import deviceTokensRouter from './routes/deviceTokens.js';
 import { errorHandler, installProcessErrorHandlers } from './middleware/errorHandler.js';
 import { trackActingUser } from './utils/actingUser.js';
 import { initializeScheduledReports } from './utils/scheduler.js';
+import { initTyresoftIngestCron } from './jobs/tyresoftCustomerIngest.js';
 import { initReminderCron, initAbandonedCheckoutCron } from './services/reminderScheduler.js';
 import { startArrearsSweep } from './utils/arrears.js';
 import { startTicketStaleSweep } from './services/ticketStaleSweep.js';
@@ -184,6 +186,7 @@ app.use('/api', widgetRouter);
 app.use('/api', chatRouter);
 app.use('/api', conversationsRouter);
 app.use('/api', outboundRouter);
+app.use('/api', tyresoftRouter);
 app.use('/api', featureAnnouncementRouter);
 app.use('/api', usersRouter);
 app.use('/api', publicSignupRouter);
@@ -245,6 +248,9 @@ const server = app.listen(port, '0.0.0.0', () => {
   initAbandonedCheckoutCron();
   // Connect trial -> paid: ends expired/over-cap trials and puts them behind the card paywall.
   initTrialCron();
+  // Tyresoft caller recognition: nightly SFTP CSV snapshot into TyresoftCustomer/Vehicle.
+  // Dormant unless TYRESOFT_INGEST=on.
+  initTyresoftIngestCron();
 
   // Backstop sweep: auto-lock garages whose Stripe payment has been failed past the grace window.
   startArrearsSweep();

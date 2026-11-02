@@ -40,6 +40,8 @@ export const FROM = {
   helloEmail: 'from-hello-email',
   /** Came off a stand — the Blend funnel today. */
   tradeShow: 'from-trade-show',
+  /** Arrived via a partner's own mailing — the Tyresoft e-shot landing page (/tyresoft). */
+  tyresoft: 'from-tyresoft',
 } as const;
 
 /** What they did. */
@@ -72,7 +74,9 @@ export type DidTag = (typeof DID)[keyof typeof DID];
  */
 export function websiteOriginTags(opts: { source?: string | null; fromAds?: boolean } = {}): string[] {
   const source = (opts.source ?? '').toLowerCase();
-  const origin = source.startsWith('blend-') ? FROM.tradeShow : FROM.website;
+  const origin = source.startsWith('blend-') ? FROM.tradeShow
+    : source.startsWith('tyresoft-') ? FROM.tyresoft
+    : FROM.website;
   // An ad click is a second origin, not a replacement: a Blend lead that arrived via an ad is
   // both, and the ads tag is the key an offline conversion upload needs.
   return opts.fromAds ? [origin, FROM.googleAds] : [origin];

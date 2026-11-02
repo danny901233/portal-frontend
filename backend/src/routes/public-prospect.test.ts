@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { tagsForSource, isBlendSource } from './public-prospect.js';
+import { tagsForSource, isBlendSource, oppName } from './public-prospect.js';
 import { DID, FROM } from '../services/highlevelTags.js';
 
 // The campaign tag is decided at the garage-search step, because that is the only moment every
@@ -74,4 +74,31 @@ test('the base tags are never dropped, only added to', () => {
     const t = tagsForSource(s);
     assert.ok(t.includes('website-signup') && t.includes('abandoned-checkout'), String(s));
   }
+});
+
+// The Tyresoft e-shot page (/tyresoft) posts 'tyresoft-eshot'. Same shape as the Blend rule and
+// for the same reason: the partner tag is decided at the garage-search step, and it must never
+// land on an ordinary website lead or the e-shot's results get overstated.
+test('a Tyresoft e-shot prospect is tagged for the partner campaign', () => {
+  const tags = tagsForSource('tyresoft-eshot');
+  assert.deepEqual(tags.slice(0, 3), [...LEGACY_BASE, 'tyresoft-2026']);
+  assert.ok(tags.includes(FROM.tyresoft), 'a Tyresoft prospect should carry the partner origin');
+  assert.ok(!tags.includes(FROM.website), 'a Tyresoft prospect is not a website prospect');
+  assert.ok(!tags.includes(FROM.tradeShow), 'a Tyresoft prospect is not a show prospect');
+});
+
+test('no other funnel picks up the Tyresoft campaign tag', () => {
+  for (const source of [...PRODUCTION_SOURCES_NOT_BLEND, 'blend-show', 'website-getstarted-automate-tyresoft', null]) {
+    const tags = tagsForSource(source);
+    assert.ok(!tags.includes('tyresoft-2026'), `${source} picked up the Tyresoft tag it should not have`);
+    assert.ok(!tags.includes(FROM.tyresoft), `${source} picked up the Tyresoft origin it should not have`);
+  }
+});
+
+test('the opportunity name says which partner page the prospect came off', () => {
+  assert.equal(oppName('Acme Tyres', 'automate', 'tyresoft-eshot'), 'Acme Tyres — Automate (Tyresoft)');
+  assert.equal(oppName('Acme Tyres', 'assist', 'tyresoft-eshot'), 'Acme Tyres — Assist (Tyresoft)');
+  assert.equal(oppName('Acme Tyres', null, 'tyresoft-eshot'), 'Acme Tyres — signup started (Tyresoft)');
+  assert.equal(oppName('Acme Tyres', 'automate', 'blend-show'), 'Acme Tyres — Automate (Blend)');
+  assert.equal(oppName('Acme Tyres', 'automate', 'website-getstarted'), 'Acme Tyres — Automate');
 });

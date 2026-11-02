@@ -41,8 +41,8 @@ const enrichSchema = z.object({
 });
 
 // Give the opportunity a helpful name as we learn more about the prospect.
-function oppName(businessName: string, product?: string | null, source?: string | null): string {
-  const suffix = isBlendSource(source) ? ' (Blend)' : '';
+export function oppName(businessName: string, product?: string | null, source?: string | null): string {
+  const suffix = isBlendSource(source) ? ' (Blend)' : isTyresoftSource(source) ? ' (Tyresoft)' : '';
   if (!product) return `${businessName} — signup started${suffix}`;
   const label = product === 'assist' ? 'Assist' : product === 'automate' ? 'Automate'
     : product === 'connect' ? 'Connect' : product === 'multibranch' ? 'Multi-branch' : 'Custom';
@@ -66,6 +66,13 @@ export function isBlendSource(source?: string | null): boolean {
   return typeof source === 'string' && source.startsWith('blend-');
 }
 
+/** Did this prospect come off the Tyresoft e-shot page? Same prefix rule as Blend: /tyresoft posts
+ *  'tyresoft-eshot', and an Automate enquiry that merely NAMES Tyresoft as its diary posts
+ *  'website-getstarted-automate-tyresoft', which cannot begin with "tyresoft-". */
+export function isTyresoftSource(source?: string | null): boolean {
+  return typeof source === 'string' && source.startsWith('tyresoft-');
+}
+
 /** Campaign tags for a prospect, on top of the ones every website lead gets.
  *
  *  The legacy pair ('website-signup', 'abandoned-checkout') is kept exactly as it was — HL smart
@@ -75,7 +82,9 @@ export function isBlendSource(source?: string | null): boolean {
  *  person is still filling the form. */
 export function tagsForSource(source?: string | null): string[] {
   const base = ['website-signup', 'abandoned-checkout'];
-  const legacy = isBlendSource(source) ? [...base, 'blend-2026'] : base;
+  const legacy = isBlendSource(source) ? [...base, 'blend-2026']
+    : isTyresoftSource(source) ? [...base, 'tyresoft-2026']
+    : base;
   return mergeTags(legacy, websiteOriginTags({ source }), [DID.signupStarted, DID.abandonedCheckout]);
 }
 

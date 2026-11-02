@@ -17,6 +17,8 @@
 
 import type { Request, Response } from 'express';
 import { Router } from 'express';
+import { randomBytes, randomInt } from 'node:crypto';
+import { z } from 'zod';
 import { prisma } from '../db.js';
 import {
   buildConfigurationResponse,
@@ -26,7 +28,7 @@ import {
 import { industryDefaultFaqs, generateFaqsFromWebsite } from '../utils/faqGenerator.js';
 import { fetchWebsiteInfo } from '../utils/scraper.js';
 import { fetchPlaceDetails, findPlaceByNameAndPostcode } from '../utils/googlePlaces.js';
-import type { WeeklyOpeningHours } from '../utils/googlePlaces.js';
+import type { PlaceDetails, WeeklyOpeningHours } from '../utils/googlePlaces.js';
 
 const router = Router();
 
@@ -245,7 +247,7 @@ const websiteKnowledge = async (
  * and an OpenAI call, so it carries real weight. The seeder generates it (seed-demo-prospects.cjs).
  * 60-char name slice + '-' + 16 hex = 77, inside the 80 below and the same bound in livekit-demo.ts.
  */
-const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+export const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 // ── Guessing budget ───────────────────────────────────────────────────────────────────────────
 // Unauthenticated, and the responses differ by whether a slug exists, so without a cap this is an
@@ -287,6 +289,175 @@ setInterval(() => {
   const cutoff = Date.now() - LOOKUP_WINDOW_MS;
   for (const [k, b] of lookupsByIp) if (b.windowStart < cutoff) lookupsByIp.delete(k);
 }, LOOKUP_WINDOW_MS).unref();
+
+// ── Self-serve demo links ─────────────────────────────────────────────────────────────────────
+// The seeder makes rows for a shortlist we email. The /tyresoft landing page makes one the moment
+// a visitor picks their garage out of the Places search, so the next screen can offer "hear it
+// answer as <their garage>".
+//
+// Two rules, because this is an unauthenticated endpoint that produces a voice agent speaking in
+// a named garage's voice:
+//   1. Nothing the visitor typed reaches the agent. The name, address, phone, website and hours
+//      all come from the Google listing the place id resolves to, on the server. A manual entry
+//      (no place id) gets no personal demo — the page already hides the offer when this refuses.
+//   2. Every create mints a fresh row. An earlier version looked up an existing row by place id
+//      and returned its slug, which would have handed out the secret link of an EMAILED prospect
+//      to anyone who knew the garage's (public) place id — and the slug is the only access
+//      control on /try. A row is cheap; the agent is only built when the link is opened.
+//
+// The Places details call is made here, once, and cached on the row exactly as the build route
+// caches it, so opening the link does not bill it again.
+
+const PORTAL_URL = process.env.PORTAL_URL || 'https://portal.receptionmate.co.uk';
+const SELF_SERVE_DAYS = 30;
+
+export const demoLinkSchema = z.object({
+  googlePlaceId: z.string().trim().min(4).max(200),
+  /** The PendingSignup made at the same garage-pick step, so the demo can be credited to its contact. */
+  prospectId: z.string().trim().max(80).optional(),
+  source: z.string().trim().max(100).optional(),
+});
+
+/**
+ * Their own name plus the random suffix, in the shape SLUG_RE accepts. The same rule as the
+ * seeder's newSlug: 60 chars of name at most, so with the hyphen and 16 hex the slug is 77 long,
+ * inside the 80 the lookups enforce.
+ */
+export function mintSlug(spokenName: string, hex: string): string {
+  const base = (spokenName || '')
+    .toLowerCase()
+    .replace(/&/g, ' and ')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60)
+    .replace(/-+$/g, '') || 'garage';
+  return `${base}-${hex}`;
+}
+
+/**
+ * What goes on the row, from the listing and nothing else. Null when Google gave no name: a demo
+ * that cannot say whose garage it is has no point, and a name from anywhere else is the thing
+ * this endpoint must never accept.
+ */
+export function rowFromListing(placeId: string, details: PlaceDetails | null): {
+  placeId: string;
+  businessName: string;
+  spokenName: string;
+  branchAddress: string | null;
+  phoneNumber: string | null;
+  websiteUrl: string | null;
+  weeklyOpeningHours: WeeklyOpeningHours | null;
+  hoursSource: string | null;
+} | null {
+  const name = details?.name?.trim();
+  if (!name) return null;
+  // Only a week with an open day is stored. The build route's fallback exists precisely because an
+  // all-closed week makes the agent tell callers they are shut — see FALLBACK_HOURS above.
+  const hours = details?.weeklyOpeningHours && hasAnOpenDay(details.weeklyOpeningHours) ? details.weeklyOpeningHours : null;
+  return {
+    placeId,
+    businessName: name,
+    spokenName: toSpokenName(name),
+    branchAddress: details?.address?.trim() || null,
+    phoneNumber: details?.phone?.trim() || null,
+    websiteUrl: details?.website ? details.website.replace(/^https?:\/\//, '').replace(/\/+$/, '') : null,
+    weeklyOpeningHours: hours,
+    hoursSource: hours ? 'google' : null,
+  };
+}
+
+// A tighter budget than lookups, and a global one as well: every create buys a Places details
+// call, so the per-IP cap bounds a visitor and the daily cap bounds the bill. A real visitor
+// creates one, perhaps two if they reload.
+//
+// The daily cap is deliberately a hard ceiling on cost, and so it can be exhausted: the per-IP
+// key is cf-connecting-ip, which a caller reaching the origin directly can set, exactly as the
+// autocomplete ceiling in public-prospect.ts accepts. What is lost when it trips is only the
+// personal-demo offer for the rest of the day — the page hides it and the trial and demo-request
+// paths carry on — and at roughly 2p a lookup the ceiling is a few pounds, not an outage. Sized
+// for a partner mailing landing in one day: Tyresoft's whole estate clicking at once stays
+// inside it.
+const CREATE_MAX = 5;
+const CREATE_DAILY_MAX = 500;
+const createsByIp = new Map<string, { count: number; windowStart: number }>();
+let createsToday = { count: 0, dayStart: 0 };
+const DAY_MS = 24 * 60 * 60 * 1000;
+const overCreateBudget = (req: Request): boolean => {
+  const now = Date.now();
+  if (now - createsToday.dayStart >= DAY_MS) createsToday = { count: 0, dayStart: now };
+  if (createsToday.count >= CREATE_DAILY_MAX) return true;
+  const key = clientIp(req);
+  const b = createsByIp.get(key);
+  if (!b || now - b.windowStart >= LOOKUP_WINDOW_MS) {
+    createsByIp.set(key, { count: 1, windowStart: now });
+    createsToday.count += 1;
+    return false;
+  }
+  if (b.count >= CREATE_MAX) return true;
+  b.count += 1;
+  createsToday.count += 1;
+  return false;
+};
+setInterval(() => {
+  const cutoff = Date.now() - LOOKUP_WINDOW_MS;
+  for (const [k, b] of createsByIp) if (b.windowStart < cutoff) createsByIp.delete(k);
+}, LOOKUP_WINDOW_MS).unref();
+
+router.post('/public/demo-prospect', async (req: Request, res: Response) => {
+  const parsed = demoLinkSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ ok: false, error: 'invalid_request' });
+  if (overCreateBudget(req)) return res.status(429).json({ ok: false, error: 'rate_limited' });
+
+  const { googlePlaceId, prospectId, source } = parsed.data;
+
+  try {
+    const details = await fetchPlaceDetails(googlePlaceId);
+    const listing = rowFromListing(googlePlaceId, details);
+    if (!listing) return res.status(404).json({ ok: false, error: 'no_listing' });
+
+    // The CRM contact, if the garage-pick step has already created one. Best-effort: the row is
+    // synced to HighLevel in the background, so the id may not be there yet, and a demo with no
+    // contact is still a demo.
+    let contactId: string | null = null;
+    if (prospectId) {
+      const pending = await prisma.pendingSignup.findUnique({ where: { id: prospectId }, select: { ghlContactId: true } });
+      contactId = pending?.ghlContactId ?? null;
+    }
+
+    // Collisions on either unique key are retried rather than assumed away: a clash on the code
+    // would hand one prospect another prospect's agent.
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const slug = mintSlug(listing.spokenName, randomBytes(8).toString('hex'));
+      const code = String(randomInt(10000, 99999));
+      try {
+        const row = await prisma.demoProspect.create({
+          data: {
+            slug,
+            code,
+            businessName: listing.businessName,
+            spokenName: listing.spokenName,
+            placeId: listing.placeId,
+            branchAddress: listing.branchAddress,
+            phoneNumber: listing.phoneNumber,
+            websiteUrl: listing.websiteUrl,
+            ...(listing.weeklyOpeningHours ? { weeklyOpeningHours: listing.weeklyOpeningHours as unknown as object, hoursSource: listing.hoursSource } : {}),
+            contactId,
+            email: null,
+            expiresAt: new Date(Date.now() + SELF_SERVE_DAYS * 24 * 60 * 60 * 1000),
+          },
+        });
+        console.log(`[DEMO_PROSPECT] self-serve link for ${listing.spokenName} (${source || 'no source'}) -> /try/${row.slug}`);
+        return res.json({ ok: true, slug: row.slug, url: `${PORTAL_URL}/try/${row.slug}`, spokenName: listing.spokenName });
+      } catch (err) {
+        if ((err as { code?: string })?.code !== 'P2002') throw err;
+      }
+    }
+    return res.status(500).json({ ok: false, error: 'could_not_mint' });
+  } catch (err) {
+    console.error('[DEMO_PROSPECT] self-serve create failed:', err);
+    return res.status(500).json({ ok: false, error: 'server_error' });
+  }
+});
 
 router.post('/public/demo-prospect/:slug', async (req: Request, res: Response) => {
   const slug = String(req.params.slug || '').toLowerCase();

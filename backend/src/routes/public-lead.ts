@@ -173,7 +173,7 @@ router.post('/public/lead', async (req: Request, res: Response) => {
 // Turn machine source slugs into a friendlier opportunity-name suffix.
 //   website-getstarted-automate-garagehive → "Automate (Garage Hive)"
 //   website-getstarted-multibranch         → "Multi-branch enquiry"
-function humaniseSource(source?: string): string {
+export function humaniseSource(source?: string): string {
   if (!source) return 'Website enquiry';
   const s = source.toLowerCase();
   if (s.includes('multibranch')) return 'Multi-branch enquiry';
@@ -188,7 +188,7 @@ function humaniseSource(source?: string): string {
     return 'Connect enquiry';
   }
   if (s.includes('assist')) return 'Assist enquiry';
-  if (s.includes('demo')) return 'Book a demo';
+  if (s.includes('demo')) return s.includes('tyresoft') ? 'Book a demo (Tyresoft)' : 'Book a demo';
   return 'Website enquiry';
 }
 

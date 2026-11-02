@@ -1,0 +1,826 @@
+---
+// Tyresoft e-shot landing page (November 2026). Tyresoft mail their garages and link here.
+//
+// Two ways in, chosen after the garage is picked:
+//   Garage search (Places) → HighLevel prospect → "how would you like to start?"
+//     ├─ Start today, 14 days free → Assist details → POST /public-signup (the live Assist
+//     │     self-serve endpoint) → portal to sign → card → trial starts
+//     └─ Book straight into Tyresoft → demo details → POST /public/lead → the team is emailed
+//           and texted, and the opportunity moves to "Enquiry Received & Demo Links sent"
+//
+// Automate is deliberately NOT self-serve here: a Tyresoft garage still needs its workspace and
+// API key wired in by hand before the agent can book anything, and a demo call is where that
+// conversation happens. Price for Automate is discussed on the demo, not printed.
+//
+// Every row this page creates carries source 'tyresoft-…', which is what gives it the
+// (Tyresoft) suffix and the tyresoft-2026 / from-tyresoft tags in the CRM — see
+// backend/src/routes/public-prospect.ts isTyresoftSource.
+//
+// A separate page from blend.astro and get-started.astro for the same reason Blend was: those
+// funnels are live, and a partner mailing is not the moment to edit their state machines.
+// English only — Tyresoft's customers are UK and Irish garages.
+
+import BaseLayout from '../layouts/BaseLayout.astro';
+
+const PROSPECT_ENDPOINT = import.meta.env.PUBLIC_PROSPECT_ENDPOINT || 'https://portal.receptionmate.co.uk/api/public/prospect';
+const LEAD_ENDPOINT = import.meta.env.PUBLIC_LEAD_ENDPOINT || 'https://portal.receptionmate.co.uk/api/public/lead';
+const SIGNUP_ENDPOINT = import.meta.env.PUBLIC_SIGNUP_ENDPOINT || 'https://portal.receptionmate.co.uk/api/public-signup';
+const PLACES_ENDPOINT = import.meta.env.PUBLIC_PLACES_ENDPOINT || 'https://portal.receptionmate.co.uk/api/public/places-autocomplete';
+// Mints a personal demo link (portal /try/<slug>) for the garage they picked — see
+// backend/src/routes/demo-prospect.ts. The agent is only built when that link is opened.
+const DEMO_LINK_ENDPOINT = import.meta.env.PUBLIC_DEMO_LINK_ENDPOINT || 'https://portal.receptionmate.co.uk/api/public/demo-prospect';
+
+// Assist, for the start-today path. Matches ASSIST_DEFAULTS in backend/src/routes/
+// public-signup.ts and the public pricing page; STRIPE_TRIAL_DAYS defaults to 14.
+const ASSIST_PRICE_GBP = 200;
+const ASSIST_MINUTES = 400;
+const ASSIST_TRIAL_DAYS = 14;
+
+// The shared demo line: a prospect can hear the receptionist before giving us anything.
+const DEMO_LINE_DISPLAY = '0333 041 1784';
+const DEMO_LINE_TEL = '+443330411784';
+
+const LANDING_PAGE = '/tyresoft';
+
+// The recorded receptionist sample the Personas section plays on the homepage.
+const VOICE_SAMPLE = '/voice-samples/leah.mp3';
+
+// Verbatim from Testimonials.astro / case-studies.astro — the same words, the same numbers. If a
+// case study changes there, change it here. Neither garage runs Tyresoft, and the page does not
+// say they do: they are ReceptionMate customers, shown as such.
+const QUOTES = [
+  {
+    quote: "Over the 2 months (Oct / Nov) looking at the uplift in sales from the final invoice value and deducting your invoices, INO have generated an additional £21k that would have otherwise been lost sales.",
+    name: 'Louise',
+    role: "In'n'Out Autocentres",
+    result: '992 calls answered · 245 bookings captured · £34,089 revenue',
+  },
+  {
+    quote: 'Bookings we would have lost are now in our diary the next morning.',
+    name: 'Mark',
+    role: 'EAC Telford',
+    result: '1,468 calls answered · 158 bookings captured · £28,761 revenue',
+  },
+];
+
+const STEPS = [
+  { title: 'Your calls forward to us', body: 'Keep your number. Set your phone to forward after 5–7 rings and out of hours, so your team still answers first when they can.' },
+  { title: 'The receptionist takes the booking', body: 'It captures the reg, quotes from your own prices and offers real slots — tyres, MOTs, services and repairs.' },
+  { title: 'The job lands in Tyresoft', body: 'With Automate it goes straight into your diary on the call. With Assist it goes to your portal inbox for your team to pop in.' },
+];
+
+const FAQS = [
+  { q: "What if the AI can't help?", a: 'It transfers the call to you, or takes a message with the caller\'s name and number and sends it to your inbox. Nobody gets stuck talking to a robot.' },
+  { q: 'Does it replace my front desk?', a: "No. Your team still answers first. ReceptionMate only picks up the calls that ring out, and every call out of hours — the ones you're losing today." },
+  { q: 'What does it cost?', a: `Assist is £${ASSIST_PRICE_GBP} a month plus VAT after the ${ASSIST_TRIAL_DAYS}-day free trial, with ${ASSIST_MINUTES} minutes included. Automate, with the live Tyresoft integration, is priced per branch — we'll give you a fixed number on the demo.` },
+  { q: 'Is there a contract?', a: 'No long-term contract. Rolling monthly, 30 days\' notice. To stop, just switch off the call-forwarding rule.' },
+];
+
+const c = {
+  metaTitle: 'ReceptionMate for Tyresoft garages',
+  metaDesc: 'An AI receptionist that answers every call you miss and books the job straight into your Tyresoft diary. Start a free trial or book a demo.',
+};
+---
+
+<BaseLayout title={c.metaTitle} description={c.metaDesc} noindex={true}>
+  <div class="relative min-h-screen overflow-hidden bg-ink-50/40">
+    <div class="pointer-events-none absolute inset-x-0 -top-32 -z-0 h-72 bg-gradient-to-b from-brand-100/40 via-brand-50/20 to-transparent"></div>
+    <div class="pointer-events-none absolute -left-32 top-40 -z-0 h-72 w-72 rounded-full bg-brand-200/30 blur-3xl"></div>
+    <div class="pointer-events-none absolute -right-32 top-96 -z-0 h-72 w-72 rounded-full bg-emerald-200/20 blur-3xl"></div>
+
+    <div class="relative z-10 mx-auto max-w-2xl px-4 py-12 sm:px-6 sm:py-16 lg:py-20">
+
+      <div class="mb-8 flex items-center justify-between gap-3">
+        <button id="ts-back" type="button" class="invisible inline-flex items-center gap-1.5 rounded-full border border-ink-200 bg-white px-3 py-1.5 text-sm font-medium text-ink-700 shadow-sm hover:bg-ink-50">
+          <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+          Back
+        </button>
+        <div class="flex items-center gap-1.5" id="ts-dots">
+          <span class="gs-dot" data-i="1"></span>
+          <span class="gs-dot" data-i="2"></span>
+          <span class="gs-dot" data-i="3"></span>
+        </div>
+      </div>
+      <p id="ts-step-label" class="sr-only">Step 1 of 3</p>
+
+      <!-- ===== STEP 1: GARAGE ===== -->
+      <section id="step-business" class="ts-step">
+        <span class="ts-eyebrow">For Tyresoft garages</span>
+        <h1 class="mt-3 text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">
+          Every call answered. Every booking in your Tyresoft diary.
+        </h1>
+        <p class="mt-3 text-base text-ink-600">
+          ReceptionMate's AI receptionist picks up the calls you miss, quotes from your own prices
+          and books the job while the caller is still on the line.
+        </p>
+
+        <ul class="mt-5 space-y-2 text-sm text-ink-700">
+          <li class="flex items-start gap-2"><svg class="mt-0.5 h-3.5 w-3.5 shrink-0 text-brand-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Answers every missed call, day and night, in a natural voice</li>
+          <li class="flex items-start gap-2"><svg class="mt-0.5 h-3.5 w-3.5 shrink-0 text-brand-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Books tyres, MOTs, services and repairs straight into Tyresoft</li>
+          <li class="flex items-start gap-2"><svg class="mt-0.5 h-3.5 w-3.5 shrink-0 text-brand-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Already live in Tyresoft garages — your number stays yours, nothing to install</li>
+        </ul>
+
+        <p class="mt-4 text-sm text-ink-600">
+          Want to hear it first? Call the demo line on
+          <a href={`tel:${DEMO_LINE_TEL}`} class="font-semibold text-brand-600 hover:text-brand-700 hover:underline">{DEMO_LINE_DISPLAY}</a>.
+        </p>
+
+        <div class="mt-8">
+          <label class="mb-1.5 block text-sm font-medium text-ink-800" for="ts-search">Start with your garage name</label>
+          <div class="gs-input-wrap">
+            <svg class="gs-input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></svg>
+            <input type="text" id="ts-search" autocomplete="off" placeholder="e.g. Acme Tyre & Auto Centre" class="gs-input gs-input-lg" />
+          </div>
+          <p class="mt-2 text-xs text-ink-500">We'll pull your details from Google so there's less to type.</p>
+          <ul id="ts-results" class="mt-3 hidden max-h-72 overflow-y-auto rounded-2xl border border-ink-200 bg-white shadow-sm"></ul>
+
+          <p id="ts-search-note" role="status" class="mt-3 hidden text-sm text-ink-600"></p>
+
+          <button type="button" id="ts-manual-toggle" class="mt-4 text-sm font-medium text-brand-600 hover:text-brand-700 hover:underline">
+            Can't find your garage?
+          </button>
+
+          <div id="ts-manual" class="mt-4 hidden space-y-3 rounded-2xl border border-ink-200 bg-white p-5">
+            <div>
+              <label class="mb-1.5 block text-sm font-medium text-ink-800" for="ts-manual-name">Business name</label>
+              <input type="text" id="ts-manual-name" class="gs-input" placeholder="Acme Tyre & Auto Centre" />
+            </div>
+            <div>
+              <label class="mb-1.5 block text-sm font-medium text-ink-800" for="ts-manual-addr">Town or city</label>
+              <input type="text" id="ts-manual-addr" class="gs-input" placeholder="Telford" />
+            </div>
+            <button type="button" id="ts-manual-confirm" class="gs-primary-btn w-full">Continue</button>
+          </div>
+        </div>
+
+        <!-- Below the fold: for the reader who is not convinced yet. Inside step 1 on purpose,
+             so it disappears the moment they pick a garage and the stepper has their attention. -->
+        <div class="mt-14 border-t border-ink-200 pt-10">
+          <p class="text-sm font-semibold uppercase tracking-wider text-brand-600">Not sure yet?</p>
+
+          <!-- Hear it -->
+          <div id="ts-sample" class="mt-4 flex items-center gap-4 rounded-2xl border border-ink-200 bg-white p-5 shadow-sm" data-audio={VOICE_SAMPLE}>
+            <button type="button" id="ts-sample-btn" class="relative inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-brand-600 text-white shadow-lg shadow-brand-600/30 transition hover:bg-brand-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-600/30" aria-label="Hear the receptionist answer a call">
+              <svg class="ts-sample-play h-5 w-5" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
+              <svg class="ts-sample-pause hidden h-5 w-5" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 5h4v14H6V5zm8 0h4v14h-4V5z"/></svg>
+              <svg class="ts-sample-loading hidden h-5 w-5 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" class="opacity-25"/><path d="M4 12a8 8 0 018-8" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>
+            </button>
+            <div class="min-w-0 flex-1">
+              <p class="text-base font-semibold text-ink-900">Hear it answer a call</p>
+              <p class="mt-0.5 text-sm text-ink-600">Press play for Leah, the receptionist your callers would speak to.</p>
+              <p class="ts-sample-playing mt-2 hidden text-xs font-medium text-brand-700">Playing…</p>
+            </div>
+          </div>
+
+          <!-- How it works -->
+          <h2 class="mt-10 text-2xl font-bold tracking-tight text-ink-900">How it works</h2>
+          <ol class="mt-5 space-y-4">
+            {STEPS.map((st, i) => (
+              <li class="flex gap-4">
+                <span class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-600 text-sm font-bold text-white">{i + 1}</span>
+                <div>
+                  <p class="text-base font-semibold text-ink-900">{st.title}</p>
+                  <p class="mt-1 text-sm leading-relaxed text-ink-600">{st.body}</p>
+                </div>
+              </li>
+            ))}
+          </ol>
+
+          <!-- Real garages -->
+          <h2 class="mt-10 text-2xl font-bold tracking-tight text-ink-900">Real garages, real results</h2>
+          <div class="mt-5 space-y-4">
+            {QUOTES.map((q) => (
+              <figure class="rounded-2xl border border-ink-200 bg-white p-5 shadow-sm">
+                <header class="flex items-center gap-3">
+                  <span class="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand-600 text-sm font-bold text-white">{q.name.charAt(0)}</span>
+                  <div class="min-w-0 flex-1">
+                    <p class="text-sm font-semibold text-ink-900">{q.name}</p>
+                    <p class="text-xs text-ink-500">{q.role}</p>
+                  </div>
+                  <div class="flex items-center gap-0.5 text-amber-500" aria-label="5 out of 5 stars">
+                    {Array.from({ length: 5 }).map(() => (
+                      <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path d="M10 15.27L16.18 19l-1.64-7.03L20 7.24l-7.19-.61L10 0 7.19 6.63 0 7.24l5.46 4.73L3.82 19z"/></svg>
+                    ))}
+                  </div>
+                </header>
+                <blockquote class="mt-4 text-sm leading-relaxed text-ink-800">"{q.quote}"</blockquote>
+                <p class="mt-4 border-t border-ink-200 pt-3 text-xs font-medium text-brand-700">{q.result}</p>
+              </figure>
+            ))}
+          </div>
+
+          <!-- FAQs -->
+          <h2 class="mt-10 text-2xl font-bold tracking-tight text-ink-900">Questions garages ask first</h2>
+          <div class="mt-5 space-y-3">
+            {FAQS.map((f) => (
+              <details class="group rounded-2xl border border-ink-200 bg-white p-5 transition open:shadow-md">
+                <summary class="flex cursor-pointer list-none items-start justify-between gap-4 text-left">
+                  <h3 class="text-base font-semibold text-ink-900">{f.q}</h3>
+                  <span class="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand-50 text-brand-700 transition group-open:rotate-45" aria-hidden="true">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z"/></svg>
+                  </span>
+                </summary>
+                <p class="mt-3 text-sm leading-relaxed text-ink-700">{f.a}</p>
+              </details>
+            ))}
+          </div>
+
+          <!-- Back to the one thing to do -->
+          <div class="mt-10 rounded-2xl bg-brand-600 p-6 text-center text-white shadow-lg shadow-brand-600/30">
+            <p class="text-lg font-bold">Ready? It starts with your garage name.</p>
+            <p class="mt-1 text-sm text-brand-100">Free for {ASSIST_TRIAL_DAYS} days, or book a demo of the Tyresoft integration.</p>
+            <button type="button" id="ts-to-top" class="mt-4 inline-flex items-center justify-center rounded-xl bg-white px-5 py-2.5 text-sm font-semibold text-brand-700 shadow-sm transition hover:bg-brand-50">Find my garage</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== STEP 2: HOW TO START ===== -->
+      <section id="step-path" class="ts-step hidden">
+        <p class="text-sm text-ink-500">Setting up <span id="ts-path-business" class="font-semibold text-ink-900">your garage</span></p>
+        <h1 class="mt-2 text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">
+          How would you like to start?
+        </h1>
+        <p class="mt-3 text-base text-ink-600">
+          Be live this afternoon with no integration, or see it booking straight into Tyresoft on a short demo.
+        </p>
+
+        <div class="mt-8 space-y-4">
+          <button type="button" class="gs-choice gs-choice-rich" data-path="assist">
+            <div class="flex items-start justify-between gap-4">
+              <div class="min-w-0 flex-1">
+                <span class="text-base font-semibold text-ink-900">Start today — {ASSIST_TRIAL_DAYS} days free</span>
+                <p class="mt-1 text-sm text-ink-600">
+                  Assist answers every call you miss and takes the booking using the lead time you set,
+                  then drops it into your portal inbox for your team to pop into Tyresoft. No integration needed.
+                </p>
+                <p class="mt-2 text-xs text-ink-500">£{ASSIST_PRICE_GBP}/month + VAT after the trial · {ASSIST_MINUTES} minutes included · rolling monthly</p>
+              </div>
+              <span class="shrink-0 rounded-full bg-emerald-50 px-2.5 py-1 text-[0.625rem] font-bold uppercase tracking-wide text-emerald-700">Free trial</span>
+            </div>
+          </button>
+
+          <button type="button" class="gs-choice gs-choice-rich" data-path="demo">
+            <div class="flex items-start justify-between gap-4">
+              <div class="min-w-0 flex-1">
+                <span class="text-base font-semibold text-ink-900">Book straight into Tyresoft</span>
+                <p class="mt-1 text-sm text-ink-600">
+                  Automate plugs into your Tyresoft diary: it quotes from your own prices and the booking
+                  lands in the diary during the call. We'll show you it working and talk you through pricing.
+                </p>
+                <p class="mt-2 text-xs text-ink-500">Live Tyresoft integration · per branch · rolling monthly</p>
+              </div>
+              <span class="shrink-0 rounded-full bg-brand-50 px-2.5 py-1 text-[0.625rem] font-bold uppercase tracking-wide text-brand-700">Book a demo</span>
+            </div>
+          </button>
+        </div>
+
+        <!-- Their own receptionist, before they choose. Hidden until the link exists: the row is
+             minted the moment the garage is picked, and if that failed there is nothing to open. -->
+        <div id="ts-own-demo" class="mt-6 hidden rounded-2xl border border-dashed border-brand-300 bg-brand-50/60 p-5">
+          <p class="text-base font-semibold text-ink-900">Not sure yet? Hear it answer as <span id="ts-own-demo-name" class="text-brand-700">your garage</span>.</p>
+          <p class="mt-1 text-sm text-ink-600">
+            We'll build a receptionist for your garage from your Google listing and website, and you can talk to it
+            right now in your browser or on the phone. It answers from a practice diary, so nothing is really booked.
+          </p>
+          <a id="ts-own-demo-link" href="#" target="_blank" rel="noopener" class="gs-primary-btn mt-4 w-full">
+            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
+            Talk to my receptionist
+          </a>
+        </div>
+      </section>
+
+      <!-- ===== STEP 3a: ASSIST DETAILS → ACCOUNT ===== -->
+      <section id="step-assist" class="ts-step hidden">
+        <p class="text-sm text-ink-500">
+          <span id="ts-assist-business" class="font-semibold text-ink-900">Your garage</span> · Assist
+        </p>
+        <h1 class="mt-2 text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">
+          Last bit — who are we setting this up for?
+        </h1>
+        <p class="mt-3 text-base text-ink-600">
+          We'll create your account and take you straight to the agreement.
+        </p>
+
+        <form id="ts-form-assist" class="mt-8 space-y-4" novalidate>
+          <div>
+            <label class="mb-1.5 block text-sm font-medium text-ink-800" for="ts-assist-name">Your name</label>
+            <input type="text" id="ts-assist-name" name="name" required autocomplete="name" class="gs-input" placeholder="Jane Smith" />
+          </div>
+          <div>
+            <label class="mb-1.5 block text-sm font-medium text-ink-800" for="ts-assist-email">Work email</label>
+            <input type="email" id="ts-assist-email" name="email" required autocomplete="email" inputmode="email" class="gs-input" placeholder="jane@acmetyres.co.uk" />
+            <p class="mt-1.5 text-xs text-ink-500">This becomes your portal login.</p>
+          </div>
+          <div>
+            <label class="mb-1.5 block text-sm font-medium text-ink-800" for="ts-assist-phone">Mobile number</label>
+            <input type="tel" id="ts-assist-phone" name="phone" required autocomplete="tel" inputmode="tel" class="gs-input" placeholder="07700 900123" />
+          </div>
+
+          <p id="ts-assist-error" role="alert" class="hidden rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700"></p>
+
+          <button type="submit" class="gs-primary-btn w-full">
+            <span data-state="idle">Continue to the agreement</span>
+            <span data-state="loading" style="display:none" class="items-center gap-2">
+              <svg class="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/></svg>
+              Setting up your account…
+            </span>
+          </button>
+          <p class="text-center text-xs text-ink-500">
+            Nothing is charged today. You'll add a card on the next screen to start your
+            {ASSIST_TRIAL_DAYS}-day free trial.
+          </p>
+        </form>
+      </section>
+
+      <!-- ===== STEP 3b: DEMO DETAILS → LEAD ===== -->
+      <section id="step-demo" class="ts-step hidden">
+        <p class="text-sm text-ink-500">
+          <span id="ts-demo-business" class="font-semibold text-ink-900">Your garage</span> · Tyresoft integration
+        </p>
+        <h1 class="mt-2 text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">
+          Book your demo
+        </h1>
+        <p class="mt-3 text-base text-ink-600">
+          Leave your details and we'll be in touch within one working day to find a time.
+        </p>
+
+        <form id="ts-form-demo" class="mt-8 space-y-4" novalidate>
+          <div>
+            <label class="mb-1.5 block text-sm font-medium text-ink-800" for="ts-demo-name">Your name</label>
+            <input type="text" id="ts-demo-name" name="name" required autocomplete="name" class="gs-input" placeholder="Jane Smith" />
+          </div>
+          <div>
+            <label class="mb-1.5 block text-sm font-medium text-ink-800" for="ts-demo-email">Email</label>
+            <input type="email" id="ts-demo-email" name="email" required autocomplete="email" inputmode="email" class="gs-input" placeholder="jane@acmetyres.co.uk" />
+          </div>
+          <div>
+            <label class="mb-1.5 block text-sm font-medium text-ink-800" for="ts-demo-phone">Mobile number</label>
+            <input type="tel" id="ts-demo-phone" name="phone" required autocomplete="tel" inputmode="tel" class="gs-input" placeholder="07700 900123" />
+          </div>
+
+          <p id="ts-demo-error" role="alert" class="hidden rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700"></p>
+
+          <button type="submit" class="gs-primary-btn w-full">
+            <span data-state="idle">Book my demo</span>
+            <span data-state="loading" style="display:none" class="items-center gap-2">
+              <svg class="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/></svg>
+              Sending…
+            </span>
+          </button>
+          <p class="text-center text-xs text-ink-500">No commitment · we'll be in touch within one working day</p>
+        </form>
+      </section>
+
+      <!-- ===== STEP: DEMO BOOKED ===== -->
+      <section id="step-demo-done" class="ts-step hidden">
+        <div class="rounded-3xl border border-emerald-200 bg-white p-8 text-center shadow-sm">
+          <div class="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-emerald-100">
+            <svg class="h-6 w-6 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+          </div>
+          <h1 class="mt-4 text-2xl font-bold text-ink-900">Got it — thank you.</h1>
+          <p class="mt-2 text-sm text-ink-600">
+            Someone from the team will be in touch within one working day to book your demo.
+            Can't wait? Hear the receptionist now on
+            <a href={`tel:${DEMO_LINE_TEL}`} class="font-semibold text-brand-600 hover:text-brand-700 hover:underline">{DEMO_LINE_DISPLAY}</a>.
+          </p>
+          <a id="ts-own-demo-link-done" href="#" target="_blank" rel="noopener" class="gs-primary-btn mt-5 hidden w-full">
+            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
+            Hear it answer as your garage
+          </a>
+        </div>
+      </section>
+
+      <!-- ===== STEP: REDIRECTING ===== -->
+      <section id="step-redirecting" class="ts-step hidden">
+        <div class="rounded-3xl border border-ink-200 bg-white p-8 text-center shadow-sm">
+          <svg class="mx-auto h-8 w-8 animate-spin text-brand-600" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/></svg>
+          <h1 class="mt-4 text-xl font-semibold text-ink-900">Your account is ready.</h1>
+          <p class="mt-2 text-sm text-ink-600">Taking you to your agreement…</p>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</BaseLayout>
+
+<style>
+  .ts-step { animation: ts-in 0.25s ease; }
+  @keyframes ts-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+  .ts-eyebrow {
+    display: inline-flex; align-items: center; border-radius: 9999px;
+    background: #3426cf; padding: 0.3rem 0.75rem;
+    font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.06em;
+    text-transform: uppercase; color: #fff;
+    box-shadow: 0 6px 16px -6px rgba(52,38,207,0.5);
+  }
+
+  /* Shared with the get-started and Blend funnels. Duplicated rather than extracted, for the
+     reason blend.astro gives: a shared stylesheet would couple live funnels to a campaign page. */
+  .gs-input-wrap { position: relative; display: flex; align-items: center; }
+  .gs-input-icon { position: absolute; left: 1rem; height: 1.25rem; width: 1.25rem; color: #94a3b8; pointer-events: none; transition: color 0.15s ease; }
+  .gs-input { width: 100%; border-radius: 0.875rem; border: 1px solid #cbd5e1; background: #fff; padding: 0.875rem 1rem; font-size: 1rem; color: #0f172a; transition: border-color 0.15s ease, box-shadow 0.15s ease; }
+  .gs-input::placeholder { color: #94a3b8; }
+  .gs-input:hover { border-color: #94a3b8; }
+  .gs-input:focus { outline: none; border-color: #3426cf; box-shadow: 0 0 0 4px rgba(52, 38, 207, 0.12); }
+  .gs-input-wrap:focus-within .gs-input-icon { color: #3426cf; }
+  .gs-input-wrap .gs-input { padding-left: 2.75rem; }
+  .gs-input-lg { padding: 1.125rem 1.125rem 1.125rem 2.75rem; font-size: 1.0625rem; border-radius: 1rem; }
+
+  .gs-choice { display: block; width: 100%; text-align: left; cursor: pointer; border-radius: 1rem; border: 1.5px solid #e2e8f0; background: #fff; padding: 1.125rem 1.25rem; transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.1s ease; }
+  .gs-choice:hover { border-color: #3426cf; box-shadow: 0 8px 24px -16px rgba(52,38,207,0.4); transform: translateY(-1px); }
+  .gs-choice-rich { padding: 1.25rem; position: relative; }
+
+  .gs-dot { display: inline-block; height: 0.375rem; width: 1.5rem; border-radius: 9999px; background: #e2e8f0; transition: all 0.25s ease; }
+  .gs-dot[data-state="active"] { background: #3426cf; width: 2.25rem; }
+  .gs-dot[data-state="done"] { background: #3426cf; }
+
+  .gs-primary-btn { display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem; border-radius: 0.875rem; background: #3426cf; padding: 0.875rem 1.25rem; font-size: 0.9375rem; font-weight: 600; color: #fff; box-shadow: 0 8px 24px -10px rgba(52,38,207,0.6); transition: background 0.15s ease, opacity 0.15s ease, transform 0.1s ease; }
+  .gs-primary-btn:hover:not(:disabled) { background: #2a1ea8; transform: translateY(-1px); }
+  .gs-primary-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+</style>
+
+<script>
+  // One audio element, play/pause on the button, same shape as the Personas sample player.
+  const sample = document.getElementById('ts-sample') as HTMLElement | null;
+  const btn = document.getElementById('ts-sample-btn') as HTMLButtonElement | null;
+  if (sample && btn && sample.dataset.audio) {
+    const src = sample.dataset.audio;
+    const audio = new Audio();
+    const icons = {
+      play: btn.querySelector('.ts-sample-play') as HTMLElement,
+      pause: btn.querySelector('.ts-sample-pause') as HTMLElement,
+      loading: btn.querySelector('.ts-sample-loading') as HTMLElement,
+    };
+    const playing = sample.querySelector('.ts-sample-playing') as HTMLElement | null;
+    const setState = (state: 'idle' | 'loading' | 'playing') => {
+      icons.play.classList.toggle('hidden', state !== 'idle');
+      icons.pause.classList.toggle('hidden', state !== 'playing');
+      icons.loading.classList.toggle('hidden', state !== 'loading');
+      playing?.classList.toggle('hidden', state !== 'playing');
+    };
+    let active = false;
+    const stop = () => { audio.pause(); audio.currentTime = 0; active = false; setState('idle'); };
+    btn.addEventListener('click', () => {
+      if (active) { stop(); return; }
+      active = true;
+      setState('loading');
+      if (audio.src !== location.origin + src) audio.src = src;
+      audio.onplaying = () => { if (active) setState('playing'); };
+      audio.onended = stop;
+      audio.onerror = stop;
+      audio.play().catch(stop);
+    });
+    document.addEventListener('visibilitychange', () => { if (document.hidden && active) stop(); });
+  }
+
+  document.getElementById('ts-to-top')?.addEventListener('click', () => {
+    const input = document.getElementById('ts-search') as HTMLInputElement | null;
+    input?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setTimeout(() => input?.focus({ preventScroll: true }), 400);
+  });
+</script>
+
+<script is:inline define:vars={{ PROSPECT_ENDPOINT, LEAD_ENDPOINT, SIGNUP_ENDPOINT, PLACES_ENDPOINT, DEMO_LINK_ENDPOINT, LANDING_PAGE }}>
+  const state = {
+    businessName: '',
+    address: '',
+    googlePlaceId: '',
+    prospectId: '',
+    demoUrl: '',
+    history: [],
+  };
+
+  // Which dot each step sits on. The terminal screens keep the last dot.
+  const STEP_DOT = {
+    business: 1,
+    path: 2,
+    assist: 3,
+    demo: 3,
+    'demo-done': 3,
+    redirecting: 3,
+  };
+
+  const $ = (id) => document.getElementById(id);
+  const $back = $('ts-back');
+
+  function setStep(name, pushHistory) {
+    document.querySelectorAll('.ts-step').forEach((s) => s.classList.add('hidden'));
+    const el = $(`step-${name}`);
+    if (el) el.classList.remove('hidden');
+
+    if (pushHistory) state.history.push(name);
+    // Once the account exists or the lead is sent there is nothing to go back to.
+    const canGoBack = state.history.length > 1 && !['redirecting', 'demo-done'].includes(name);
+    $back.classList.toggle('invisible', !canGoBack);
+
+    const dot = STEP_DOT[name] || 1;
+    document.querySelectorAll('#ts-dots .gs-dot').forEach((d) => {
+      const i = Number(d.getAttribute('data-i'));
+      d.setAttribute('data-state', i < dot ? 'done' : i === dot ? 'active' : '');
+    });
+    const label = $('ts-step-label');
+    if (label) label.textContent = `Step ${dot} of 3`;
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  $back.addEventListener('click', () => {
+    if (state.history.length < 2) return;
+    state.history.pop();
+    setStep(state.history[state.history.length - 1], false);
+  });
+
+  // ====== Step 1: garage search ======
+  const $search = $('ts-search');
+  const $results = $('ts-results');
+  const $searchNote = $('ts-search-note');
+  const $manual = $('ts-manual');
+
+  function showSearchUnavailable() {
+    // Google has failed in production before and the box just did nothing. Say so, and open
+    // manual entry.
+    $searchNote.textContent = "We couldn't reach Google just now. Type your details in below instead.";
+    $searchNote.classList.remove('hidden');
+    $manual.classList.remove('hidden');
+  }
+
+  function renderResults(items) {
+    $results.innerHTML = '';
+    if (!items.length) { $results.classList.add('hidden'); return; }
+    items.slice(0, 6).forEach((item) => {
+      const li = document.createElement('li');
+      li.className = 'flex cursor-pointer items-start gap-3 border-b border-ink-100 px-4 py-3 last:border-b-0 hover:bg-ink-50';
+      const main = document.createElement('p');
+      main.className = 'truncate text-sm font-semibold text-ink-900';
+      main.textContent = item.mainText;
+      const sub = document.createElement('p');
+      sub.className = 'truncate text-xs text-ink-500';
+      sub.textContent = item.secondaryText;
+      const wrap = document.createElement('div');
+      wrap.className = 'min-w-0 flex-1';
+      wrap.append(main, sub);
+      li.append(wrap);
+      // textContent, never innerHTML: these strings come from Google.
+      li.addEventListener('click', () => pickBusiness(item.mainText, item.secondaryText, item.placeId));
+      $results.appendChild(li);
+    });
+    $results.classList.remove('hidden');
+  }
+
+  // Only the newest query may render: a slow reply for "kwi" must never overwrite "kwik fit".
+  let searchDebounce;
+  let searchSeq = 0;
+
+  $search.addEventListener('input', () => {
+    clearTimeout(searchDebounce);
+    const q = $search.value.trim();
+    if (q.length < 3) { $results.classList.add('hidden'); $results.innerHTML = ''; return; }
+    const seq = ++searchSeq;
+    searchDebounce = setTimeout(async () => {
+      try {
+        const res = await fetch(`${PLACES_ENDPOINT}?q=${encodeURIComponent(q)}`, { headers: { Accept: 'application/json' } });
+        if (seq !== searchSeq) return;
+        if (!res.ok) { showSearchUnavailable(); return; }
+        const data = await res.json().catch(() => ({}));
+        if (seq !== searchSeq) return;
+        $searchNote.classList.add('hidden');
+        renderResults((data.predictions || []).map((p) => ({
+          placeId: p.placeId || '',
+          mainText: p.mainText || p.description || '',
+          secondaryText: p.secondaryText || '',
+        })));
+      } catch (err) {
+        if (seq !== searchSeq) return;
+        console.error('[tyresoft] autocomplete failed', err);
+        showSearchUnavailable();
+      }
+    }, 200);
+  });
+
+  $('ts-manual-toggle').addEventListener('click', () => $manual.classList.toggle('hidden'));
+  $('ts-manual-confirm').addEventListener('click', () => {
+    const name = $('ts-manual-name').value.trim();
+    const addr = $('ts-manual-addr').value.trim();
+    if (name.length < 2) return;
+    pickBusiness(name, addr, '');
+  });
+
+  function pickBusiness(name, address, placeId) {
+    state.businessName = name;
+    state.address = address || '';
+    state.googlePlaceId = placeId || '';
+
+    const label = state.address ? `${state.businessName} · ${state.address}` : state.businessName;
+    ['ts-path-business', 'ts-assist-business', 'ts-demo-business'].forEach((id) => {
+      const el = $(id);
+      if (el) el.textContent = label;
+    });
+
+    $results.classList.add('hidden');
+    // A fresh pick must not show the previous garage's link while the new one is minted.
+    const box = $('ts-own-demo');
+    if (box) box.classList.add('hidden');
+    ['ts-own-demo-link', 'ts-own-demo-link-done'].forEach((id) => { const a = $(id); if (a) { a.href = '#'; a.classList.add('hidden'); } });
+    createProspect();
+    setStep('path', true);
+  }
+
+  // The HighLevel prospect, created the moment they pick a garage — before we know their name.
+  // It lands in "Abandoned checkout" tagged for the Tyresoft campaign, so a garage that opens the
+  // e-shot, picks itself and wanders off is still followable. Fire-and-forget: a CRM wobble must
+  // never block the page.
+  function createProspect() {
+    fetch(PROSPECT_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        businessName: state.businessName,
+        googlePlaceId: state.googlePlaceId || undefined,
+        address: state.address || undefined,
+        source: 'tyresoft-eshot',
+      }),
+    })
+      .then((r) => r.json().catch(() => ({})))
+      .then((d) => { if (d && d.prospectId) state.prospectId = d.prospectId; else if (d && d.id) state.prospectId = d.id; })
+      .catch(() => {})
+      // After, not alongside: the demo row carries the CRM contact the prospect row creates.
+      .then(() => createDemoLink());
+  }
+
+  // Their personal demo link. The row is cheap and nothing is built until it is opened, so it is
+  // minted here rather than on click — a plain <a target="_blank"> that already has its href is
+  // the one thing every mobile browser will open without a popup fight.
+  function createDemoLink() {
+    state.demoUrl = '';
+    // Only for a garage picked from the Places search: the server builds the demo from the Google
+    // listing alone, so a manual entry has nothing to build it from and the offer stays hidden.
+    if (!state.googlePlaceId) return;
+    fetch(DEMO_LINK_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        googlePlaceId: state.googlePlaceId,
+        prospectId: state.prospectId || undefined,
+        source: 'tyresoft-eshot',
+      }),
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (!d || !d.ok || !d.url) return;
+        state.demoUrl = d.url;
+        ['ts-own-demo-link', 'ts-own-demo-link-done'].forEach((id) => {
+          const a = $(id);
+          if (a) { a.href = d.url; a.classList.remove('hidden'); }
+        });
+        const nameEl = $('ts-own-demo-name');
+        if (nameEl) nameEl.textContent = d.spokenName || state.businessName;
+        const box = $('ts-own-demo');
+        if (box) box.classList.remove('hidden');
+      })
+      .catch(() => {});
+  }
+
+  function enrichProspect(fields) {
+    if (!state.prospectId) return;
+    fetch(`${PROSPECT_ENDPOINT}/${encodeURIComponent(state.prospectId)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(fields),
+    }).catch(() => {});
+  }
+
+  // ====== Step 2: how to start ======
+  document.querySelectorAll('#step-path [data-path]').forEach((card) => {
+    card.addEventListener('click', () => {
+      const path = card.getAttribute('data-path');
+      // Tell HighLevel which product they are heading for as soon as we know, so the opportunity
+      // is useful even if they go no further.
+      enrichProspect({ product: path === 'demo' ? 'automate' : 'assist' });
+      setStep(path === 'demo' ? 'demo' : 'assist', true);
+    });
+  });
+
+  function busy(form, on) {
+    const btn = form.querySelector('button[type="submit"]');
+    const idle = form.querySelectorAll('[data-state="idle"]');
+    const load = form.querySelector('[data-state="loading"]');
+    btn.disabled = on;
+    idle.forEach((el) => el.classList.toggle('hidden', on));
+    load.style.display = on ? 'inline-flex' : 'none';
+  }
+
+  function readDetails(prefix) {
+    return {
+      name: $(`${prefix}-name`).value.trim(),
+      email: $(`${prefix}-email`).value.trim(),
+      phone: $(`${prefix}-phone`).value.trim(),
+    };
+  }
+
+  function detailsValid({ name, email, phone }) {
+    return name.length >= 2 && email.includes('@') && phone.length >= 6;
+  }
+
+  // ====== Step 3a: Assist signup ======
+  //
+  // Posts to the SAME endpoint /get-started uses, so this inherits the whole live Assist flow:
+  // PendingSignup, the 14-day Stripe trial, and a sign link whose page shows the card form.
+  $('ts-form-assist').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const form = e.currentTarget;
+    const err = $('ts-assist-error');
+    err.classList.add('hidden');
+    err.textContent = '';
+
+    const details = readDetails('ts-assist');
+    if (!detailsValid(details)) {
+      err.textContent = 'Please fill in your name, email and mobile number.';
+      err.classList.remove('hidden');
+      return;
+    }
+
+    busy(form, true);
+    try {
+      const res = await fetch(SIGNUP_ENDPOINT, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prospectId: state.prospectId || undefined,
+          businessName: state.businessName,
+          googlePlaceId: state.googlePlaceId || undefined,
+          address: state.address || undefined,
+          name: details.name,
+          email: details.email,
+          phone: details.phone,
+          landing_page: LANDING_PAGE,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (res.status === 201 && data.success && data.signUrl) {
+        setStep('redirecting', false);
+        setTimeout(() => { window.location.href = data.signUrl; }, 700);
+        return;
+      }
+      if (res.status === 409) {
+        err.textContent = 'That email already has a ReceptionMate account. Sign in instead, or use a different address.';
+        err.classList.remove('hidden');
+        busy(form, false);
+        return;
+      }
+      throw new Error('signup_failed');
+    } catch (e2) {
+      console.error('[tyresoft] assist signup failed', e2);
+      err.textContent = "Something went wrong setting up your account. Please try again, or email hello@receptionmate.co.uk and we'll sort it.";
+      err.classList.remove('hidden');
+      busy(form, false);
+    }
+  });
+
+  // ====== Step 3b: demo request → HighLevel lead ======
+  //
+  // /public/lead moves the prospect's opportunity to "Enquiry Received & Demo Links sent" and
+  // emails + texts the team, exactly as every other website lead does.
+  $('ts-form-demo').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const form = e.currentTarget;
+    const err = $('ts-demo-error');
+    err.classList.add('hidden');
+    err.textContent = '';
+
+    const details = readDetails('ts-demo');
+    if (!detailsValid(details)) {
+      err.textContent = 'Please fill in your name, email and mobile number.';
+      err.classList.remove('hidden');
+      return;
+    }
+
+    busy(form, true);
+    try {
+      const res = await fetch(LEAD_ENDPOINT, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: details.name,
+          email: details.email,
+          phone: details.phone,
+          companyName: state.businessName,
+          prospectId: state.prospectId || undefined,
+          source: 'tyresoft-eshot-demo',
+          landing_page: LANDING_PAGE,
+          notes: `Tyresoft e-shot — wants a demo of the Tyresoft integration (Automate). Address: ${state.address || 'n/a'}.`,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && (data.ok || data.success)) { setStep('demo-done', false); return; }
+      throw new Error('lead_failed');
+    } catch (e2) {
+      console.error('[tyresoft] demo lead failed', e2);
+      err.textContent = "We couldn't send that just now. Please try again, or email hello@receptionmate.co.uk.";
+      err.classList.remove('hidden');
+      busy(form, false);
+    }
+  });
+
+  setStep('business', true);
+</script>

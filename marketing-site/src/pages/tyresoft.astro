@@ -652,13 +652,14 @@ const c = {
   // the one thing every mobile browser will open without a popup fight.
   function createDemoLink() {
     state.demoUrl = '';
+    // Only for a garage picked from the Places search: the server builds the demo from the Google
+    // listing alone, so a manual entry has nothing to build it from and the offer stays hidden.
+    if (!state.googlePlaceId) return;
     fetch(DEMO_LINK_ENDPOINT, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        businessName: state.businessName,
-        googlePlaceId: state.googlePlaceId || undefined,
-        address: state.address || undefined,
+        googlePlaceId: state.googlePlaceId,
         prospectId: state.prospectId || undefined,
         source: 'tyresoft-eshot',
       }),

@@ -26,6 +26,9 @@ const PROSPECT_ENDPOINT = import.meta.env.PUBLIC_PROSPECT_ENDPOINT || 'https://p
 const LEAD_ENDPOINT = import.meta.env.PUBLIC_LEAD_ENDPOINT || 'https://portal.receptionmate.co.uk/api/public/lead';
 const SIGNUP_ENDPOINT = import.meta.env.PUBLIC_SIGNUP_ENDPOINT || 'https://portal.receptionmate.co.uk/api/public-signup';
 const PLACES_ENDPOINT = import.meta.env.PUBLIC_PLACES_ENDPOINT || 'https://portal.receptionmate.co.uk/api/public/places-autocomplete';
+// Mints a personal demo link (portal /try/<slug>) for the garage they picked — see
+// backend/src/routes/demo-prospect.ts. The agent is only built when that link is opened.
+const DEMO_LINK_ENDPOINT = import.meta.env.PUBLIC_DEMO_LINK_ENDPOINT || 'https://portal.receptionmate.co.uk/api/public/demo-prospect';
 
 // Assist, for the start-today path. Matches ASSIST_DEFAULTS in backend/src/routes/
 // public-signup.ts and the public pricing page; STRIPE_TRIAL_DAYS defaults to 14.
@@ -270,6 +273,20 @@ const c = {
             </div>
           </button>
         </div>
+
+        <!-- Their own receptionist, before they choose. Hidden until the link exists: the row is
+             minted the moment the garage is picked, and if that failed there is nothing to open. -->
+        <div id="ts-own-demo" class="mt-6 hidden rounded-2xl border border-dashed border-brand-300 bg-brand-50/60 p-5">
+          <p class="text-base font-semibold text-ink-900">Not sure yet? Hear it answer as <span id="ts-own-demo-name" class="text-brand-700">your garage</span>.</p>
+          <p class="mt-1 text-sm text-ink-600">
+            We'll build a receptionist for your garage from your Google listing and website, and you can talk to it
+            right now in your browser or on the phone. It answers from a practice diary, so nothing is really booked.
+          </p>
+          <a id="ts-own-demo-link" href="#" target="_blank" rel="noopener" class="gs-primary-btn mt-4 w-full">
+            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
+            Talk to my receptionist
+          </a>
+        </div>
       </section>
 
       <!-- ===== STEP 3a: ASSIST DETAILS → ACCOUNT ===== -->
@@ -366,6 +383,10 @@ const c = {
             Can't wait? Hear the receptionist now on
             <a href={`tel:${DEMO_LINE_TEL}`} class="font-semibold text-brand-600 hover:text-brand-700 hover:underline">{DEMO_LINE_DISPLAY}</a>.
           </p>
+          <a id="ts-own-demo-link-done" href="#" target="_blank" rel="noopener" class="gs-primary-btn mt-5 hidden w-full">
+            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
+            Hear it answer as your garage
+          </a>
         </div>
       </section>
 
@@ -460,12 +481,13 @@ const c = {
   });
 </script>
 
-<script is:inline define:vars={{ PROSPECT_ENDPOINT, LEAD_ENDPOINT, SIGNUP_ENDPOINT, PLACES_ENDPOINT, LANDING_PAGE }}>
+<script is:inline define:vars={{ PROSPECT_ENDPOINT, LEAD_ENDPOINT, SIGNUP_ENDPOINT, PLACES_ENDPOINT, DEMO_LINK_ENDPOINT, LANDING_PAGE }}>
   const state = {
     businessName: '',
     address: '',
     googlePlaceId: '',
     prospectId: '',
+    demoUrl: '',
     history: [],
   };
 
@@ -595,6 +617,10 @@ const c = {
     });
 
     $results.classList.add('hidden');
+    // A fresh pick must not show the previous garage's link while the new one is minted.
+    const box = $('ts-own-demo');
+    if (box) box.classList.add('hidden');
+    ['ts-own-demo-link', 'ts-own-demo-link-done'].forEach((id) => { const a = $(id); if (a) { a.href = '#'; a.classList.add('hidden'); } });
     createProspect();
     setStep('path', true);
   }
@@ -616,6 +642,40 @@ const c = {
     })
       .then((r) => r.json().catch(() => ({})))
       .then((d) => { if (d && d.prospectId) state.prospectId = d.prospectId; else if (d && d.id) state.prospectId = d.id; })
+      .catch(() => {})
+      // After, not alongside: the demo row carries the CRM contact the prospect row creates.
+      .then(() => createDemoLink());
+  }
+
+  // Their personal demo link. The row is cheap and nothing is built until it is opened, so it is
+  // minted here rather than on click — a plain <a target="_blank"> that already has its href is
+  // the one thing every mobile browser will open without a popup fight.
+  function createDemoLink() {
+    state.demoUrl = '';
+    fetch(DEMO_LINK_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        businessName: state.businessName,
+        googlePlaceId: state.googlePlaceId || undefined,
+        address: state.address || undefined,
+        prospectId: state.prospectId || undefined,
+        source: 'tyresoft-eshot',
+      }),
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (!d || !d.ok || !d.url) return;
+        state.demoUrl = d.url;
+        ['ts-own-demo-link', 'ts-own-demo-link-done'].forEach((id) => {
+          const a = $(id);
+          if (a) { a.href = d.url; a.classList.remove('hidden'); }
+        });
+        const nameEl = $('ts-own-demo-name');
+        if (nameEl) nameEl.textContent = d.spokenName || state.businessName;
+        const box = $('ts-own-demo');
+        if (box) box.classList.remove('hidden');
+      })
       .catch(() => {});
   }
 

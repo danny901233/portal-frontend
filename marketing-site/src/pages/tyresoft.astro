@@ -36,14 +36,7 @@ const ASSIST_PRICE_GBP = 200;
 const ASSIST_MINUTES = 400;
 const ASSIST_TRIAL_DAYS = 14;
 
-// The shared demo line: a prospect can hear the receptionist before giving us anything.
-const DEMO_LINE_DISPLAY = '0333 041 1784';
-const DEMO_LINE_TEL = '+443330411784';
-
 const LANDING_PAGE = '/tyresoft';
-
-// The recorded receptionist sample the Personas section plays on the homepage.
-const VOICE_SAMPLE = '/voice-samples/leah.mp3';
 
 // Verbatim from Testimonials.astro / case-studies.astro — the same words, the same numbers. If a
 // case study changes there, change it here. Neither garage runs Tyresoft, and the page does not
@@ -73,7 +66,6 @@ const FAQS = [
   { q: "What if the AI can't help?", a: 'It transfers the call to you, or takes a message with the caller\'s name and number and sends it to your inbox. Nobody gets stuck talking to a robot.' },
   { q: 'Does it replace my front desk?', a: "No. Your team still answers first. ReceptionMate only picks up the calls that ring out, and every call out of hours — the ones you're losing today." },
   { q: 'What does it cost?', a: `Assist is £${ASSIST_PRICE_GBP} a month plus VAT after the ${ASSIST_TRIAL_DAYS}-day free trial, with ${ASSIST_MINUTES} minutes included. Automate, with the live Tyresoft integration, is priced per branch — we'll give you a fixed number on the demo.` },
-  { q: 'Is there a contract?', a: 'No long-term contract. Rolling monthly, 30 days\' notice. To stop, just switch off the call-forwarding rule.' },
 ];
 
 const c = {
@@ -121,8 +113,7 @@ const c = {
         </ul>
 
         <p class="mt-4 text-sm text-ink-600">
-          Want to hear it first? Call the demo line on
-          <a href={`tel:${DEMO_LINE_TEL}`} class="font-semibold text-brand-600 hover:text-brand-700 hover:underline">{DEMO_LINE_DISPLAY}</a>.
+          Enter your garage below and you can talk to a receptionist built for your garage, straight away.
         </p>
 
         <div class="mt-8">
@@ -158,19 +149,17 @@ const c = {
         <div class="mt-14 border-t border-ink-200 pt-10">
           <p class="text-sm font-semibold uppercase tracking-wider text-brand-600">Not sure yet?</p>
 
-          <!-- Hear it -->
-          <div id="ts-sample" class="mt-4 flex items-center gap-4 rounded-2xl border border-ink-200 bg-white p-5 shadow-sm" data-audio={VOICE_SAMPLE}>
-            <button type="button" id="ts-sample-btn" class="relative inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-brand-600 text-white shadow-lg shadow-brand-600/30 transition hover:bg-brand-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-600/30" aria-label="Hear the receptionist answer a call">
-              <svg class="ts-sample-play h-5 w-5" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
-              <svg class="ts-sample-pause hidden h-5 w-5" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 5h4v14H6V5zm8 0h4v14h-4V5z"/></svg>
-              <svg class="ts-sample-loading hidden h-5 w-5 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" class="opacity-25"/><path d="M4 12a8 8 0 018-8" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>
-            </button>
-            <div class="min-w-0 flex-1">
-              <p class="text-base font-semibold text-ink-900">Hear it answer a call</p>
-              <p class="mt-0.5 text-sm text-ink-600">Press play for Leah, the receptionist your callers would speak to.</p>
-              <p class="ts-sample-playing mt-2 hidden text-xs font-medium text-brand-700">Playing…</p>
-            </div>
-          </div>
+          <!-- Listen to your receptionist: not a recording of someone else's — theirs. Picking the
+               garage above is what builds it, so this sends them back to the search box. -->
+          <button type="button" id="ts-listen" class="mt-4 flex w-full items-center gap-4 rounded-2xl border border-ink-200 bg-white p-5 text-left shadow-sm transition hover:border-brand-300 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-600/30">
+            <span class="relative inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-brand-600 text-white shadow-lg shadow-brand-600/30" aria-hidden="true">
+              <svg class="h-5 w-5" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+            </span>
+            <span class="min-w-0 flex-1">
+              <span class="block text-base font-semibold text-ink-900">Listen to your receptionist</span>
+              <span class="mt-0.5 block text-sm text-ink-600">Enter your garage above and we'll build a receptionist that answers as your garage, from your Google listing and website. Then talk to it in your browser or on the phone.</span>
+            </span>
+          </button>
 
           <!-- How it works -->
           <h2 class="mt-10 text-2xl font-bold tracking-tight text-ink-900">How it works</h2>
@@ -380,8 +369,7 @@ const c = {
           <h1 class="mt-4 text-2xl font-bold text-ink-900">Got it — thank you.</h1>
           <p class="mt-2 text-sm text-ink-600">
             Someone from the team will be in touch within one working day to book your demo.
-            Can't wait? Hear the receptionist now on
-            <a href={`tel:${DEMO_LINE_TEL}`} class="font-semibold text-brand-600 hover:text-brand-700 hover:underline">{DEMO_LINE_DISPLAY}</a>.
+            Can't wait? Talk to your garage's receptionist now.
           </p>
           <a id="ts-own-demo-link-done" href="#" target="_blank" rel="noopener" class="gs-primary-btn mt-5 hidden w-full">
             <svg class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
@@ -441,44 +429,15 @@ const c = {
 </style>
 
 <script>
-  // One audio element, play/pause on the button, same shape as the Personas sample player.
-  const sample = document.getElementById('ts-sample') as HTMLElement | null;
-  const btn = document.getElementById('ts-sample-btn') as HTMLButtonElement | null;
-  if (sample && btn && sample.dataset.audio) {
-    const src = sample.dataset.audio;
-    const audio = new Audio();
-    const icons = {
-      play: btn.querySelector('.ts-sample-play') as HTMLElement,
-      pause: btn.querySelector('.ts-sample-pause') as HTMLElement,
-      loading: btn.querySelector('.ts-sample-loading') as HTMLElement,
-    };
-    const playing = sample.querySelector('.ts-sample-playing') as HTMLElement | null;
-    const setState = (state: 'idle' | 'loading' | 'playing') => {
-      icons.play.classList.toggle('hidden', state !== 'idle');
-      icons.pause.classList.toggle('hidden', state !== 'playing');
-      icons.loading.classList.toggle('hidden', state !== 'loading');
-      playing?.classList.toggle('hidden', state !== 'playing');
-    };
-    let active = false;
-    const stop = () => { audio.pause(); audio.currentTime = 0; active = false; setState('idle'); };
-    btn.addEventListener('click', () => {
-      if (active) { stop(); return; }
-      active = true;
-      setState('loading');
-      if (audio.src !== location.origin + src) audio.src = src;
-      audio.onplaying = () => { if (active) setState('playing'); };
-      audio.onended = stop;
-      audio.onerror = stop;
-      audio.play().catch(stop);
-    });
-    document.addEventListener('visibilitychange', () => { if (document.hidden && active) stop(); });
-  }
-
-  document.getElementById('ts-to-top')?.addEventListener('click', () => {
+  // Both "listen to your receptionist" and the closing button lead to the one thing to do: the
+  // search box. Picking the garage is what builds the receptionist.
+  const toSearch = () => {
     const input = document.getElementById('ts-search') as HTMLInputElement | null;
     input?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     setTimeout(() => input?.focus({ preventScroll: true }), 400);
-  });
+  };
+  document.getElementById('ts-listen')?.addEventListener('click', toSearch);
+  document.getElementById('ts-to-top')?.addEventListener('click', toSearch);
 </script>
 
 <script is:inline define:vars={{ PROSPECT_ENDPOINT, LEAD_ENDPOINT, SIGNUP_ENDPOINT, PLACES_ENDPOINT, DEMO_LINK_ENDPOINT, LANDING_PAGE }}>

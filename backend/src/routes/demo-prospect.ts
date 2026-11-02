@@ -17,6 +17,8 @@
 
 import type { Request, Response } from 'express';
 import { Router } from 'express';
+import { randomBytes, randomInt } from 'node:crypto';
+import { z } from 'zod';
 import { prisma } from '../db.js';
 import {
   buildConfigurationResponse,
@@ -245,7 +247,7 @@ const websiteKnowledge = async (
  * and an OpenAI call, so it carries real weight. The seeder generates it (seed-demo-prospects.cjs).
  * 60-char name slice + '-' + 16 hex = 77, inside the 80 below and the same bound in livekit-demo.ts.
  */
-const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+export const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 // ── Guessing budget ───────────────────────────────────────────────────────────────────────────
 // Unauthenticated, and the responses differ by whether a slug exists, so without a cap this is an
@@ -287,6 +289,129 @@ setInterval(() => {
   const cutoff = Date.now() - LOOKUP_WINDOW_MS;
   for (const [k, b] of lookupsByIp) if (b.windowStart < cutoff) lookupsByIp.delete(k);
 }, LOOKUP_WINDOW_MS).unref();
+
+// ── Self-serve demo links ─────────────────────────────────────────────────────────────────────
+// The seeder makes rows for a shortlist we email. The /tyresoft landing page makes one the moment
+// a visitor picks their garage out of the Places search, so the next screen can offer "hear it
+// answer as <their garage>". Nothing is built here — the row is cheap, and the agent is only built
+// (Places details, website scrape, OpenAI) when the /try page is actually opened, exactly as for
+// an emailed link.
+
+const PORTAL_URL = process.env.PORTAL_URL || 'https://portal.receptionmate.co.uk';
+const SELF_SERVE_DAYS = 30;
+
+export const demoLinkSchema = z.object({
+  businessName: z.string().trim().min(2).max(200),
+  googlePlaceId: z.string().trim().max(200).optional(),
+  address: z.string().trim().max(500).optional(),
+  /** The PendingSignup made at the same garage-pick step, so the demo can be credited to its contact. */
+  prospectId: z.string().trim().max(80).optional(),
+  source: z.string().trim().max(100).optional(),
+});
+
+/**
+ * Their own name plus the random suffix, in the shape SLUG_RE accepts. The same rule as the
+ * seeder's newSlug: 60 chars of name at most, so with the hyphen and 16 hex the slug is 77 long,
+ * inside the 80 the lookups enforce.
+ */
+export function mintSlug(spokenName: string, hex: string): string {
+  const base = (spokenName || '')
+    .toLowerCase()
+    .replace(/&/g, ' and ')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60)
+    .replace(/-+$/g, '') || 'garage';
+  return `${base}-${hex}`;
+}
+
+// A tighter budget than lookups: a create writes a row, and a flood of rows is a flood of
+// agents waiting to be built. A real visitor creates one, perhaps two if they reload.
+const CREATE_MAX = 5;
+const createsByIp = new Map<string, { count: number; windowStart: number }>();
+const overCreateBudget = (req: Request): boolean => {
+  const now = Date.now();
+  const key = clientIp(req);
+  const b = createsByIp.get(key);
+  if (!b || now - b.windowStart >= LOOKUP_WINDOW_MS) {
+    createsByIp.set(key, { count: 1, windowStart: now });
+    return false;
+  }
+  if (b.count >= CREATE_MAX) return true;
+  b.count += 1;
+  return false;
+};
+setInterval(() => {
+  const cutoff = Date.now() - LOOKUP_WINDOW_MS;
+  for (const [k, b] of createsByIp) if (b.windowStart < cutoff) createsByIp.delete(k);
+}, LOOKUP_WINDOW_MS).unref();
+
+router.post('/public/demo-prospect', async (req: Request, res: Response) => {
+  const parsed = demoLinkSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ ok: false, error: 'invalid_request' });
+  if (overCreateBudget(req)) return res.status(429).json({ ok: false, error: 'rate_limited' });
+
+  const { businessName, googlePlaceId, address, prospectId, source } = parsed.data;
+  const spokenName = toSpokenName(businessName);
+
+  try {
+    // The CRM contact, if the garage-pick step has already created one. Best-effort: the row is
+    // synced to HighLevel in the background, so the id may not be there yet, and a demo with no
+    // contact is still a demo.
+    let contactId: string | null = null;
+    if (prospectId) {
+      const pending = await prisma.pendingSignup.findUnique({ where: { id: prospectId }, select: { ghlContactId: true } });
+      contactId = pending?.ghlContactId ?? null;
+    }
+
+    // One row per listing: a reload, or the same garage picked twice this month, must not mint a
+    // second agent. Only a row that has not expired, and only by place id — two garages can share
+    // a name, and a manual entry has no id to match on.
+    if (googlePlaceId) {
+      const existing = await prisma.demoProspect.findFirst({
+        where: { placeId: googlePlaceId, expiresAt: { gt: new Date() } },
+        orderBy: { createdAt: 'desc' },
+      });
+      if (existing) {
+        if (contactId && !existing.contactId) {
+          await prisma.demoProspect.update({ where: { id: existing.id }, data: { contactId } });
+        }
+        return res.json({ ok: true, slug: existing.slug, url: `${PORTAL_URL}/try/${existing.slug}`, spokenName: existing.spokenName });
+      }
+    }
+
+    // Collisions on either unique key are retried rather than assumed away: a clash on the code
+    // would hand one prospect another prospect's agent.
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const slug = mintSlug(spokenName, randomBytes(8).toString('hex'));
+      const code = String(randomInt(10000, 99999));
+      try {
+        const row = await prisma.demoProspect.create({
+          data: {
+            slug,
+            code,
+            businessName,
+            spokenName,
+            placeId: googlePlaceId ?? null,
+            branchAddress: address ?? null,
+            contactId,
+            email: null,
+            expiresAt: new Date(Date.now() + SELF_SERVE_DAYS * 24 * 60 * 60 * 1000),
+          },
+        });
+        console.log(`[DEMO_PROSPECT] self-serve link for ${spokenName} (${source || 'no source'}) -> /try/${row.slug}`);
+        return res.json({ ok: true, slug: row.slug, url: `${PORTAL_URL}/try/${row.slug}`, spokenName });
+      } catch (err) {
+        const code2 = (err as { code?: string })?.code;
+        if (code2 !== 'P2002') throw err;
+      }
+    }
+    return res.status(500).json({ ok: false, error: 'could_not_mint' });
+  } catch (err) {
+    console.error('[DEMO_PROSPECT] self-serve create failed:', err);
+    return res.status(500).json({ ok: false, error: 'server_error' });
+  }
+});
 
 router.post('/public/demo-prospect/:slug', async (req: Request, res: Response) => {
   const slug = String(req.params.slug || '').toLowerCase();

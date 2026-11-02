@@ -369,8 +369,16 @@ export function rowFromListing(placeId: string, details: PlaceDetails | null): {
 // A tighter budget than lookups, and a global one as well: every create buys a Places details
 // call, so the per-IP cap bounds a visitor and the daily cap bounds the bill. A real visitor
 // creates one, perhaps two if they reload.
+//
+// The daily cap is deliberately a hard ceiling on cost, and so it can be exhausted: the per-IP
+// key is cf-connecting-ip, which a caller reaching the origin directly can set, exactly as the
+// autocomplete ceiling in public-prospect.ts accepts. What is lost when it trips is only the
+// personal-demo offer for the rest of the day — the page hides it and the trial and demo-request
+// paths carry on — and at roughly 2p a lookup the ceiling is a few pounds, not an outage. Sized
+// for a partner mailing landing in one day: Tyresoft's whole estate clicking at once stays
+// inside it.
 const CREATE_MAX = 5;
-const CREATE_DAILY_MAX = 150;
+const CREATE_DAILY_MAX = 500;
 const createsByIp = new Map<string, { count: number; windowStart: number }>();
 let createsToday = { count: 0, dayStart: 0 };
 const DAY_MS = 24 * 60 * 60 * 1000;

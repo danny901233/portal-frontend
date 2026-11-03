@@ -65,7 +65,6 @@ export default function ServicesTab({ config, save, isSaving }: Props) {
         'Un travail décoché est un travail que l’agent dira que vous ne faites pas. Il ne le proposera pas et ne le réservera pas.',
       selectAll: 'Tout cocher',
       clearAll: 'Tout décocher',
-      countLabel: (n: number, total: number) => `${n} sur ${total} cochés`,
       countLab: (n: number, total: number) => `${n} sur ${total} cochés`,
       customTitle: 'Autres travaux que vous faites',
       customHint:

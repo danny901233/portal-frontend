@@ -1485,7 +1485,12 @@ router.put(
       serviceIntervalMonths: Math.min(60, Math.max(1, Number(data.serviceIntervalMonths ?? 12) || 12)),
       // undefined leaves the column alone, which is what a save from a tab that does not own
       // this field must do. Only the Services tab sends it.
-      servicesOffered: data.servicesOffered === undefined ? undefined : (data.servicesOffered ?? null),
+      // Prisma.DbNull and not null: on a nullable Json column, plain `null` is rejected by the
+      // generated types, and JsonNull would store the JSON literal null rather than SQL NULL.
+      // SQL NULL is the "never answered" state the agent reads, so it has to be DbNull.
+      servicesOffered: data.servicesOffered === undefined
+        ? undefined
+        : (data.servicesOffered ?? Prisma.DbNull),
       servicesCustom: data.servicesCustom === undefined ? undefined : (data.servicesCustom ?? []),
       serviceIntervalMiles: Math.min(60000, Math.max(500, Number(data.serviceIntervalMiles ?? 10000) || 10000)),
       messagingReplyDelay: (['none', 'random', 'custom'].includes(data.messagingReplyDelay as string) ? data.messagingReplyDelay : 'random') as string,

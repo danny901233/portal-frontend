@@ -1152,7 +1152,7 @@ const batchBranchSchema = z.object({
     hasVoiceAccess: z.boolean().optional(),
     // 'unified-agent' was missing while the modal offered it, so picking it and adding a
     // second branch failed validation and created none of them.
-    agentScript: z.enum(['Assist-agent', 'GarageHive-agent', 'tyresoft-agent', 'unified-agent', 'receptionmate-agent-v3', 'receptionmate-agent']).optional().default('Assist-agent'),
+    agentScript: z.enum(['Assist-agent', 'GarageHive-agent', 'tyresoft-agent', 'unified-agent', 'supervisor-agent', 'receptionmate-agent-v3', 'receptionmate-agent']).optional().default('Assist-agent'),
     // Which diary these branches book into. The modal sends it, zod stripped it, and every
     // branch after the first was created with 'none' — integrated on paper, booking nothing.
     integrationProvider: z.enum(['none', 'garage_hive', 'bookar', 'poole', 'tyresoft', 'demo']).optional().default('none'),

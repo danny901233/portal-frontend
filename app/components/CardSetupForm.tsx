@@ -40,6 +40,9 @@ function Inner({ onDone }: { onDone: () => void }) {
       setSubmitting(false);
       return;
     }
+    // Tell the server a card is really on file so the payment-setup prompt clears. If this call
+    // fails the card is still saved; the prompt just shows again on the next sign-in.
+    await api.post('/api/payment/card-saved').catch((e) => console.error('card-saved confirm failed', e));
     onDone();
   };
 

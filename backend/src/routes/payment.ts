@@ -4,7 +4,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { createRequire } from 'module';
 import { prisma } from '../db.js';
-import { setBusinessMandate } from '../utils/businessBilling.js';
+import { setBusinessMandate, clearCardSetupFlags } from '../utils/businessBilling.js';
 import { authenticate } from '../middleware/auth.js';
 import { hasChargeableSubscription } from '../services/billing.js';
 
@@ -164,6 +164,35 @@ router.post('/payment/card-setup-intent', authenticate, async (req: Request, res
   } catch (error) {
     console.error('[PAYMENT] card setup intent failed:', error);
     res.status(500).json({ error: 'Could not start card setup' });
+  }
+});
+
+// POST /api/payment/card-saved — the card form calls this once a card is confirmed. It checks with
+// Stripe that a card really is on file (not just the browser saying so) and then clears the
+// payment-setup prompt, so the customer isn't sent back to the card page on every login.
+router.post('/payment/card-saved', authenticate, async (req: Request, res: Response) => {
+  try {
+    if (!req.user) return res.status(401).json({ error: 'Not signed in' });
+    const garageIds = Array.isArray(req.user.garageIds) ? req.user.garageIds : [];
+    const garage = await prisma.garage.findFirst({
+      where: garageIds.length ? { id: { in: garageIds } } : { id: req.user.garageId ?? '' },
+      select: { id: true, stripeCustomerId: true },
+    });
+    if (!garage?.stripeCustomerId) return res.status(400).json({ error: 'No card customer for this garage' });
+
+    const { getStripeClient } = await import('../services/stripe.js');
+    const methods = await getStripeClient().paymentMethods.list({
+      customer: garage.stripeCustomerId,
+      type: 'card',
+      limit: 1,
+    });
+    if (methods.data.length === 0) return res.status(409).json({ error: 'No card saved yet' });
+
+    await clearCardSetupFlags(garage.id);
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('[PAYMENT] card-saved check failed:', error);
+    res.status(500).json({ error: 'Could not confirm the card' });
   }
 });
 

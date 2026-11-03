@@ -106,3 +106,21 @@ export async function garageIsCardBilled(garageId: string): Promise<boolean> {
     return false;
   }
 }
+
+/**
+ * A card has been saved for a card-billed garage: there is no mandate to set up, so clear the
+ * payment-setup prompt for the business and every user on the garage. Does nothing for a
+ * Direct Debit garage — those are cleared only by a confirmed mandate.
+ */
+export async function clearCardSetupFlags(garageId: string): Promise<void> {
+  const garage = await prisma.garage.findUnique({
+    where: { id: garageId },
+    select: { businessId: true, business: { select: { billingMethod: true } } },
+  });
+  if (garage?.business?.billingMethod !== 'stripe_card' || !garage.businessId) return;
+  await prisma.business.update({ where: { id: garage.businessId }, data: { mustSetupPayment: false } });
+  await prisma.user.updateMany({
+    where: { garageAccessIds: { has: garageId }, mustSetupPayment: true },
+    data: { mustSetupPayment: false },
+  });
+}

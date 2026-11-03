@@ -5,7 +5,7 @@ import { resolve } from 'node:path';
 
 import { buildConfigurationResponse } from './config.js';
 import { upsertAgentConfigurationSchema } from '../utils/validators.js';
-import { SERVICE_CATALOGUE, SERVICE_KEYS } from '../utils/servicesCatalogue.js';
+import { SERVICE_CATALOGUE, SERVICE_DEFAULTS, SERVICE_KEYS } from '../utils/servicesCatalogue.js';
 
 /** The least a save can carry and still be valid. */
 const minimal = { branchName: 'Test Branch', tonePreference: 'standard', allowFastFitOnly: false };
@@ -24,13 +24,36 @@ const row = (over: Record<string, unknown> = {}) =>
   }) as never;
 
 test('the catalogue is a controlled vocabulary with unique keys and spoken labels', () => {
-  assert.ok(SERVICE_CATALOGUE.length >= 25);
+  assert.ok(SERVICE_CATALOGUE.length >= 50, 'the list is meant to be extensive');
   assert.equal(new Set(SERVICE_KEYS).size, SERVICE_KEYS.length);
   for (const entry of SERVICE_CATALOGUE) {
     assert.match(entry.key, /^[a-z][a-z0-9_]*$/);
     assert.ok(entry.label.length > 1);
     assert.ok(entry.group.length > 1);
+    assert.equal(typeof entry.defaultOn, 'boolean');
   }
+});
+
+test('the work is named as a job, not as a price-list tier', () => {
+  // "Servicing", not "full service" and "interim service" as separate answers: no garage does
+  // one tier and not the other, and which tier a booking is belongs to the booking.
+  assert.ok(SERVICE_KEYS.includes('servicing'));
+  for (const gone of ['full_service', 'interim_service']) {
+    assert.equal(SERVICE_KEYS.includes(gone), false, `${gone} is a tier, not a job`);
+  }
+});
+
+test('the everyday work starts on and the specialist work starts off', () => {
+  // A garage that saves this tab without reading it must not end up claiming motorcycles.
+  assert.ok(SERVICE_DEFAULTS.length > 20);
+  assert.ok(SERVICE_DEFAULTS.length < SERVICE_KEYS.length);
+  for (const everyday of ['mot', 'servicing', 'brakes', 'tyres', 'diagnostics']) {
+    assert.ok(SERVICE_DEFAULTS.includes(everyday), `${everyday} should start on`);
+  }
+  for (const specialist of ['motorcycle', 'lpg', 'motorhome', 'recovery', 'courtesy_car']) {
+    assert.equal(SERVICE_DEFAULTS.includes(specialist), false, `${specialist} should start off`);
+  }
+  for (const key of SERVICE_DEFAULTS) assert.ok(SERVICE_KEYS.includes(key));
 });
 
 test('a save carries the services the garage ticked and the ones it typed in', () => {

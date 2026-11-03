@@ -3,7 +3,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { AgentConfiguration } from '../../types';
 import { useLang } from '@/app/i18n/LocaleProvider';
-import { SERVICE_CATALOGUE, SERVICE_GROUPS } from '../../lib/servicesCatalogue';
+import {
+  SERVICE_CATALOGUE,
+  SERVICE_DEFAULTS,
+  SERVICE_GROUPS,
+} from '../../lib/servicesCatalogue';
 import TabShell from './TabShell';
 
 interface Props {
@@ -12,16 +16,19 @@ interface Props {
   isSaving: boolean;
 }
 
-const MAX_CUSTOM = 20;
+const MAX_CUSTOM = 30;
 
 /**
  * What work this garage does.
  *
- * Every service starts ticked, because most garages do most of this and un-ticking the few
- * exceptions is less work than ticking twenty-six boxes. Nothing is claimed on the garage's
- * behalf until they press save: while `servicesOffered` is null the agent still takes a
- * message when a caller asks whether a job is possible, which is what it did before this tab
- * existed. The banner says so.
+ * The list is a list of what you DO. Removing a job takes it off that list, which is how the
+ * agent learns to say no to it — so the gesture is a removal, not a tick. Everyday work starts
+ * on the list; the specialist groups start off it, because a garage that saves this tab without
+ * reading it must not end up claiming motorcycles.
+ *
+ * Nothing is claimed on the garage's behalf until they press save: while `servicesOffered` is
+ * null the agent still takes a message when a caller asks whether a job is possible, which is
+ * what it did before this tab existed. The banner says so.
  */
 export default function ServicesTab({ config, save, isSaving }: Props) {
   const lang = useLang();
@@ -29,85 +36,88 @@ export default function ServicesTab({ config, save, isSaving }: Props) {
     en: {
       title: 'Services',
       description:
-        'What work you do. The agent answers “do you do timing chains?” from this list, and never offers work you have un-ticked.',
+        'What work you do. The agent answers “do you do timing chains?” from this list, and never offers work that is not on it.',
       unsetTitle: 'Not saved yet',
       unsetBody:
-        'Everything is ticked to start you off. Un-tick anything you do not do, then save. Until you save, the agent takes a message whenever a caller asks whether you do a particular job.',
+        'This is a starting point, not your answer. Remove anything you do not do, add anything missing, then save. Until you save, the agent takes a message whenever a caller asks whether you do a particular job.',
       savedBody:
-        'Un-ticked work is work the agent will say you do not do. It will not offer it and will not book it.',
-      selectAll: 'Tick everything',
-      clearAll: 'Un-tick everything',
-      countLab: (n: number, total: number) => `${n} of ${total} ticked`,
-      customTitle: 'Anything else you do',
+        'Anything not on this list is work the agent will say you do not do. It will not offer it and will not book it.',
+      youDo: 'What you do',
+      youDont: 'Not on your list',
+      youDontHint:
+        'The agent will say you do not do these. Add one back if that is wrong.',
+      nothing: 'Nothing on your list yet. Add the work you do from below.',
+      count: (n: number) => `${n} on your list`,
+      restore: 'Put everything back',
+      customTitle: 'Add your own',
       customHint:
-        'Add work in your own words — remapping, LPG conversions, classic car restoration. The agent matches a caller’s words against exactly what you type, so write it the way a customer would say it.',
-      customPlaceholder: 'e.g. Remapping',
+        'Work in your own words, if it is not above. The agent matches a caller’s words against exactly what you type, so write it the way a customer would say it.',
+      customPlaceholder: 'e.g. Horsebox servicing',
+      customGroup: 'Your own',
       add: 'Add',
       remove: 'Remove',
-      groups: {
-        'Servicing & MOT': 'Servicing & MOT',
-        Repairs: 'Repairs',
-        'Tyres & wheels': 'Tyres & wheels',
-        'Diagnostics & electrics': 'Diagnostics & electrics',
-        'Bodywork & glass': 'Bodywork & glass',
-        'Vehicle types': 'Vehicle types',
-        'What you offer': 'What you offer',
-      } as Record<string, string>,
+      addBack: 'Add',
+      groups: {} as Record<string, string>,
     },
     fr: {
       title: 'Services',
       description:
-        'Les travaux que vous réalisez. L’agent répond à « faites-vous les chaînes de distribution ? » à partir de cette liste, et ne propose jamais un travail que vous avez décoché.',
+        'Les travaux que vous réalisez. L’agent répond à « faites-vous les chaînes de distribution ? » à partir de cette liste, et ne propose jamais un travail qui n’y figure pas.',
       unsetTitle: 'Pas encore enregistré',
       unsetBody:
-        'Tout est coché pour commencer. Décochez ce que vous ne faites pas, puis enregistrez. Avant l’enregistrement, l’agent prend un message dès qu’un appelant demande si vous réalisez un travail donné.',
+        'Ceci est un point de départ, pas votre réponse. Retirez ce que vous ne faites pas, ajoutez ce qui manque, puis enregistrez. Avant l’enregistrement, l’agent prend un message dès qu’un appelant demande si vous réalisez un travail donné.',
       savedBody:
-        'Un travail décoché est un travail que l’agent dira que vous ne faites pas. Il ne le proposera pas et ne le réservera pas.',
-      selectAll: 'Tout cocher',
-      clearAll: 'Tout décocher',
-      countLab: (n: number, total: number) => `${n} sur ${total} cochés`,
-      customTitle: 'Autres travaux que vous faites',
+        'Tout ce qui ne figure pas sur cette liste est un travail que l’agent dira que vous ne faites pas.',
+      youDo: 'Ce que vous faites',
+      youDont: 'Pas sur votre liste',
+      youDontHint:
+        'L’agent dira que vous ne faites pas ces travaux. Rajoutez-en un si c’est inexact.',
+      nothing: 'Votre liste est vide. Ajoutez vos travaux ci-dessous.',
+      count: (n: number) => `${n} sur votre liste`,
+      restore: 'Tout remettre',
+      customTitle: 'Ajouter les vôtres',
       customHint:
-        'Ajoutez des travaux avec vos propres mots. L’agent compare les mots de l’appelant exactement à ce que vous écrivez.',
-      customPlaceholder: 'p. ex. Reprogrammation',
+        'Des travaux avec vos propres mots. L’agent compare les mots de l’appelant exactement à ce que vous écrivez.',
+      customPlaceholder: 'p. ex. Entretien de vans à chevaux',
+      customGroup: 'Les vôtres',
       add: 'Ajouter',
-      remove: 'Supprimer',
+      remove: 'Retirer',
+      addBack: 'Ajouter',
       groups: {
         'Servicing & MOT': 'Entretien et contrôle technique',
-        Repairs: 'Réparations',
-        'Tyres & wheels': 'Pneus et roues',
-        'Diagnostics & electrics': 'Diagnostic et électricité',
+        'Brakes, tyres & wheels': 'Freins, pneus et roues',
+        'Engine & drivetrain': 'Moteur et transmission',
+        'Fuel, exhaust & emissions': 'Carburant, échappement et émissions',
+        'Cooling & air conditioning': 'Refroidissement et climatisation',
+        'Steering & suspension': 'Direction et suspension',
+        Electrical: 'Électricité',
         'Bodywork & glass': 'Carrosserie et vitrage',
         'Vehicle types': 'Types de véhicules',
         'What you offer': 'Ce que vous proposez',
       } as Record<string, string>,
     },
-  }[lang] as {
-    title: string; description: string; unsetTitle: string; unsetBody: string; savedBody: string;
-    selectAll: string; clearAll: string; countLab: (n: number, total: number) => string;
-    customTitle: string; customHint: string; customPlaceholder: string; add: string;
-    remove: string; groups: Record<string, string>;
-  };
+  }[lang];
 
-  // null means this garage has never answered. Start every pill ticked, but remember which
-  // state we came from so the banner can tell the truth about what the agent does right now.
   const neverAnswered = !Array.isArray(config.servicesOffered);
   const allKeys = useMemo(() => SERVICE_CATALOGUE.map((e) => e.key), []);
 
   const [offered, setOffered] = useState<string[]>(
-    Array.isArray(config.servicesOffered) ? config.servicesOffered : allKeys,
+    Array.isArray(config.servicesOffered) ? config.servicesOffered : SERVICE_DEFAULTS,
   );
   const [custom, setCustom] = useState<string[]>(config.servicesCustom ?? []);
   const [draft, setDraft] = useState('');
 
   useEffect(() => {
-    setOffered(Array.isArray(config.servicesOffered) ? config.servicesOffered : allKeys);
+    setOffered(Array.isArray(config.servicesOffered) ? config.servicesOffered : SERVICE_DEFAULTS);
     setCustom(config.servicesCustom ?? []);
-  }, [config.servicesOffered, config.servicesCustom, allKeys]);
+  }, [config.servicesOffered, config.servicesCustom]);
 
-  const ticked = new Set(offered);
-  const toggle = (key: string) =>
-    setOffered((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]));
+  const on = new Set(offered);
+  const removed = SERVICE_CATALOGUE.filter((e) => !on.has(e.key));
+  const label = (group: string) => c.groups[group] ?? group;
+
+  const drop = (key: string) => setOffered((prev) => prev.filter((k) => k !== key));
+  const put = (key: string) => setOffered((prev) => [...prev, key]);
 
   const addCustom = () => {
     const value = draft.trim();
@@ -122,18 +132,12 @@ export default function ServicesTab({ config, save, isSaving }: Props) {
 
   const onSave = () =>
     save({
-      // Ordered by the catalogue so a saved row reads the same way every time.
-      servicesOffered: allKeys.filter((k) => ticked.has(k)),
+      servicesOffered: allKeys.filter((k) => on.has(k)),
       servicesCustom: custom,
     });
 
   return (
-    <TabShell
-      title={c.title}
-      description={c.description}
-      onSave={onSave}
-      isSaving={isSaving}
-    >
+    <TabShell title={c.title} description={c.description} onSave={onSave} isSaving={isSaving}>
       <div
         className={
           neverAnswered
@@ -145,60 +149,75 @@ export default function ServicesTab({ config, save, isSaving }: Props) {
         <p className={neverAnswered ? 'mt-1' : ''}>{neverAnswered ? c.unsetBody : c.savedBody}</p>
       </div>
 
-      <div className="flex flex-wrap items-center gap-3">
-        <span className="text-sm font-medium text-slate-700">
-          {c.countLab(offered.length, allKeys.length)}
-        </span>
-        <div className="ml-auto flex gap-2">
-          <button
-            type="button"
-            onClick={() => setOffered(allKeys)}
-            className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
-          >
-            {c.selectAll}
-          </button>
-          <button
-            type="button"
-            onClick={() => setOffered([])}
-            className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
-          >
-            {c.clearAll}
-          </button>
-        </div>
+      {/* What you do */}
+      <div className="flex flex-wrap items-baseline gap-3">
+        <h3 className="text-sm font-semibold text-slate-900">{c.youDo}</h3>
+        <span className="text-sm text-slate-500">{c.count(offered.length + custom.length)}</span>
       </div>
 
+      {offered.length + custom.length === 0 && (
+        <p className="text-sm text-slate-500">{c.nothing}</p>
+      )}
+
       {SERVICE_GROUPS.map((group) => {
-        const entries = SERVICE_CATALOGUE.filter((e) => e.group === group);
+        const entries = SERVICE_CATALOGUE.filter((e) => e.group === group && on.has(e.key));
         if (entries.length === 0) return null;
         return (
           <div key={group}>
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-              {c.groups[group] ?? group}
-            </h3>
+            <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+              {label(group)}
+            </h4>
             <div className="mt-2 flex flex-wrap gap-2">
-              {entries.map((entry) => {
-                const on = ticked.has(entry.key);
-                return (
+              {entries.map((entry) => (
+                <span
+                  key={entry.key}
+                  className="inline-flex items-center gap-2 rounded-full border border-brand-600 bg-brand-600 py-1.5 pl-3.5 pr-2 text-sm font-medium text-white shadow-sm"
+                >
+                  {entry.label}
                   <button
-                    key={entry.key}
                     type="button"
-                    aria-pressed={on}
-                    onClick={() => toggle(entry.key)}
-                    className={
-                      on
-                        ? 'rounded-full border border-brand-600 bg-brand-600 px-3.5 py-1.5 text-sm font-medium text-white shadow-sm'
-                        : 'rounded-full border border-slate-200 bg-white px-3.5 py-1.5 text-sm text-slate-400 line-through hover:border-slate-300'
-                    }
+                    aria-label={`${c.remove} ${entry.label}`}
+                    title={c.remove}
+                    onClick={() => drop(entry.key)}
+                    className="rounded-full px-1 text-base leading-none text-white/70 hover:bg-white/20 hover:text-white"
                   >
-                    {entry.label}
+                    ×
                   </button>
-                );
-              })}
+                </span>
+              ))}
             </div>
           </div>
         );
       })}
 
+      {custom.length > 0 && (
+        <div>
+          <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+            {c.customGroup}
+          </h4>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {custom.map((value) => (
+              <span
+                key={value}
+                className="inline-flex items-center gap-2 rounded-full border border-brand-200 bg-brand-50 py-1.5 pl-3.5 pr-2 text-sm text-brand-800"
+              >
+                {value}
+                <button
+                  type="button"
+                  aria-label={`${c.remove} ${value}`}
+                  title={c.remove}
+                  onClick={() => setCustom(custom.filter((x) => x !== value))}
+                  className="rounded-full px-1 text-base leading-none text-brand-600 hover:bg-brand-600/10 hover:text-brand-800"
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Add your own */}
       <div className="border-t border-slate-200 pt-5">
         <h3 className="text-sm font-semibold text-slate-900">{c.customTitle}</h3>
         <p className="mt-1 text-sm text-slate-500">{c.customHint}</p>
@@ -226,27 +245,38 @@ export default function ServicesTab({ config, save, isSaving }: Props) {
             {c.add}
           </button>
         </div>
-        {custom.length > 0 && (
+      </div>
+
+      {/* Not on your list */}
+      {removed.length > 0 && (
+        <div className="border-t border-slate-200 pt-5">
+          <div className="flex flex-wrap items-baseline gap-3">
+            <h3 className="text-sm font-semibold text-slate-900">{c.youDont}</h3>
+            <button
+              type="button"
+              onClick={() => setOffered(allKeys)}
+              className="ml-auto rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+            >
+              {c.restore}
+            </button>
+          </div>
+          <p className="mt-1 text-sm text-slate-500">{c.youDontHint}</p>
           <div className="mt-3 flex flex-wrap gap-2">
-            {custom.map((value) => (
-              <span
-                key={value}
-                className="inline-flex items-center gap-2 rounded-full border border-brand-200 bg-brand-50 px-3 py-1.5 text-sm text-brand-800"
+            {removed.map((entry) => (
+              <button
+                key={entry.key}
+                type="button"
+                onClick={() => put(entry.key)}
+                title={`${c.addBack} ${entry.label}`}
+                className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-slate-300 bg-white px-3.5 py-1.5 text-sm text-slate-500 hover:border-brand-600 hover:text-brand-700"
               >
-                {value}
-                <button
-                  type="button"
-                  aria-label={`${c.remove} ${value}`}
-                  onClick={() => setCustom(custom.filter((x) => x !== value))}
-                  className="text-brand-600 hover:text-brand-800"
-                >
-                  ×
-                </button>
-              </span>
+                <span aria-hidden>+</span>
+                {entry.label}
+              </button>
             ))}
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </TabShell>
   );
 }

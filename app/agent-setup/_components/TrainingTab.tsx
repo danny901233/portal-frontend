@@ -14,6 +14,7 @@ import {
 import { getGarageId } from '../../lib/auth';
 import { useToast } from '../../components/Toast';
 import { useLang } from '@/app/i18n/LocaleProvider';
+import { usesDiaryAdapters } from '../../lib/agentScript';
 import TabShell from './TabShell';
 
 interface Props {
@@ -255,7 +256,7 @@ export default function TrainingTab({ config, save, isSaving }: Props) {
   // script with the provider this way for all four diaries; this tab was missed.
   const isTyresoftAgent =
     config.agentScript === 'tyresoft-agent'
-    || (config.agentScript === 'unified-agent' && config.integrationProvider === 'tyresoft');
+    || (usesDiaryAdapters(config.agentScript) && config.integrationProvider === 'tyresoft');
   const hasPriceList = uploadedDocs.some((d) => d.kind === 'price-list');
   // "Does this garage have prices?" asked only about pricingRules, which holds engine-size
   // BRACKETS. A garage whose services are all fixed-price has none, so Lurgan Tyre Centre

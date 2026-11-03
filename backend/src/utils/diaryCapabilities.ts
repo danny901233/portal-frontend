@@ -60,6 +60,9 @@ export function diaryCapabilities(
 ): DiaryCapabilities {
   const byScript = BY_SCRIPT[(agentScript || '').trim()];
   if (byScript) return byScript;
-  if ((agentScript || '').trim() !== 'unified-agent') return NO_CAPABILITIES;
+  // The supervisor agent vendored the same diary adapters, so capability is identical. Both
+  // names resolve by PROVIDER; anything else still resolves to nothing.
+  const script = (agentScript || '').trim();
+  if (script !== 'unified-agent' && script !== 'supervisor-agent') return NO_CAPABILITIES;
   return BY_PROVIDER[(integrationProvider || 'none').trim()] ?? NO_CAPABILITIES;
 }

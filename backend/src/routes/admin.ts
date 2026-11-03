@@ -1059,6 +1059,7 @@ const completeOnboardingSchema = z.object({
     'GarageHive-agent',
     'tyresoft-agent',
     'unified-agent',
+    'supervisor-agent',
     'receptionmate-agent-v3',
     'receptionmate-agent',
   ]).optional().default('Assist-agent'),
@@ -1103,7 +1104,8 @@ const DEFAULT_PASSWORD = 'Nomoremissedcalls';
 // Mirrors onboard step 5. Throws on failure so the caller can decide (batch treats it non-fatal).
 async function provisionBranchTwilio(opts: { garageId: string; garageName: string; branchName: string; contactEmail?: string | null; twilioNumber: string; agentScript?: string | null; }) {
   const onboardingUrl = process.env.ONBOARDING_SERVICE_URL || 'http://localhost:3002';
-  const agentName = opts.agentScript === 'unified-agent' ? 'unified-agent'
+  const agentName = opts.agentScript === 'supervisor-agent' ? 'supervisor-agent'
+    : opts.agentScript === 'unified-agent' ? 'unified-agent'
     : opts.agentScript === 'tyresoft-agent' ? 'tyresoft-agent'
     : opts.agentScript === 'receptionmate-agent-v3' ? 'receptionmate-agent-v3'
       : opts.agentScript === 'MMH-agent' ? 'MMH-agent'
@@ -1311,7 +1313,9 @@ router.post('/admin/onboard', authenticateApiKey, requireAdmin, async (req, res)
       // already catches and continues past. We still call it, because step 4 is what points the
       // Twilio number at our /voice webhook, and /voice is precisely how a unified-agent garage
       // is routed. Passing the real script keeps the log honest about what the garage runs.
-      const agentName = agentConfig?.agentScript === 'unified-agent'
+      const agentName = agentConfig?.agentScript === 'supervisor-agent'
+        ? 'supervisor-agent'
+        : agentConfig?.agentScript === 'unified-agent'
         ? 'unified-agent'
         : agentConfig?.agentScript === 'tyresoft-agent'
           ? 'tyresoft-agent'
@@ -1366,8 +1370,9 @@ router.post('/admin/onboard', authenticateApiKey, requireAdmin, async (req, res)
     // manage — it wires Account 1. Without a trunk there the number is configured correctly at
     // Twilio, resolves the right SIP domain, and then rings out because nothing accepts the
     // call. Every unified garage before this had its trunk made by hand.
-    if (parsed.data.twilioNumber && parsed.data.agentScript === 'unified-agent') {
+    if (parsed.data.twilioNumber && (parsed.data.agentScript === 'unified-agent' || parsed.data.agentScript === 'supervisor-agent')) {
       const wired = await ensureUnifiedSipRouting({
+        agentScript: parsed.data.agentScript,
         garageId: garage.id,
         garageName: garage.name,
         twilioNumber: parsed.data.twilioNumber,
@@ -1845,8 +1850,9 @@ router.post('/admin/businesses/:businessId/branches/batch', authenticateApiKey, 
       }
       // The unified agent lives in its own LiveKit project, which /provision does not manage —
       // same step the single-branch onboard does, or the number resolves and then rings out.
-      if (b.agentScript === 'unified-agent') {
+      if (b.agentScript === 'unified-agent' || b.agentScript === 'supervisor-agent') {
         const wired = await ensureUnifiedSipRouting({
+          agentScript: b.agentScript,
           garageId: garage.id,
           garageName: garage.name,
           twilioNumber: b.twilioNumber,

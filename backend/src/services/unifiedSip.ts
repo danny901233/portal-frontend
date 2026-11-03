@@ -13,6 +13,21 @@ import { SipClient } from 'livekit-server-sdk';
 import { RoomAgentDispatch, RoomConfiguration } from '@livekit/protocol';
 
 const UNIFIED_AGENT_NAME = 'unified-agent';
+const SUPERVISOR_AGENT_NAME = 'supervisor-agent';
+
+/**
+ * Which worker should join this garage's rooms.
+ *
+ * The supervisor agent replaces the unified one and runs in the SAME project off the SAME
+ * inbound trunk, so the dispatch rule's agent name is the only thing that moves a garage
+ * between them. Anything we do not recognise stays on the unified worker, which is today's
+ * behaviour — a garage must never end up on a worker because of a typo.
+ */
+export function dispatchAgentName(agentScript?: string | null): string {
+  return (agentScript || '').trim() === SUPERVISOR_AGENT_NAME
+    ? SUPERVISOR_AGENT_NAME
+    : UNIFIED_AGENT_NAME;
+}
 
 const config = () => {
   const url = process.env.LIVEKIT_UNIFIED_URL;
@@ -36,6 +51,8 @@ export async function ensureUnifiedSipRouting(args: {
   garageId: string;
   garageName: string;
   twilioNumber: string;
+  /** From AgentConfiguration.agentScript. Omitted = the unified worker, as before. */
+  agentScript?: string | null;
 }): Promise<{ ok: boolean; trunkId?: string; ruleId?: string; reason?: string }> {
   const cfg = config();
   if (!cfg) {
@@ -84,7 +101,7 @@ export async function ensureUnifiedSipRouting(args: {
         // Without this the room is created and no worker joins: the agent is a NAMED agent, so
         // it is only dispatched when the rule asks for it explicitly.
         roomConfig: new RoomConfiguration({
-          agents: [new RoomAgentDispatch({ agentName: UNIFIED_AGENT_NAME })],
+          agents: [new RoomAgentDispatch({ agentName: dispatchAgentName(args.agentScript) })],
         }),
       },
     );

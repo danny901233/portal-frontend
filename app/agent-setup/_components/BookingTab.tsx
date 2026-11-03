@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import type { AgentConfiguration } from '../../types';
 import { useLang } from '@/app/i18n/LocaleProvider';
+import { usesDiaryAdapters } from '../../lib/agentScript';
 import TabShell from './TabShell';
 
 interface Props {
@@ -173,7 +174,8 @@ export default function BookingTab({ config, save, isSaving }: Props) {
   // with nothing behind it, and a garage that turned bookings "off" here would still get booked
   // into. Hide them and say what the agent actually does; the saved values ride through
   // untouched, so anything moved back onto an Assist script keeps its old settings.
-  const isUnified = config.agentScript === 'unified-agent';
+  // The supervisor agent uses the same adapters, so the same toggles apply.
+  const isUnified = usesDiaryAdapters(config.agentScript);
 
   // On the unified agent the script says nothing about these two — the DIARY does. Each adapter
   // declares its own capabilities (unified-agent/diaries/*.py) and agent.py gates the tool on

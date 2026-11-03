@@ -320,7 +320,7 @@ export const upsertAgentConfigurationSchema = z.object({
   // on reading an Irish garage as British with nothing in the logs to say why.
   country: z.enum(['GB', 'IE']).optional(),
   agentType: z.enum(['assist', 'automate']).optional(),
-  agentScript: z.enum(['receptionmate-agent', 'receptionmate-agent-v3', 'tyresoft-agent', 'MMH-agent', 'bookar-agent', 'poole-agent', 'Assist-agent', 'GarageHive-agent', 'unified-agent']).optional(),
+  agentScript: z.enum(['receptionmate-agent', 'receptionmate-agent-v3', 'tyresoft-agent', 'MMH-agent', 'bookar-agent', 'poole-agent', 'Assist-agent', 'GarageHive-agent', 'unified-agent', 'supervisor-agent']).optional(),
   enableSmsBookingLinks: z.boolean().optional(),
   humanEscalation: z.boolean().optional(),
   // Written by the save handler and already on the AgentConfiguration model, but missing here

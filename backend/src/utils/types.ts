@@ -265,7 +265,7 @@ export type AgentConfigurationPayload = {
   agentType: AgentType;
   // 'bookar-agent' is accepted by the validator and used in config.ts but was missing here,
   // which is what made three of the agentScript comparisons fail to compile.
-  agentScript?: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent' | 'GarageHive-agent' | 'MMH-agent' | 'bookar-agent' | 'poole-agent' | 'unified-agent';
+  agentScript?: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent' | 'GarageHive-agent' | 'MMH-agent' | 'bookar-agent' | 'poole-agent' | 'unified-agent' | 'supervisor-agent';
   enableSmsBookingLinks?: boolean;
   humanEscalation?: boolean;
   messagingHumanHandoff?: boolean;

@@ -297,7 +297,7 @@ export interface AgentConfiguration {
    *  every reader treats anything that is not 'IE' as 'GB'. The API always sends it. */
   country?: 'GB' | 'IE';
   agentType: AgentType;
-  agentScript: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent' | 'GarageHive-agent' | 'MMH-agent' | 'unified-agent';
+  agentScript: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent' | 'GarageHive-agent' | 'MMH-agent' | 'unified-agent' | 'supervisor-agent';
   enableSmsBookingLinks: boolean;
   transferNumber: string;
   screenBeforeAgent?: boolean;

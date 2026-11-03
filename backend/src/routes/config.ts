@@ -458,6 +458,7 @@ const sanitizeConfigForResponse = (config: AgentConfigurationPayload) => {
       config.agentScript === 'MMH-agent' ? 'MMH-agent' : config.agentScript === 'bookar-agent' ? 'bookar-agent' :
       config.agentScript === 'poole-agent' ? 'poole-agent' :
       config.agentScript === 'unified-agent' ? 'unified-agent' :
+      config.agentScript === 'supervisor-agent' ? 'supervisor-agent' :
       (config.agentScript as any) === 'Newreceptionmateagent.py' ? 'receptionmate-agent-v3' :
       (config.agentScript as any) === 'basic_agent2.py' ? 'receptionmate-agent' :
       'receptionmate-agent',
@@ -626,6 +627,7 @@ export const buildConfigurationResponse = (configuration: PrismaAgentConfigurati
       configuration.agentScript === 'MMH-agent' ? 'MMH-agent' : configuration.agentScript === 'bookar-agent' ? 'bookar-agent' :
       configuration.agentScript === 'poole-agent' ? 'poole-agent' :
       configuration.agentScript === 'unified-agent' ? 'unified-agent' :
+      configuration.agentScript === 'supervisor-agent' ? 'supervisor-agent' :
       (configuration.agentScript as any) === 'Newreceptionmateagent.py' ? 'receptionmate-agent-v3' :
       (configuration.agentScript as any) === 'basic_agent2.py' ? 'receptionmate-agent' :
       'receptionmate-agent'
@@ -1041,7 +1043,7 @@ export const autoIngestWebsiteKnowledge = async (garageId: string, url: string):
   }
 };
 
-const updateSipDispatchRule = async (garageId: string, agentScript: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent' | 'GarageHive-agent' | 'MMH-agent' | 'bookar-agent' | 'poole-agent' | 'unified-agent') => {
+const updateSipDispatchRule = async (garageId: string, agentScript: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent' | 'GarageHive-agent' | 'MMH-agent' | 'bookar-agent' | 'poole-agent' | 'unified-agent' | 'supervisor-agent') => {
   const onboardingUrl = process.env.ONBOARDING_SERVICE_URL;
   if (!onboardingUrl) {
     console.log('[UPDATE_SIP] No onboarding service URL configured');
@@ -1109,7 +1111,7 @@ router.put(
     const data = parseResult.data;
     const canEditAgentType = req.user?.role === 'RECEPTIONMATE_STAFF';
     const isStaff = canEditAgentType;
-    let resolvedAgentScript: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent' | 'GarageHive-agent' | 'MMH-agent' | 'bookar-agent' | 'poole-agent' | 'unified-agent' = data.agentScript === 'unified-agent' ? 'unified-agent' : data.agentScript === 'tyresoft-agent' ? 'tyresoft-agent' : data.agentScript === 'receptionmate-agent-v3' ? 'receptionmate-agent-v3' : data.agentScript === 'Assist-agent' ? 'Assist-agent' : data.agentScript === 'GarageHive-agent' ? 'GarageHive-agent' : data.agentScript === 'MMH-agent' ? 'MMH-agent' : data.agentScript === 'bookar-agent' ? 'bookar-agent' : data.agentScript === 'poole-agent' ? 'poole-agent' : 'receptionmate-agent';
+    let resolvedAgentScript: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent' | 'GarageHive-agent' | 'MMH-agent' | 'bookar-agent' | 'poole-agent' | 'unified-agent' | 'supervisor-agent' = data.agentScript === 'supervisor-agent' ? 'supervisor-agent' : data.agentScript === 'unified-agent' ? 'unified-agent' : data.agentScript === 'tyresoft-agent' ? 'tyresoft-agent' : data.agentScript === 'receptionmate-agent-v3' ? 'receptionmate-agent-v3' : data.agentScript === 'Assist-agent' ? 'Assist-agent' : data.agentScript === 'GarageHive-agent' ? 'GarageHive-agent' : data.agentScript === 'MMH-agent' ? 'MMH-agent' : data.agentScript === 'bookar-agent' ? 'bookar-agent' : data.agentScript === 'poole-agent' ? 'poole-agent' : 'receptionmate-agent';
 
     // Only staff can change which agent serves the garage; everyone else keeps the saved script.
     if (!canEditAgentType) {

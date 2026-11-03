@@ -368,7 +368,10 @@ async function buildAgentDialTwiml(garageId: string, agentScript: string | null)
   // Same arrangement as tyresoft-agent-test above: only ReceptionMate Branch should ever
   // carry this agentScript. If the env var is unset this falls through to Account 1, so a
   // missing variable degrades to today's behaviour rather than dropping calls.
-  const isUnified = agentScript === 'unified-agent';
+  // The supervisor agent replaces the unified one and runs in the SAME LiveKit project, so it
+  // takes the same SIP domain and the same account. Only the dispatch agent name differs, and
+  // that is set per garage by the dispatch rule, not here.
+  const isUnified = agentScript === 'unified-agent' || agentScript === 'supervisor-agent';
   const isAccount2 = agentScript === 'Assist-agent' || agentScript === 'GarageHive-agent';
   const isMMH = agentScript === 'MMH-agent';
   const isBookar = agentScript === 'bookar-agent';

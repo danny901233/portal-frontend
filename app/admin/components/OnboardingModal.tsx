@@ -262,7 +262,7 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
   // matches the marketing site's self-serve default (RMB-Assist on account 2)
   // so quick-onboard doesn't require a trip into Agent Configurations -> Routing.
   const [agentScript, setAgentScript] = useState<
-    'Assist-agent' | 'GarageHive-agent' | 'tyresoft-agent' | 'unified-agent' | 'receptionmate-agent-v3' | 'receptionmate-agent' | 'MMH-agent'
+    'Assist-agent' | 'GarageHive-agent' | 'tyresoft-agent' | 'unified-agent' | 'receptionmate-agent-v3' | 'receptionmate-agent' | 'MMH-agent' | 'supervisor-agent'
   >('Assist-agent');
   // Which diary the garage books into. Only the unified agent reads it — every other script is
   // tied to one diary — so the picker below only shows for that one. Without it a garage
@@ -1154,6 +1154,7 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
                   <option value="GarageHive-agent">RMB-GarageHive (account 2) — Automate / GarageHive booking</option>
                   <option value="tyresoft-agent">Tyresoft Agent — tyre centres</option>
                   <option value="unified-agent">Unified Agent — one agent, any diary</option>
+                  <option value="supervisor-agent">Supervisor Agent — the unified agent on the supervisor pattern</option>
                   <option value="receptionmate-agent-v3">Legacy New Agent (account 1)</option>
                   <option value="receptionmate-agent">Legacy Agent (account 1)</option>
                 </select>
@@ -1162,7 +1163,7 @@ export function OnboardingModal({ isOpen, onClose, onSuccess }: OnboardingModalP
                 </p>
               </div>
 
-              {agentScript === 'unified-agent' && (
+              {(agentScript === 'unified-agent' || agentScript === 'supervisor-agent') && (
                 <div>
                   <label className="mb-2 block text-sm font-medium text-slate-700">
                     Booking system

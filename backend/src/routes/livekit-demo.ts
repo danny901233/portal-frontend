@@ -6,7 +6,7 @@
 import type { Request, Response } from 'express';
 import type { Prisma } from '@prisma/client';
 import { Router } from 'express';
-import { AccessToken, AgentDispatchClient } from 'livekit-server-sdk';
+import { AccessToken, AgentDispatchClient, RoomServiceClient } from 'livekit-server-sdk';
 import { randomBytes } from 'crypto';
 import { prisma } from '../db.js';
 
@@ -24,7 +24,65 @@ const LIVEKIT_API_SECRET = process.env.LIVEKIT_API_SECRET ?? '';
 // Token TTL — long enough to cover a demo conversation, short enough that
 // a leaked token expires quickly. The room dies when the visitor leaves
 // regardless.
-const TOKEN_TTL_SECONDS = 30 * 60;
+// Was 30 minutes, which is far longer than any demo needs and left a leaked token useful for half
+// an hour. A demo running past 5 minutes is someone sitting on the line, not evaluating.
+const TOKEN_TTL_SECONDS = 5 * 60;
+
+// ── Abuse and capacity limits ─────────────────────────────────────────────────────────────────
+// This endpoint is public and unauthenticated: anyone can mint a token and start a live voice call
+// that costs LiveKit, Deepgram, LLM and TTS minutes. It had no rate limit, no concurrency ceiling
+// and no duration cap — survivable while /demo was a link sent to individual prospects, but not
+// once a "Talk to Leah" button sits on the homepage. The demo agent containers share a 2-vCPU box
+// with the production portal and backend, so simultaneous demos compete for CPU with paying
+// customers' portal sessions.
+const DEMO_IP_MAX = 2;                       // demos per IP...
+const DEMO_IP_WINDOW = 60 * 60 * 1000;       // ...per hour
+const MAX_CONCURRENT_DEMOS = Number(process.env.DEMO_MAX_CONCURRENT || 2);
+const MAX_DEMO_SECONDS = Number(process.env.DEMO_MAX_SECONDS || 300);
+
+interface Bucket { count: number; windowStart: number; last: number }
+const demosByIp = new Map<string, Bucket>();
+
+/** Fixed-window counter. Returns seconds to wait if over the limit, else null. */
+function hit(map: Map<string, Bucket>, key: string, max: number, windowMs: number): number | null {
+  const now = Date.now();
+  const b = map.get(key);
+  if (!b || now - b.windowStart >= windowMs) {
+    map.set(key, { count: 1, windowStart: now, last: now });
+    return null;
+  }
+  b.last = now;
+  if (b.count >= max) return Math.max(1, Math.ceil((b.windowStart + windowMs - now) / 1000));
+  b.count += 1;
+  return null;
+}
+
+function clientIp(req: Request): string {
+  const fwd = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();
+  return fwd || req.socket?.remoteAddress || 'unknown';
+}
+
+// Sweep hourly so the map can't grow without bound. unref() so it never holds the process open.
+setInterval(() => {
+  const cutoff = Date.now() - DEMO_IP_WINDOW;
+  for (const [k, b] of demosByIp) if (b.last < cutoff) demosByIp.delete(k);
+}, 60 * 60 * 1000).unref();
+
+/**
+ * How many demo rooms are live right now. Asks LiveKit rather than counting locally, so a visitor
+ * who closes the tab frees their slot immediately instead of holding it for the full timeout.
+ * Returns null if LiveKit can't be reached — the caller then allows the demo rather than blocking
+ * every visitor because of an unrelated outage.
+ */
+async function liveDemoCount(httpUrl: string): Promise<number | null> {
+  try {
+    const rooms = await new RoomServiceClient(httpUrl, LIVEKIT_API_KEY, LIVEKIT_API_SECRET).listRooms();
+    return rooms.filter((r) => r.name.startsWith('demo-')).length;
+  } catch (err) {
+    console.error('[demo] could not list rooms for the concurrency check:', err);
+    return null;
+  }
+}
 
 // Voices the demo agent can use — the /demo picker sends a key; we validate against this
 // allowlist so a caller can't inject an arbitrary value into the dispatch metadata.
@@ -39,6 +97,29 @@ const DEMO_EXPRESSIVE_TTS = new Set(['cartesia', 'inworld', 'fishaudio', 'xai'])
 router.post('/livekit/demo-token', async (req: Request, res: Response) => {
   if (!LIVEKIT_URL || !LIVEKIT_API_KEY || !LIVEKIT_API_SECRET) {
     return res.status(503).json({ error: 'LiveKit not configured' });
+  }
+
+  const ip = clientIp(req);
+  const ipWait = hit(demosByIp, ip, DEMO_IP_MAX, DEMO_IP_WINDOW);
+  if (ipWait !== null) {
+    console.warn(`[demo] rate-limited ip=${ip}`);
+    res.setHeader('Retry-After', String(ipWait));
+    return res.status(429).json({
+      error: 'rate_limited', retryAfter: ipWait,
+      message: "You've already tried the demo recently. Book a demo and we'll call you properly.",
+    });
+  }
+
+  // Concurrency ceiling. Turn people away politely rather than letting everyone get a stuttering
+  // call — and rather than starving the production portal on the same two cores.
+  const httpUrlForCount = LIVEKIT_URL.replace(/^wss:/, 'https:').replace(/^ws:/, 'http:');
+  const live = await liveDemoCount(httpUrlForCount);
+  if (live !== null && live >= MAX_CONCURRENT_DEMOS) {
+    console.warn(`[demo] at capacity (${live}/${MAX_CONCURRENT_DEMOS}), turning away ip=${ip}`);
+    return res.status(503).json({
+      error: 'at_capacity',
+      message: 'All demo lines are busy right now. Please try again in a few minutes, or book a demo and we will call you.',
+    });
   }
 
   const requested = String(req.body?.voice ?? '').toLowerCase();
@@ -83,6 +164,27 @@ router.post('/livekit/demo-token', async (req: Request, res: Response) => {
   const agentName = wantsReg
     ? (process.env.DEMO_AGENT_NAME_REG || 'demo-agent-reg')
     : (process.env.DEMO_AGENT_NAME || 'demo-agent-v2');
+  // Create the room explicitly so LiveKit enforces the guards server-side rather than relying on
+  // the browser to hang up. maxParticipants=2 is the visitor plus the agent, so a shared room link
+  // cannot turn into a conference. Best-effort: without it the room is still auto-created on join.
+  const roomSvc = new RoomServiceClient(httpUrl, LIVEKIT_API_KEY, LIVEKIT_API_SECRET);
+  try {
+    await roomSvc.createRoom({
+      name: roomName,
+      emptyTimeout: 60,
+      departureTimeout: 20,
+      maxParticipants: 2,
+    });
+  } catch (err) {
+    console.error(`[demo] could not pre-create ${roomName} with limits:`, err);
+  }
+
+  // Hard stop. Without this a visitor can hold a live voice call open indefinitely, burning
+  // LiveKit, STT, LLM and TTS spend on one session. unref() so it never holds the process open.
+  setTimeout(() => {
+    roomSvc.deleteRoom(roomName).catch(() => {});
+  }, MAX_DEMO_SECONDS * 1000).unref();
+
   try {
     const dispatchClient = new AgentDispatchClient(httpUrl, LIVEKIT_API_KEY, LIVEKIT_API_SECRET);
     await dispatchClient.createDispatch(roomName, agentName, {

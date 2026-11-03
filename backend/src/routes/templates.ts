@@ -4,6 +4,9 @@ import { prisma } from '../db.js';
 import { authenticate } from '../middleware/auth.js';
 import { getTemplateToken } from '../services/metaTemplateToken.js';
 
+// What a template is FOR. Separate from Meta's `category`, which is a billing classification.
+const TEMPLATE_TYPES = ['service', 'mot', 'deferred', 'marketing'] as const;
+
 const router = Router();
 
 // ---------------------------------------------------------------------------
@@ -41,6 +44,7 @@ router.post(
       const {
         name,
         category,
+        templateType,
         language,
         headerType,
         headerContent,
@@ -68,6 +72,9 @@ router.post(
           garageId,
           name: cleanName,
           category,
+          // Unrecognised values are dropped rather than stored: a bad type would silently send the
+          // wrong reminder, and null simply falls back to the date-based rule.
+          templateType: TEMPLATE_TYPES.includes(templateType) ? templateType : null,
           language: language || 'en_GB',
           headerType: headerType || null,
           headerContent: headerContent || null,
@@ -115,6 +122,7 @@ router.put(
         buttonType,
         buttonText,
         buttonValue,
+          templateType,
       } = req.body;
 
       const template = await prisma.messageTemplate.findFirst({
@@ -129,28 +137,46 @@ router.put(
         return res.status(400).json({ error: 'bodyText is required' });
       }
 
-      // Editing resets the template to draft so it must be resubmitted to Meta
+      // Everything Meta receives, and therefore everything that can invalidate its approval.
+      const metaVisible = {
+        category: category || template.category,
+        language: language || template.language,
+        headerType: headerType ?? template.headerType,
+        headerContent: headerContent ?? template.headerContent,
+        headerSample: headerSample ?? template.headerSample,
+        bodyText,
+        footerText: footerText ?? template.footerText,
+        buttonType: buttonType ?? template.buttonType,
+        buttonText: buttonText ?? template.buttonText,
+        buttonValue: buttonValue ?? template.buttonValue,
+      };
+
+      // variableSamples (which contact field each {{n}} draws from) and templateType are ours
+      // alone — Meta never sees either. Resetting on those knocked Great Hollands' live service
+      // reminder out of approved for re-pointing {{3}} at the garage's phone number, and the
+      // forced resubmission then failed because the template already existed at Meta. An approved
+      // template must survive an edit Meta cannot see.
+      const contentChanged = (Object.keys(metaVisible) as Array<keyof typeof metaVisible>).some(
+        (k) => (metaVisible[k] ?? null) !== ((template as any)[k] ?? null),
+      );
+
       const updated = await prisma.messageTemplate.update({
         where: { id: templateId },
         data: {
-          category: category || template.category,
-          language: language || template.language,
-          headerType: headerType ?? template.headerType,
-          headerContent: headerContent ?? template.headerContent,
-          headerSample: headerSample ?? template.headerSample,
-          bodyText,
+          ...metaVisible,
+          templateType: TEMPLATE_TYPES.includes(templateType) ? templateType : template.templateType,
           variableSamples: variableSamples ?? template.variableSamples,
-          footerText: footerText ?? template.footerText,
-          buttonType: buttonType ?? template.buttonType,
-          buttonText: buttonText ?? template.buttonText,
-          buttonValue: buttonValue ?? template.buttonValue,
-          status: 'draft',
-          metaTemplateId: null,
-          rejectionReason: null,
+          ...(contentChanged
+            ? { status: 'draft', metaTemplateId: null, rejectionReason: null }
+            : {}),
         },
       });
 
-      console.log(`[TEMPLATES] Updated: ${template.name} → draft`);
+      console.log(
+        contentChanged
+          ? `[TEMPLATES] Updated: ${template.name} → draft (wording changed, needs resubmitting)`
+          : `[TEMPLATES] Updated: ${template.name} — no change Meta can see, keeping ${template.status}`,
+      );
       res.json({ success: true, template: updated });
     } catch (error) {
       console.error('[TEMPLATES] Update error:', error);
@@ -289,7 +315,50 @@ router.post(
 
       if (!metaRes.ok) {
         console.error('[TEMPLATES] Meta API error:', metaData);
-        const errorMsg = metaData.error?.message || 'Meta rejected the template';
+        // Meta's `message` is usually just "Invalid parameter". The reason a person can act on is
+        // in error_user_msg / error_user_title, so prefer those.
+        const err = metaData.error || {};
+        const errorMsg =
+          err.error_user_msg || err.error_user_title || err.message || 'Meta rejected the template';
+
+        // "There is already English (UK) content for this template" is not a rejection — it means
+        // the template is alive and approved at Meta and cannot be overwritten. Editing cleared
+        // our copy of its id, so restore that from Meta rather than marking a working template
+        // rejected and withdrawing it from the campaign picker.
+        const alreadyExists =
+          /already exists|already .* content for this template/i.test(
+            `${err.error_user_title || ''} ${err.error_user_msg || ''}`,
+          );
+        if (alreadyExists) {
+          try {
+            const lookup = await fetch(
+              `https://graph.facebook.com/v18.0/${wabaId}/message_templates?name=${encodeURIComponent(template.name)}`,
+              { headers: { Authorization: `Bearer ${primaryToken}` } },
+            );
+            const found = await lookup.json();
+            const match = (found?.data || []).find(
+              (m: any) => m.name === template.name && m.language === template.language,
+            );
+            if (match) {
+              const liveStatus = String(match.status || '').toLowerCase();
+              await prisma.messageTemplate.update({
+                where: { id: templateId },
+                data: { metaTemplateId: match.id, status: liveStatus, rejectionReason: null },
+              });
+              console.warn(
+                `[TEMPLATES] ${template.name} already exists at Meta (${liveStatus}) — restored id ${match.id} instead of marking it rejected`,
+              );
+              return res.status(400).json({
+                error:
+                  `WhatsApp does not allow an approved template to be changed. Your existing "${template.name}" is still live and has been restored. ` +
+                  `To use different wording, create a new template with a different name.`,
+              });
+            }
+          } catch (e) {
+            console.error('[TEMPLATES] Could not reconcile an already-exists conflict:', e);
+          }
+        }
+
         await prisma.messageTemplate.update({
           where: { id: templateId },
           data: { status: 'rejected', rejectionReason: errorMsg },

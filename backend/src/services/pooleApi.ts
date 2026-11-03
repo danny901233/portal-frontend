@@ -156,17 +156,31 @@ function getBaseUrl(): string {
   return (raw || SANDBOX_BASE_URL).replace(/\/+$/, '');
 }
 
-function makeHttp(branchKey: string): AxiosInstance {
+/**
+ * Every request needs BOTH a per-branch Key and a per-tenant Tenant header on
+ * the multi-tenant prod backend (`alpha.autosage.co.uk`). This wasn't in the
+ * original handover doc — Yochanan confirmed 2026-08-28 that prod requires
+ * `Tenant: <slug>` alongside `Key`. The sandbox we tested against on 2026-08-10
+ * didn't need it because it was a single-tenant host; the current shared
+ * prod backend won't route the request without it.
+ *
+ * Passing an empty string for tenant is allowed for the single-tenant sandbox
+ * case — the header is omitted so old sandbox garages (if any) still work.
+ */
+function makeHttp(branchKey: string, tenant: string): AxiosInstance {
+  const headers: Record<string, string> = {
+    Accept: 'application/json',
+    'Content-Type': 'application/json',
+    'User-Agent': 'ReceptionMate-Portal/1.0 (poole-chat)',
+    // Poole uses a bespoke `Key: {apiKey}` header — NOT Authorization: Bearer.
+    Key: branchKey,
+  };
+  const tenantValue = (tenant || '').trim();
+  if (tenantValue) headers.Tenant = tenantValue;
   return axios.create({
     baseURL: getBaseUrl(),
     timeout: DEFAULT_TIMEOUT_MS,
-    headers: {
-      Accept: 'application/json',
-      'Content-Type': 'application/json',
-      'User-Agent': 'ReceptionMate-Portal/1.0 (poole-chat)',
-      // Poole uses a bespoke `Key: {apiKey}` header — NOT Authorization: Bearer.
-      Key: branchKey,
-    },
+    headers,
     validateStatus: () => true,
   });
 }
@@ -177,6 +191,7 @@ function makeHttp(branchKey: string): AxiosInstance {
  */
 async function request<T = unknown>(
   branchKey: string,
+  tenant: string,
   method: 'GET' | 'POST' | 'PUT' | 'DELETE',
   path: string,
   opts: {
@@ -187,7 +202,7 @@ async function request<T = unknown>(
   if (!branchKey) {
     throw new PooleAuthError('Poole branch API key is not configured');
   }
-  const http = makeHttp(branchKey);
+  const http = makeHttp(branchKey, tenant);
   const config: AxiosRequestConfig = {
     method,
     url: path,
@@ -253,10 +268,11 @@ function cleanReg(reg: string): string {
  */
 export async function findCustomerByPhone(
   branchKey: string,
+  tenant: string,
   phone: string,
 ): Promise<PooleCustomer[]> {
   if (!phone) return [];
-  return request<PooleCustomer[]>(branchKey, 'GET', '/inbound/customers', {
+  return request<PooleCustomer[]>(branchKey, tenant, 'GET', '/inbound/customers', {
     params: { phone },
   });
 }
@@ -272,6 +288,7 @@ export async function findCustomerByPhone(
  */
 export async function lookupVehicleByVrm(
   branchKey: string,
+  tenant: string,
   registration: string,
 ): Promise<PooleVehicle | null> {
   const clean = cleanReg(registration);
@@ -279,6 +296,7 @@ export async function lookupVehicleByVrm(
   try {
     return await request<PooleVehicle>(
       branchKey,
+      tenant,
       'GET',
       `/inbound/vehicles/${encodeURIComponent(clean)}`,
     );
@@ -306,6 +324,7 @@ export async function lookupVehicleByVrm(
  */
 export async function createDraftBooking(
   branchKey: string,
+  tenant: string,
   callReference: string,
   branchCode?: string,
   notes?: string,
@@ -318,6 +337,7 @@ export async function createDraftBooking(
 
   return request<{ bookingRef: string }>(
     branchKey,
+    tenant,
     'POST',
     '/inbound/bookings',
     { json: body },
@@ -335,10 +355,12 @@ export async function createDraftBooking(
  */
 export async function listServices(
   branchKey: string,
+  tenant: string,
   bookingRef: string,
 ): Promise<PooleService[]> {
   return request<PooleService[]>(
     branchKey,
+    tenant,
     'GET',
     `/inbound/bookings/${encodeURIComponent(bookingRef)}/services`,
   );
@@ -356,11 +378,13 @@ export async function listServices(
  */
 export async function addServicesToBooking(
   branchKey: string,
+  tenant: string,
   bookingRef: string,
   serviceIds: number[],
 ): Promise<void> {
   await request<void>(
     branchKey,
+    tenant,
     'POST',
     `/inbound/bookings/${encodeURIComponent(bookingRef)}/services`,
     { json: { serviceIds } },
@@ -379,6 +403,7 @@ export async function addServicesToBooking(
  */
 export async function listAvailableSlots(
   branchKey: string,
+  tenant: string,
   bookingRef: string,
   startDate?: string,
   endDate?: string,
@@ -388,6 +413,7 @@ export async function listAvailableSlots(
   if (endDate) params.endDate = endDate;
   return request<PooleSlotDay[]>(
     branchKey,
+    tenant,
     'GET',
     `/inbound/bookings/${encodeURIComponent(bookingRef)}/slots`,
     { params },
@@ -406,12 +432,14 @@ export async function listAvailableSlots(
  */
 export async function reserveSlot(
   branchKey: string,
+  tenant: string,
   bookingRef: string,
   date: string,
   time: string,
 ): Promise<void> {
   await request<void>(
     branchKey,
+    tenant,
     'PUT',
     `/inbound/bookings/${encodeURIComponent(bookingRef)}/slot`,
     { json: { date, time } },
@@ -434,6 +462,7 @@ export async function reserveSlot(
  */
 export async function confirmBooking(
   branchKey: string,
+  tenant: string,
   bookingRef: string,
   customer: PooleConfirmCustomer,
   vehicle: PooleConfirmVehicle,
@@ -447,6 +476,7 @@ export async function confirmBooking(
 
   return request<PooleBookingDetail>(
     branchKey,
+    tenant,
     'POST',
     `/inbound/bookings/${encodeURIComponent(bookingRef)}/confirm`,
     { json: body },
@@ -465,12 +495,14 @@ export async function confirmBooking(
  */
 export async function rescheduleBooking(
   branchKey: string,
+  tenant: string,
   bookingRef: string,
   date: string,
   time: string,
 ): Promise<void> {
   await request<void>(
     branchKey,
+    tenant,
     'PUT',
     `/inbound/bookings/${encodeURIComponent(bookingRef)}/reschedule`,
     { json: { date, time } },
@@ -489,12 +521,14 @@ export async function rescheduleBooking(
  */
 export async function cancelBooking(
   branchKey: string,
+  tenant: string,
   bookingRef: string,
   reason: string,
 ): Promise<void> {
   const cleanReason = String(reason || '').slice(0, 250);
   await request<void>(
     branchKey,
+    tenant,
     'PUT',
     `/inbound/bookings/${encodeURIComponent(bookingRef)}/cancel`,
     { json: { reason: cleanReason } },
@@ -512,10 +546,12 @@ export async function cancelBooking(
  */
 export async function getBooking(
   branchKey: string,
+  tenant: string,
   bookingRef: string,
 ): Promise<PooleBookingDetail> {
   return request<PooleBookingDetail>(
     branchKey,
+    tenant,
     'GET',
     `/inbound/bookings/${encodeURIComponent(bookingRef)}`,
   );
@@ -531,6 +567,6 @@ export async function getBooking(
  * per the handover doc — spec says "returns the branch the key is scoped
  * to", so we surface it as an array to preserve future flexibility).
  */
-export async function getBranches(branchKey: string): Promise<PooleBranch[]> {
-  return request<PooleBranch[]>(branchKey, 'GET', '/inbound/branches');
+export async function getBranches(branchKey: string, tenant: string): Promise<PooleBranch[]> {
+  return request<PooleBranch[]>(branchKey, tenant, 'GET', '/inbound/branches');
 }

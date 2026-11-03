@@ -41,9 +41,44 @@ function loadCampaign(id: string) {
   });
 }
 
+/**
+ * The values a WhatsApp template's {{n}} placeholders can be filled from.
+ *
+ * Shared deliberately. This existed as two hand-maintained copies — one here for sending, one in
+ * the webhook for rebuilding the sent message so the portal can display it — and they drifted:
+ * the webhook's copy had no `phone` key, so that placeholder rendered empty in the transcript
+ * while Meta had already delivered the customer their own number. Anything that renders a
+ * template must use this.
+ *
+ * `phone` is the CUSTOMER's number and always has been. `garage_phone` is the garage's, and is
+ * what "call us on ..." wants.
+ */
+export function buildTemplateFields(args: {
+  customerName?: string | null;
+  phone?: string | null;
+  registration?: string | null;
+  motDueDate?: string | null;
+  serviceDueDate?: string | null;
+  garageName?: string | null;
+  garagePhone?: string | null;
+}): Record<string, string> {
+  const fullName = (args.customerName || '').trim();
+  return {
+    customer_name: fullName.split(/\s+/)[0] || fullName,
+    full_name: fullName,
+    phone: (args.phone || '').trim(),
+    registration: (args.registration || '').toUpperCase(),
+    mot_due_date: args.motDueDate || '',
+    service_due_date: args.serviceDueDate || '',
+    garage_name: (args.garageName || '').trim() || 'our garage',
+    garage_phone: (args.garagePhone || '').trim(),
+  };
+}
+
 export interface SendContext {
   campaign: SendableCampaign;
   garageName: string;
+  garagePhone: string;
   variableMapping: Record<string, string>;
   whatsappPhoneNumberId: string;
   accessToken: string;
@@ -88,7 +123,7 @@ export async function getCampaignSendContext(campaignId: string): Promise<SendCo
   const [agentConfig, waConnection, template] = await Promise.all([
     prisma.agentConfiguration.findUnique({
       where: { garageId: campaign.garageId },
-      select: { branchName: true },
+      select: { branchName: true, phoneNumber: true },
     }),
     prisma.socialMediaConnection.findFirst({
       where: { garageId: campaign.garageId, platform: 'whatsapp', isActive: true },
@@ -120,6 +155,7 @@ export async function getCampaignSendContext(campaignId: string): Promise<SendCo
     ctx: {
       campaign,
       garageName: agentConfig?.branchName || 'our garage',
+      garagePhone: (agentConfig?.phoneNumber || '').trim(),
       variableMapping: (campaign.variableMapping as Record<string, string> | null) || {},
       whatsappPhoneNumberId: waConnection.whatsappPhoneNumberId,
       accessToken: waConnection.accessToken,
@@ -318,7 +354,7 @@ function escapeHtml(s: string): string {
 
 /** Run the actual per-contact send loop and finalise the campaign status. */
 export async function runCampaignSend(ctx: SendContext): Promise<{ sent: number; total: number }> {
-  const { campaign, garageName, variableMapping, whatsappPhoneNumberId, accessToken, template } = ctx;
+  const { campaign, garageName, garagePhone, variableMapping, whatsappPhoneNumberId, accessToken, template } = ctx;
 
   // The garage-level cap is the real ceiling: staff-set, deliberately under Meta's tier, and
   // counted across every campaign. The per-campaign tierLimit stays as a stricter-only override.
@@ -400,15 +436,15 @@ export async function runCampaignSend(ctx: SendContext): Promise<{ sent: number;
 
     try {
       const e164 = normalisePhone(contact.phone);
-      const contactFields: Record<string, string> = {
-        customer_name: contact.customerName?.trim().split(/\s+/)[0] || contact.customerName,
-        full_name: contact.customerName,
+      const contactFields = buildTemplateFields({
+        customerName: contact.customerName,
         phone: contact.phone,
-        registration: contact.registration?.toUpperCase() || '',
-        mot_due_date: contact.motDueDate || '',
-        service_due_date: contact.serviceDueDate || '',
-        garage_name: garageName,
-      };
+        registration: contact.registration,
+        motDueDate: contact.motDueDate,
+        serviceDueDate: contact.serviceDueDate,
+        garageName,
+        garagePhone,
+      });
 
       let payload: Record<string, unknown>;
       if (template && campaign.messageTemplateId) {

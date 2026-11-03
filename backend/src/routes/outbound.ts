@@ -5,7 +5,8 @@ import { prisma } from '../db.js';
 import { authenticate, requireAdmin } from '../middleware/auth.js';
 import { routeChatMessage } from '../services/chatAgentRouter.js';
 import { parseDueDate } from '../utils/dueDate.js';
-import { resolveCreds, getReminderContacts, getCallerProfile, getVehicleAdvisories } from '../services/garageHiveBc.js';
+import { splitPersonName } from '../utils/personName.js';
+import { resolveCreds, getReminderContacts, getCallerProfile, getVehicleAdvisories, listCompanies, testConnection, getLastServiceSuggestion, getServicePairLabels } from '../services/garageHiveBc.js';
 import { normalisePhone, getCampaignSendContext, runCampaignSend, activeHalt } from '../services/outboundSend.js';
 import { runGarageReminders, runDailyGarageHiveReminders } from '../services/garageHiveReminders.js';
 
@@ -42,17 +43,71 @@ router.post('/outbound/campaigns', authenticate, async (req: Request, res: Respo
     // the reminder scheduler has a real date to work from. Unparseable dates land as null and
     // are counted below — never guessed, because a reminder sent on the wrong day is worse than
     // one not sent at all.
+    // A chosen template is an explicit statement of intent — "this is a service campaign" — and it
+    // should beat anything inferred from a spreadsheet column. Great Hollands picked
+    // gh_service_overdue_reminder, the rows were typed from the date columns instead, and the two
+    // disagreed: the customer was told his service was overdue and then offered an MOT.
+    //
+    // Only for MANUAL uploads. The automatic GarageHive sweep has no human in the loop and decides
+    // per vehicle, which is right there — this does not touch it.
+    let templateType: 'mot' | 'service' | null = null;
+    if (messageTemplateId) {
+      try {
+        const tpl = await prisma.messageTemplate.findUnique({
+          where: { id: messageTemplateId }, select: { name: true, templateType: true },
+        });
+        // The template's own type first — it is what the garage actually chose. Reading intent out
+        // of the NAME is a guess, and only worth making when nothing better was recorded.
+        if (tpl?.templateType === 'service' || tpl?.templateType === 'mot') {
+          templateType = tpl.templateType;
+        } else if (tpl?.templateType === 'deferred' || tpl?.templateType === 'marketing') {
+          // Neither is a service or MOT reminder, so there is nothing to chase and nothing the
+          // chat agent should pre-select. Leave the rows on the date-based rule and let the
+          // conversation decide.
+          templateType = null;
+        } else {
+          const tn = (tpl?.name || '').toLowerCase();
+          const hasService = /service/.test(tn);
+          const hasMot = /\bmot\b/.test(tn);
+          if (hasService && !hasMot) templateType = 'service';
+          else if (hasMot && !hasService) templateType = 'mot';
+        }
+        if (templateType) console.log(`[OUTBOUND] template "${tpl?.name}" (type=${tpl?.templateType ?? 'unset'}) -> chasing ${templateType}`);
+      } catch { /* fall back to the dates */ }
+    }
+
     const normalisedRaw = contacts.map((c) => {
-      const rawDue = c.motDueDate?.trim() || c.serviceDueDate?.trim() || null;
+      const motRaw = c.motDueDate?.trim() || null;
+      const svcRaw = c.serviceDueDate?.trim() || null;
+      const motDue = parseDueDate(motRaw);
+      const svcDue = parseDueDate(svcRaw);
+
+      // Classify on which job is actually DUE, not on which column happens to be filled.
+      //
+      // This was `motDueDate ? 'mot' : 'service'`, so any row carrying an MOT date became an MOT
+      // reminder even when the MOT was years away and the service was long overdue. A Great
+      // Hollands customer was reminded his service was overdue — correctly; it was due March 2025
+      // — but the row was typed 'mot' with a due date of April 2027. When he replied "Book", the
+      // chat agent read that type, auto-selected MOT, matched a service with no online slots and
+      // told him there was no availability. Every contact that garage had was typed 'mot', and
+      // every one carried both dates.
+      //
+      // Whichever falls first is the one to chase; the other comes round on its own sweep.
+      const byDate = svcDue !== null && (motDue === null || svcDue < motDue);
+      const messageType = templateType
+        ?? (byDate ? 'service' : (motDue !== null ? 'mot' : (svcDue !== null ? 'service' : 'mot')));
+      // Chase the date that belongs to whatever we settled on, so the reminder lands on the right day.
+      const dueDate = messageType === 'service' ? (svcDue ?? motDue) : (motDue ?? svcDue);
+
       return {
         garageId,
         customerName: c.customerName?.trim() || 'Customer',
         phone: normalisePhone(c.phone || ''),
         registration: c.registration?.trim() || null,
-        motDueDate: c.motDueDate?.trim() || null,
-        serviceDueDate: c.serviceDueDate?.trim() || null,
-        dueDate: parseDueDate(rawDue),
-        messageType: c.motDueDate?.trim() ? 'mot' : 'service',
+        motDueDate: motRaw,
+        serviceDueDate: svcRaw,
+        dueDate,
+        messageType,
       };
     });
     const unreadableDates = normalisedRaw.filter((c) => !c.dueDate).length;
@@ -167,6 +222,13 @@ router.get('/agent/garagehive/caller', async (req: Request, res: Response) => {
   try {
     const { garageId, phone } = req.query as { garageId: string; phone: string };
     if (!garageId || !phone) {
+      // Logged rather than silently 400'd: caller recognition matching nothing looks identical to
+      // "not a customer", and the difference matters. Every Call row for the Garage Hive garages
+      // has an empty fromNumber, so an agent passing that through would land here every time.
+      console.warn(
+        `[GH_CALLER] lookup called without a number (garageId=${garageId || 'missing'}) — ` +
+          `the agent must send the caller's number, or every caller reads as unrecognised`,
+      );
       return res.status(400).json({ error: 'garageId and phone are required' });
     }
     const profile = await getCallerProfile(garageId, phone);
@@ -201,6 +263,39 @@ router.get('/agent/garagehive/advisories', async (req: Request, res: Response) =
     const detail = (error as { response?: { data?: unknown } })?.response?.data;
     console.error('[AGENT] Garage Hive advisories error:', detail ?? error);
     res.status(502).json({ error: 'Failed to look up advisories in Garage Hive' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/agent/garagehive/service-history?garageId=...&registration=... — what
+// the vehicle last had done and what is therefore likely due, for the voice
+// agent to answer "what did I have last time?" and to recommend the next
+// service. Agent-secret auth. Returns { suggestion: null } whenever we cannot
+// say confidently — no configured service pairs, more than one vehicle on the
+// account, or nothing recognisable on the last invoice.
+// ---------------------------------------------------------------------------
+router.get('/agent/garagehive/service-history', async (req: Request, res: Response) => {
+  const configured = process.env.WEBHOOK_SECRET;
+  const provided = req.headers['x-webhook-secret'] ?? req.headers['webhook-secret'];
+  if (configured && provided !== configured) {
+    return res.status(401).json({ error: 'unauthorized' });
+  }
+  try {
+    const { garageId, registration } = req.query as { garageId: string; registration: string };
+    if (!garageId || !registration) {
+      return res.status(400).json({ error: 'garageId and registration are required' });
+    }
+    const [suggestion, pairs] = await Promise.all([
+      getLastServiceSuggestion(garageId, registration),
+      // Sent whether or not we found a history: the agent needs them precisely when it did not,
+      // so it can act on what the customer tells it instead.
+      getServicePairLabels(garageId),
+    ]);
+    res.json({ suggestion, pairs });
+  } catch (error: unknown) {
+    const detail = (error as { response?: { data?: unknown } })?.response?.data;
+    console.error('[AGENT] Garage Hive service-history error:', detail ?? error);
+    res.status(502).json({ error: 'Failed to look up service history in Garage Hive' });
   }
 });
 
@@ -248,6 +343,11 @@ router.get('/outbound/garagehive/settings', authenticate, async (req: Request, r
     res.json({
       connected: true,
       isGarageHiveAgent,
+      // Returned so the connect panel can show what this garage currently points at. No secret
+      // is included: clientId/clientSecret are the shared Azure AD app and never per-garage.
+      tenantId: conn.tenantId,
+      environmentName: conn.environmentName,
+      companyId: conn.companyId,
       remindersEnabled: conn.remindersEnabled,
       reminderDaysAhead: conn.reminderDaysAhead,
       reminderTemplateId: conn.reminderTemplateId,
@@ -347,6 +447,91 @@ router.put('/outbound/garagehive/settings', authenticate, async (req: Request, r
 // (the same job the daily cron runs). Body: { garageId? } — run one garage, or
 // all enabled connections when omitted. For testing + on-demand sends.
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Business Central connection — the new Garage Hive API, not the Automate diary
+// ---------------------------------------------------------------------------
+// A Garage Hive ACCOUNT is one BC environment (tenant + environmentName), and the branches
+// inside it are COMPANIES. JDK Group is the first: JDK Automotive, Ecotest and Great Hollands
+// share one environment and differ only by companyId.
+//
+// So the tenant and environment are entered once and the company is PICKED from what BC returns,
+// never typed — they are GUIDs, and a silent typo in one is indistinguishable from a permissions
+// problem when something fails three days later.
+//
+// Nothing here asks for a client secret. The Azure AD app is ours and shared across accounts;
+// what the garage does on their side is grant that app access inside their own BC.
+
+router.get(
+  '/outbound/garagehive/companies',
+  authenticate,
+  requireAdmin,
+  async (req: Request, res: Response) => {
+    try {
+      const tenantId = String(req.query.tenantId || '').trim();
+      const environmentName = String(req.query.environmentName || '').trim();
+      if (!tenantId || !environmentName) {
+        return res.status(400).json({ error: 'tenantId and environmentName are both required' });
+      }
+      const companies = await listCompanies(tenantId, environmentName);
+      console.log(`[GH_BC] ${companies.length} companies in ${environmentName} (${tenantId})`);
+      res.json({ companies });
+    } catch (e: any) {
+      const status = e?.response?.status;
+      console.error('[GH_BC] Could not list companies:', e?.response?.data || e?.message || e);
+      // 401/403 here almost always means the garage has not granted our app access yet, which is
+      // the one failure the person reading this can actually do something about.
+      res.status(400).json({
+        error:
+          status === 401 || status === 403
+            ? 'Business Central rejected our app. Check the garage has granted it access inside their environment, and that the tenant ID and environment name are right.'
+            : e?.response?.data?.error?.message || e?.message || 'Could not reach Business Central',
+      });
+    }
+  },
+);
+
+router.post(
+  '/outbound/garagehive/connect',
+  authenticate,
+  requireAdmin,
+  async (req: Request, res: Response) => {
+    try {
+      const { garageId, tenantId, environmentName, companyId } = req.body || {};
+      if (!garageId || !tenantId || !environmentName || !companyId) {
+        return res
+          .status(400)
+          .json({ error: 'garageId, tenantId, environmentName and companyId are all required' });
+      }
+
+      await prisma.garageHiveConnection.upsert({
+        where: { garageId },
+        create: {
+          garageId,
+          tenantId: String(tenantId).trim(),
+          environmentName: String(environmentName).trim(),
+          companyId: String(companyId).trim(),
+        },
+        update: {
+          tenantId: String(tenantId).trim(),
+          environmentName: String(environmentName).trim(),
+          companyId: String(companyId).trim(),
+        },
+      });
+
+      // Prove it reads before reporting success. A wrong company or a missing permission set both
+      // look perfectly healthy right up until something tries to fetch data.
+      const test = await testConnection(garageId);
+      console.log(
+        `[GH_BC] Connected ${garageId} → ${environmentName}/${companyId} (test ${test.ok ? 'passed' : 'FAILED'})`,
+      );
+      res.json({ success: true, test });
+    } catch (e: any) {
+      console.error('[GH_BC] connect failed:', e);
+      res.status(500).json({ error: e?.message || 'Could not save the connection' });
+    }
+  },
+);
+
 router.post('/outbound/garagehive/run-now', authenticate, async (req: Request, res: Response) => {
   try {
     const { garageId } = (req.body || {}) as { garageId?: string };
@@ -684,9 +869,11 @@ router.post('/sms/inbound', async (req: Request, res: Response) => {
       const sessionState: Record<string, string> = {
         contactPhone: normalFrom,
       };
-      const nameParts = contact.customerName.trim().split(/\s+/);
-      sessionState.customerNameFirst = nameParts[0] || '';
-      sessionState.customerNameLast = nameParts.slice(1).join(' ') || '';
+      // Titles are dropped: a campaign CSV holding "Mr Kris Cottrell" used to seed "Mr" as the
+      // first name, and the agent opened with "Hi Mr".
+      const seededName = splitPersonName(contact.customerName);
+      sessionState.customerNameFirst = seededName.first;
+      sessionState.customerNameLast = seededName.last;
 
       const dueDate = contact.motDueDate || contact.serviceDueDate || '';
       const contextNote = [

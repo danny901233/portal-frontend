@@ -731,8 +731,9 @@ const arrearsEmailShell = (bodyHtml: string): string => `
 /**
  * Arrears notice — sent instead of the full call summary when a garage is flagged
  * accessRestricted. Deliberately contains NO call content (no caller, summary, transcript
- * or recording): it only confirms a call was handled and that the details are on hold
- * until the account is brought up to date.
+ * or recording): it only confirms a call was handled, explains that the Direct Debit has failed,
+ * and points at setting it back up. The portal link is /login deliberately — with
+ * mustSetupPayment set, signing in lands them straight on /setup-payment.
  */
 export const sendArrearsCallNoticeEmail = async (
   notificationEmails: string[],
@@ -762,18 +763,23 @@ export const sendArrearsCallNoticeEmail = async (
           <tr>
             <td style="padding: 20px 32px 0;">
               <p style="margin: 0 0 16px; font-size: 16px; line-height: 1.6; color: #3a3f5c;">
-                Your ReceptionMate AI receptionist answered a call for you on <strong>${formattedDate}</strong>.
+                Good news first — your ReceptionMate receptionist answered a call for you on
+                <strong>${formattedDate}</strong>, and we're still picking up every call as normal.
+              </p>
+              <p style="margin: 0 0 16px; font-size: 16px; line-height: 1.6; color: #3a3f5c;">
+                The reason we're emailing rather than sending the usual summary is that your
+                <strong>Direct Debit has failed</strong> and the account has fallen into arrears. Until that's
+                sorted, the caller's details, the summary, transcript and recording are on hold.
               </p>
               <p style="margin: 0 0 20px; font-size: 16px; line-height: 1.6; color: #3a3f5c;">
-                Your account is currently <strong>in arrears</strong>, so the caller's details, the call summary,
-                transcript and recording are <strong>on hold</strong>. As soon as your account is brought up to
-                date, everything will be unlocked in your portal.
+                Setting your Direct Debit back up takes a couple of minutes, and everything unlocks in your
+                portal straight away — including this call and any others we've handled in the meantime.
               </p>
               <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
                 <tr>
                   <td style="padding: 16px 20px; background-color: #fff8ec; border: 1px solid #f6dfae; border-radius: 10px; font-size: 14px; line-height: 1.5; color: #8a6417;">
                     <strong>📞 Call handled:</strong> ${formattedDate}<br/>
-                    <strong>🔒 Details:</strong> locked until your account is up to date
+                    <strong>🔓 Details:</strong> unlocked as soon as your Direct Debit is set up
                   </td>
                 </tr>
               </table>
@@ -782,14 +788,15 @@ export const sendArrearsCallNoticeEmail = async (
           <tr>
             <td style="padding: 28px 32px 4px; text-align: center;">
               <a href="${data.portalUrl}/login" style="display: inline-block; padding: 14px 30px; background-color: ${RM_BRAND}; color: #ffffff; font-size: 15px; font-weight: 600; text-decoration: none; border-radius: 10px;">
-                Bring my account up to date
+                Set up my Direct Debit
               </a>
             </td>
           </tr>
           <tr>
             <td style="padding: 20px 32px 32px; text-align: center;">
               <p style="margin: 0; font-size: 14px; line-height: 1.6; color: #8b90b0;">
-                Questions? Contact us at <a href="mailto:hello@receptionmate.co.uk" style="color: ${RM_BRAND}; text-decoration: none;">hello@receptionmate.co.uk</a>
+                If you think this is a mistake, or you'd rather sort it over the phone, just reply to this
+                email or contact us at <a href="mailto:hello@receptionmate.co.uk" style="color: ${RM_BRAND}; text-decoration: none;">hello@receptionmate.co.uk</a> — we're happy to help.
               </p>
             </td>
           </tr>`);
@@ -799,16 +806,18 @@ WE HANDLED A CALL FOR YOU
 
 ${data.branchName}
 
-Your ReceptionMate AI receptionist answered a call for you on ${formattedDate}.
+Good news first - your ReceptionMate receptionist answered a call for you on ${formattedDate}, and we're still picking up every call as normal.
 
-Your account is currently IN ARREARS, so the caller's details, the call summary, transcript and recording are on hold. As soon as your account is brought up to date, everything will be unlocked in your portal.
+The reason we're emailing rather than sending the usual summary is that your DIRECT DEBIT HAS FAILED and the account has fallen into arrears. Until that's sorted, the caller's details, the summary, transcript and recording are on hold.
+
+Setting your Direct Debit back up takes a couple of minutes, and everything unlocks in your portal straight away - including this call and any others we've handled in the meantime.
 
 Call handled: ${formattedDate}
-Details: locked until your account is up to date
+Details: unlocked as soon as your Direct Debit is set up
 
-Bring your account up to date: ${data.portalUrl}/login
+Set up your Direct Debit: ${data.portalUrl}/login
 
-Questions? Contact us at hello@receptionmate.co.uk
+If you think this is a mistake, or you'd rather sort it over the phone, just reply to this email or contact us at hello@receptionmate.co.uk - we're happy to help.
 
 ---
 This is an automated email from ReceptionMate
@@ -816,7 +825,7 @@ This is an automated email from ReceptionMate
 
   return sendEmail({
     to: notificationEmails,
-    subject: 'We handled a call for you — account update needed',
+    subject: 'We handled a call for you — your Direct Debit needs setting up',
     html,
     text,
   });
@@ -855,8 +864,8 @@ export interface LatePaymentEmailData {
  */
 export interface PaymentFailedEmailData {
   branchName: string;
-  amount: string;
   retryDays: number;
+  cc?: string[];        // keep ourselves copied in, so a reply lands somewhere we watch
   ddSetupUrl?: string;  // only when the mandate itself is dead and needs re-authorising
   mandateDead?: boolean;
 }
@@ -868,6 +877,11 @@ export interface PaymentFailedEmailData {
  * for card customers. Direct Debit customers got nothing at all: Caldwell & Dempster bounced on
  * 30 June, kept taking 40 calls a month, and were never told. Most BACS failures are just funds
  * on the day, so the tone is "no action needed, we'll retry" unless the mandate is actually gone.
+ *
+ * Deliberately no amount, anywhere. A failed collection can carry several months at once —
+ * EAC Telford's was £709.92 against a £325 subscription — and leading with a figure like that
+ * turns a two-minute admin fix into an argument about the bill. The amount is in the portal and
+ * on the invoice for anyone who wants it; the email's job is to get the mandate reinstated.
  */
 export const sendPaymentFailedEmail = async (
   recipients: string[],
@@ -879,10 +893,10 @@ export const sendPaymentFailedEmail = async (
     ? `
               <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
                 <tr>
-                  <td style="padding: 16px 20px; background-color: #fef3f2; border: 1px solid #fbd5d0; border-radius: 10px; font-size: 15px; line-height: 1.6; color: #7a2b23;">
-                    It looks like the Direct Debit instruction is no longer active with your bank, so
-                    we can't retry this one automatically. Setting it up again takes about a minute
-                    and we'll collect the outstanding amount on the next working day.
+                  <td style="padding: 16px 20px; background-color: #f7f7fb; border: 1px solid #e9eaf5; border-radius: 10px; font-size: 15px; line-height: 1.6; color: #3a3f5c;">
+                    <strong>Don't worry — your receptionist is still answering your calls.</strong>
+                    Some features and call details may be unavailable in your portal until the
+                    Direct Debit is reactivated. Setting it up again takes about a minute.
                   </td>
                 </tr>
               </table>`
@@ -917,30 +931,39 @@ export const sendPaymentFailedEmail = async (
           <tr>
             <td style="padding: 20px 32px 32px;">
               <p style="margin: 0 0 16px; font-size: 16px; line-height: 1.6; color: #3a3f5c;">
-                We tried to collect <strong>${data.amount}</strong> for your ReceptionMate
-                subscription, but the payment didn't clear.
+                We weren't able to collect your latest ReceptionMate payment by Direct Debit.
               </p>
               ${body}
               ${button}
               <p style="margin: 22px 0 0; font-size: 16px; line-height: 1.6; color: #3a3f5c;">
-                If something's changed with your bank details, or you'd like to pay this one another
-                way, just reply to this email and we'll sort it out.
+                If something's changed with your bank details, or you'd like to sort it over the
+                phone, just reply to this email and we'll take care of it.
               </p>
             </td>
           </tr>`);
 
   const text = [
     `Your Direct Debit didn't go through — ${data.branchName}`, '',
-    `We tried to collect ${data.amount} for your ReceptionMate subscription, but the payment didn't clear.`, '',
+    "We weren't able to collect your latest ReceptionMate payment by Direct Debit.", '',
     data.mandateDead
-      ? `The Direct Debit instruction is no longer active with your bank, so we can't retry automatically.${data.ddSetupUrl ? ` Set it up again here: ${data.ddSetupUrl}` : ''}`
+      ? `Don't worry - your receptionist is still answering your calls. Some features and call details may be unavailable in your portal until the Direct Debit is reactivated. Setting it up again takes about a minute.${data.ddSetupUrl ? `\n\nSet up Direct Debit: ${data.ddSetupUrl}` : ''}`
       : `There's nothing you need to do — we'll automatically try again in about ${data.retryDays} days. Your service carries on as normal.`,
-    '', 'If something has changed with your bank details, just reply and we will sort it out.',
+    '', "If something has changed with your bank details, or you'd like to sort it over the phone, just reply and we'll take care of it.",
   ].join('\n');
 
-  return sendEmail({ to: recipients, subject: `Your Direct Debit didn't go through — ${data.amount}`, html, text });
+  return sendEmail({
+    to: recipients,
+    ...(data.cc?.length ? { cc: data.cc } : {}),
+    // A cancelled mandate is not a blip: nothing will be collected until someone re-authorises
+    // it, and a subject that reads like a temporary hiccup gets treated like one. EAC Telford ran
+    // 16 days on the old wording.
+    subject: data.mandateDead
+      ? 'Action needed — your Direct Debit is no longer active'
+      : "Your Direct Debit didn't go through",
+    html,
+    text,
+  });
 };
-
 export const sendLatePaymentEmail = async (
   recipients: string[],
   data: LatePaymentEmailData,

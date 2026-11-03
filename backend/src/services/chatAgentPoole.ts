@@ -278,6 +278,9 @@ function splitName(fullName: string): { firstName: string; lastName: string } {
 // how Bookar and Tyresoft read their creds.
 interface PooleCreds {
   branchKey: string;
+  tenant: string;      // Required on multi-tenant prod (e.g. "tgc" for The Gearbox Centre).
+                        // Empty string is allowed for old single-tenant sandbox garages
+                        // where the header wasn't required.
   branchCode?: string;
 }
 
@@ -288,8 +291,9 @@ function resolvePooleCreds(integrationProviderConfig: unknown): PooleCreds | nul
   const src = ((raw.poole as Record<string, unknown>) || (raw.pooleSettings as Record<string, unknown>) || raw) as Record<string, unknown>;
   const branchKey = String(src.branchKey || src.pooleBranchKey || process.env.POOLE_API_KEY || '').trim();
   const branchCode = String(src.branchCode || src.pooleBranchCode || process.env.POOLE_BRANCH_CODE || '').trim() || undefined;
+  const tenant = String(src.tenant || src.pooleTenant || process.env.POOLE_TENANT || '').trim();
   if (!branchKey) return null;
-  return { branchKey, branchCode };
+  return { branchKey, tenant, branchCode };
 }
 
 // ---------------------------------------------------------------------------
@@ -312,6 +316,7 @@ async function ensureDraft(
   const callReference = `poole-chat-${conversationId}-${attempt}`.slice(0, 100);
   const { bookingRef } = await createDraftBooking(
     creds.branchKey,
+    creds.tenant,
     callReference,
     creds.branchCode,
     /* notes */ session.customerName ? `Chat with ${session.customerName}` : undefined,
@@ -811,7 +816,7 @@ async function executeTool(
         if (!creds) return { error: 'Poole API not configured for this garage' };
         const phone = normalisePhone(String(args.phone || session.customerPhone || ''));
         if (!phone) return { found: false, message: 'No phone number provided.' };
-        const matches = await findCustomerByPhone(creds.branchKey, phone);
+        const matches = await findCustomerByPhone(creds.branchKey, creds.tenant, phone);
         if (!matches.length) {
           console.log(`[POOLE_AGENT] findCustomerByPhone: no match for ${phone}`);
           return { found: false };
@@ -846,18 +851,25 @@ async function executeTool(
         if (!creds) return { error: 'Poole API not configured for this garage' };
         const reg = cleanVrm(String(args.registration || ''));
         if (!reg) return { error: 'registration required' };
-        const vehicle = await lookupVehicleByVrm(creds.branchKey, reg);
+        const vehicle = await lookupVehicleByVrm(creds.branchKey, creds.tenant, reg);
         if (!vehicle) {
           // 404 → unknown reg. Persist just the VRM so the LLM can continue
           // (Poole confirm accepts a bare registration for unknown vehicles).
+          // The tool-result note is deliberately forceful because Poole's DB is
+          // sparse (most UK cars aren't on file) — the LLM was getting stuck in
+          // "please double-check the reg" loops on ~70% of test calls, so we tell
+          // it exactly what to do inside the response payload rather than trusting
+          // the LLM to remember the prompt's guidance under pressure.
           session.vrm = reg;
           session.vehicle = { onFile: false };
           await saveSession(conversationId, session);
           console.log(`[POOLE_AGENT] lookupVehicleByVrm: 404 for ${reg} — captured VRM without detail`);
           return {
             found: false,
+            in_records: false,
             registration: reg,
-            note: 'Vehicle not on file in Poole — you can still take the booking; just confirm the make/model with the caller.',
+            proceed_normally: true,
+            note: 'NORMAL: most cars are not in Poole records. DO NOT ask the customer to double-check the registration. The reg is captured. Continue IMMEDIATELY to pl_list_services (booking works fine without vehicle details).',
           };
         }
         const make  = toTitleCase(vehicle.make  || '');
@@ -890,7 +902,7 @@ async function executeTool(
         if (!creds) return { error: 'Poole API not configured for this garage' };
         // Bootstrap a draft if we don't have one yet.
         const ref = await ensureDraft(session, conversationId, creds);
-        const services = await listServices(creds.branchKey, ref);
+        const services = await listServices(creds.branchKey, creds.tenant, ref);
         session.servicesOptions = services;
         await saveSession(conversationId, session);
         console.log(`[POOLE_AGENT] listServices: ref=${ref}, count=${services.length}`);
@@ -927,7 +939,7 @@ async function executeTool(
           }
         }
         const ref = await ensureDraft(session, conversationId, creds);
-        await addServicesToBooking(creds.branchKey, ref, serviceIds);
+        await addServicesToBooking(creds.branchKey, creds.tenant, ref, serviceIds);
         session.selectedServiceIds = serviceIds;
         // Clear any previously-picked slot — the service set changed so
         // availability may have shifted.
@@ -954,7 +966,7 @@ async function executeTool(
         }
         const dateFrom = String(args.date_from || todayIso());
         const dateTo   = String(args.date_to   || addDaysIso(7));
-        const days = await listAvailableSlots(creds.branchKey, session.bookingRef, dateFrom, dateTo);
+        const days = await listAvailableSlots(creds.branchKey, creds.tenant, session.bookingRef, dateFrom, dateTo);
         session.availabilityOptions = days;
         session.selectedSlot = undefined;
         await saveSession(conversationId, session);
@@ -999,7 +1011,7 @@ async function executeTool(
         }
 
         try {
-          await reserveSlot(creds.branchKey, session.bookingRef, date, time);
+          await reserveSlot(creds.branchKey, creds.tenant, session.bookingRef, date, time);
         } catch (e: any) {
           if (e instanceof PooleError && e.status === 409) {
             // Slot went while we were talking — clear + prompt re-list.
@@ -1058,7 +1070,7 @@ async function executeTool(
         if (!creds) return { error: 'Poole API not configured for this garage' };
         const ref = String(args.booking_ref || '').trim();
         if (!ref) return { error: 'booking_ref required' };
-        const booking = await getBooking(creds.branchKey, ref);
+        const booking = await getBooking(creds.branchKey, creds.tenant, ref);
         session.existingBookingRef = ref;
         await saveSession(conversationId, session);
         console.log(`[POOLE_AGENT] getBooking OK: ${ref} status=${booking.status}`);
@@ -1100,7 +1112,7 @@ async function executeTool(
           };
         }
         try {
-          await rescheduleBooking(creds.branchKey, ref, date, time);
+          await rescheduleBooking(creds.branchKey, creds.tenant, ref, date, time);
         } catch (e: any) {
           if (e instanceof PooleError && e.status === 409) {
             session.availabilityOptions = undefined;
@@ -1121,7 +1133,7 @@ async function executeTool(
         const ref    = String(args.booking_ref || session.existingBookingRef || '').trim();
         const reason = String(args.reason || 'customer request').trim();
         if (!ref) return { error: 'booking_ref required' };
-        await cancelBooking(creds.branchKey, ref, reason);
+        await cancelBooking(creds.branchKey, creds.tenant, ref, reason);
         console.log(`[POOLE_AGENT] cancelBooking OK: ${ref} reason=${reason}`);
         // If we just cancelled the booking we made this session, clear our state.
         if (session.bookingRef === ref || session.bookingReference === ref) {
@@ -1135,7 +1147,7 @@ async function executeTool(
 
       case 'pl_get_branches': {
         if (!creds) return { error: 'Poole API not configured for this garage' };
-        const branches = await getBranches(creds.branchKey);
+        const branches = await getBranches(creds.branchKey, creds.tenant);
         console.log(`[POOLE_AGENT] getBranches OK: ${branches.length} branch(es)`);
         return { count: branches.length, branches };
       }
@@ -1235,6 +1247,7 @@ async function pooleConfirmDraft(
   try {
     booking = await confirmBooking(
       creds.branchKey,
+      creds.tenant,
       session.bookingRef,
       customer,
       vehicle,
@@ -1471,6 +1484,10 @@ function buildSystemPrompt(
     prompt += `- If the customer wants a service that isn't in the pl_list_services result, do NOT try to force it — use pl_take_message so a human can follow up.\n`;
     prompt += `- CRITICAL: When a customer provides their name, phone number, email or reg, do NOT greet them again or start over. Continue from where you left off.\n`;
     prompt += `- CRITICAL: If they give only their name and you still need phone/email, say "Thanks [name] — what's the best number to reach you on?" — do NOT say "Hello [name]! How can I assist you today?"\n`;
+    prompt += `- CRITICAL — VEHICLE-NOT-FOUND: When pl_lookup_vehicle returns found=false / in_records=false, this is EXPECTED and NORMAL — most cars aren't in Poole's records. NEVER ask the customer to double-check the reg. NEVER say "I couldn't find your vehicle". Just say something friendly like "no problem, I've got that" and continue immediately to pl_list_services with the same reg. The booking works fine without the vehicle in Poole's DB.\n`;
+    prompt += `- CRITICAL — VOLUNTEERED INFO: If the customer gives you information you haven't asked for yet (name, phone, reg, service they want), CAPTURE IT IMMEDIATELY in the same turn — call the relevant tool right away. Do NOT ignore it and ask a different question (e.g. do NOT reply "what's your name?" when they just told you their reg). Real customers give up when they're ignored.\n`;
+    prompt += `- CRITICAL — SKIP REDUNDANT CONFIRMATION: If the customer has already said "yes", "confirm", "book it", "go ahead" after you've described the booking, call pl_create_booking IMMEDIATELY. Do NOT ask "shall I confirm?" one more time — they already confirmed. Only ask for confirmation ONCE, then act on the first "yes".\n`;
+    prompt += `- CRITICAL — NAME IS NICE-TO-HAVE, NOT A GATE: Do NOT block the booking flow waiting for a name. If the customer mentions their reg or service before giving a name, proceed with those first — you can gather the name during pl_save_customer_details before pl_create_booking. Poole only requires a last name at the confirm step, so if we have to, ask for their name right before confirming.\n`;
     prompt += `- Never use markdown: no **bold**, no bullets, no dashes. Plain sentences only.\n`;
 
     if (humanEscalation) {

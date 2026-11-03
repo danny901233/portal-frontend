@@ -125,6 +125,29 @@ model Garage {
 // branches are companies (companyId). The Azure AD app clientId/secret are shared
 // across accounts via env once each account grants the app access, but can be
 // overridden here per garage if needed.
+/// A reply the agent owes a customer but has not sent yet.
+///
+/// The human-like delay means there is a window — up to five minutes on the default setting —
+/// where we have decided to reply and have not yet done it. That intent used to live only in a
+/// setTimeout, so a deploy silently dropped it and the customer was never answered. This row IS
+/// the promise; the in-memory timer is just a faster way of keeping it.
+///
+/// No access token here on purpose: it is a live credential, re-resolved from the connection when
+/// the reply is actually sent.
+model PendingChatReply {
+  id             String   @id @default(cuid())
+  conversationId String   @unique
+  garageId       String
+  phoneNumberId  String
+  customerPhone  String
+  agentText      String
+  metaMid        String?
+  dueAt          DateTime
+  createdAt      DateTime @default(now())
+
+  @@index([dueAt])
+}
+
 model GarageHiveConnection {
   id                 String    @id @default(cuid())
   garageId           String    @unique
@@ -138,6 +161,11 @@ model GarageHiveConnection {
   reminderDaysAhead  Int       @default(30)
   reminderTemplateId String? // approved WhatsApp MessageTemplate id used for auto-sends
   reminderChannel    String    @default("whatsapp") // "whatsapp" | "sms"
+  // Which branch this garage IS, inside a shared Business Central company. Garage Hive groups
+  // that trade as one legal entity put every branch in one company and separate them by location
+  // (GREAT, ECO, CAMBERLEY...). Empty means "this company is this garage" — no filtering, which
+  // is the case for every single-site garage.
+  locationCode       String?
   // Caller recognition — on an inbound call, look the caller's number up in the
   // Garage Hive phonebook so the agent confirms their vehicle instead of asking
   // for the reg. Off by default; GarageHive-agent only.
@@ -395,6 +423,7 @@ model AgentConfiguration {
   websiteUrl                String?
   weeklyOpeningHours        Json?
   holidayClosures           String?
+  bankHolidayDates          Json?
   greetingLine              String?
   tonePreference            String   @default("standard")
   responseSpeed             String   @default("normal")
@@ -403,6 +432,10 @@ model AgentConfiguration {
   // Garage Hive voice-agent booking behaviours (only for the GarageHive/automate agent)
   callerRecognitionEnabled  Boolean  @default(false)
   advisoryUpsellsEnabled    Boolean  @default(false)
+  // Whether the agent may say what the advisory was quoted at. The figure comes from the health
+  // check, which can be a year old, so a garage that has since put its prices up will want the
+  // work offered without the number. Defaults true = unchanged behaviour.
+  advisoryUpsellPrices      Boolean  @default(true)
   enableDropOffBookings     Boolean  @default(false)
   dropOffMessage            String   @default("drop your vehicle off between 8am and half ten in the morning")
   dropOffExcludeServices    String[] @default(["MOT"])
@@ -420,6 +453,14 @@ model AgentConfiguration {
   messagingHumanHandoff     Boolean  @default(true)
   messagingHandoffMessage   String?
   // Messaging notifications: when to alert the garage and how.
+  // How long the chat agent waits before replying on WhatsApp. Replying instantly reads as a
+  // bot, so the default is a human-like random spread — but that is a preference, not a rule, and
+  // some garages would rather their customers were answered promptly.
+  //   "random" (default) — weighted spread, ~70% under 30s, up to 5 min at the tail
+  //   "none"             — reply as soon as the agent has an answer
+  //   "custom"           — wait exactly messagingReplyDelaySeconds
+  messagingReplyDelay       String   @default("random")
+  messagingReplyDelaySeconds Int     @default(10)
   messagingNotifyScope      String   @default("off")
   messagingNotifyEmail      Boolean  @default(false)
   messagingNotifySms        Boolean  @default(false)
@@ -433,6 +474,16 @@ model AgentConfiguration {
   businessType              String?
   customRules               Json?
   dataCollectionFields      Json?
+  // Routine servicing alternates: full then interim, Mercedes A then B, Audi oil then
+  // inspection. Same logic everywhere, different names per garage — so the pairs are configured
+  // rather than hardcoded. Shape: [{ aMatch, aLabel, bMatch, bLabel }]. Empty means the agent
+  // never suggests a next service, which is the safe default.
+  servicePairs         Json?
+  // Servicing falls due on time OR distance, whichever comes first, and neither is universal —
+  // 12 months is common, some manufacturers run two years, some fleets six months. Configured
+  // rather than assumed, for the same reason as servicePairs above.
+  serviceIntervalMonths Int      @default(12)
+  serviceIntervalMiles  Int      @default(10000)
   faqs                      Json?
   pronunciations            Json?
   voice                     String   @default("leah")
@@ -505,6 +556,23 @@ model Business {
   garages      Garage[]
   billingMethod String @default("directdebit") // 'directdebit' | 'stripe_card' | 'invoice'
 
+  // The Direct Debit mandate belongs to the BUSINESS, not to whoever happened to sign it up.
+  // Held on User historically, which meant only the original signatory was ever prompted to
+  // fix a cancelled mandate — colleagues just saw the portal go blank.
+  //
+  // These two columns already existed in the database but were undeclared and unread since
+  // July, and had gone stale enough to be dangerous (cancelled ids where the User row held
+  // the live one). They are re-synced and now written alongside User on every mandate change.
+  // Billing deliberately still reads the User copy: it runs daily at 9am and moving it is a
+  // separate, verifiable step.
+  gocardlessMandateId  String?
+  gocardlessCustomerId String?
+
+  // Set when the business needs to authorise a (new) mandate before it can be billed. An
+  // explicit flag rather than "has no mandate": trial and not-yet-onboarded businesses also
+  // have no mandate and must not be nagged for one.
+  mustSetupPayment     Boolean @default(false)
+
   // Billing Information
   billingAddress       String?
   billingCity          String?
@@ -576,6 +644,7 @@ model ChatConversation {
   sessionState             Json?
   messages                 ChatMessage[]
   toolCalls                ChatToolCall[]
+  feedback                 ChatFeedback?
   createdAt                DateTime                  @default(now())
   updatedAt                DateTime                  @updatedAt
 
@@ -625,6 +694,23 @@ model ChatToolCall {
   @@index([toolName, success])
 }
 
+// Garage-side rating of an AI conversation. Mirrors CallFeedback exactly so
+// the weekly negative-feedback audit process (Monday SOP) can classify calls
+// and messages with the same buckets. One row per conversation — upsert on
+// re-rating. rating is 'up' | 'down' in app code; reasons are free-form now
+// but constrained to a small fixed set in the UI (wrong_info, ghost_booking,
+// complaint_mishandled, tone, handover_failed, other).
+model ChatFeedback {
+  id             String           @id @default(cuid())
+  conversationId String           @unique
+  conversation   ChatConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  rating         String
+  reasons        String[]         @default([])
+  notes          String?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+}
+
 model SocialMediaConnection {
   id                    String   @id @default(cuid())
   garageId              String
@@ -651,6 +737,18 @@ model MessageTemplate {
   name     String // Template name (lowercase, underscores only)
   category String // UTILITY, MARKETING, AUTHENTICATION
   language String @default("en_GB")
+
+  // What this template is FOR, as opposed to Meta's `category` which is a billing classification.
+  // Drives what an outbound campaign chases and what the chat agent offers when someone replies:
+  // a reply to a service reminder must be offered a service, not an MOT.
+  //
+  // This was previously inferred from the template NAME with a regex, which is exactly as fragile
+  // as it sounds — Great Hollands sent a service reminder whose rows were typed 'mot', and a
+  // customer was offered the wrong job. Null means "not stated": fall back to the due dates.
+  //
+  // 'marketing' deliberately means DON'T auto-select anything — a reply to a promotion is a
+  // conversation, not a booking for a job nobody mentioned.
+  templateType String? // service | mot | deferred | marketing
 
   // Template content
   headerType      String? // none, text, image, document

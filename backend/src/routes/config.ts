@@ -30,7 +30,7 @@ import {
   createDefaultGarageHiveSettings,
   createDefaultHubspotSettings,
   createDefaultTyresoftSettings,
-  createDefaultWeeklyOpeningHours, BookarSettings } from '../utils/types.js';
+  createDefaultWeeklyOpeningHours, BookarSettings, PooleSettings } from '../utils/types.js';
 import type {
   AgentConfigurationPayload,
   GarageHiveSettings,
@@ -111,7 +111,7 @@ const parseIntegrationSettings = (
   providerValue: string | null | undefined,
   rawSettings: Prisma.JsonValue | null | undefined,
   agentScript?: string | null,
-): { integrationProvider: IntegrationProvider; garageHiveSettings: GarageHiveSettings; tyresoftSettings: TyresoftSettings; bookarSettings?: BookarSettings } => {
+): { integrationProvider: IntegrationProvider; garageHiveSettings: GarageHiveSettings; tyresoftSettings: TyresoftSettings; bookarSettings?: BookarSettings; pooleSettings?: PooleSettings } => {
   // Tyresoft agent takes priority — check agentScript first regardless of integrationProvider
   if (agentScript === 'tyresoft-agent') {
     if (rawSettings && typeof rawSettings === 'object' && !Array.isArray(rawSettings)) {
@@ -188,6 +188,34 @@ const parseIntegrationSettings = (
     };
   }
 
+  if (agentScript === 'poole-agent') {
+    // Poole creds live under integrationProviderConfig.poole (nested), matching what
+    // chatAgentPoole.ts reads via resolvePooleCreds. `apiKey` accepted as legacy alias
+    // for `branchKey` to stay compatible with any old rows written before this UI shipped.
+    if (rawSettings && typeof rawSettings === 'object' && !Array.isArray(rawSettings)) {
+      const raw = rawSettings as Record<string, unknown>;
+      const pooleRaw = (raw.poole && typeof raw.poole === 'object' && !Array.isArray(raw.poole))
+        ? (raw.poole as Record<string, unknown>)
+        : raw;
+      return {
+        integrationProvider: 'none' as IntegrationProvider,
+        garageHiveSettings: createDefaultGarageHiveSettings(),
+        tyresoftSettings: createDefaultTyresoftSettings(),
+        pooleSettings: {
+          branchKey: typeof pooleRaw.branchKey === 'string' ? pooleRaw.branchKey : (typeof pooleRaw.apiKey === 'string' ? pooleRaw.apiKey : ''),
+          tenant: typeof pooleRaw.tenant === 'string' ? pooleRaw.tenant : '',
+          branchCode: typeof pooleRaw.branchCode === 'string' ? pooleRaw.branchCode : '',
+        },
+      };
+    }
+    return {
+      integrationProvider: 'none' as IntegrationProvider,
+      garageHiveSettings: createDefaultGarageHiveSettings(),
+      tyresoftSettings: createDefaultTyresoftSettings(),
+      pooleSettings: { branchKey: '', tenant: '', branchCode: '' },
+    };
+  }
+
   const provider: IntegrationProvider = providerValue === 'garage_hive' ? 'garage_hive' : 'none';
 
   if (provider !== 'garage_hive') {
@@ -248,6 +276,10 @@ const defaultConfiguration: AgentConfigurationPayload = {
   humanEscalation: true,
   messagingHumanHandoff: true,
   messagingHandoffMessage: '',
+  serviceIntervalMonths: 12,
+  serviceIntervalMiles: 10000,
+  messagingReplyDelay: 'random',
+  messagingReplyDelaySeconds: 10,
   messagingNotifyScope: 'off',
   messagingNotifyEmail: false,
   messagingNotifySms: false,
@@ -282,6 +314,7 @@ const sanitizeConfigForResponse = (config: AgentConfigurationPayload) => {
     allowFastFitOnly: config.allowFastFitOnly ?? false,
     callerRecognitionEnabled: config.callerRecognitionEnabled ?? false,
     advisoryUpsellsEnabled: config.advisoryUpsellsEnabled ?? false,
+    advisoryUpsellPrices: (config as any).advisoryUpsellPrices ?? true,
     enableDropOffBookings: config.enableDropOffBookings ?? false,
     dropOffMessage: config.dropOffMessage ?? 'drop your vehicle off between 8am and half ten in the morning',
     dropOffExcludeServices: config.dropOffExcludeServices ?? ['MOT'],
@@ -295,6 +328,7 @@ const sanitizeConfigForResponse = (config: AgentConfigurationPayload) => {
       config.agentScript === 'Assist-agent' ? 'Assist-agent' :
       config.agentScript === 'GarageHive-agent' ? 'GarageHive-agent' :
       config.agentScript === 'MMH-agent' ? 'MMH-agent' : config.agentScript === 'bookar-agent' ? 'bookar-agent' :
+      config.agentScript === 'poole-agent' ? 'poole-agent' :
       (config.agentScript as any) === 'Newreceptionmateagent.py' ? 'receptionmate-agent-v3' :
       (config.agentScript as any) === 'basic_agent2.py' ? 'receptionmate-agent' :
       'receptionmate-agent',
@@ -302,6 +336,10 @@ const sanitizeConfigForResponse = (config: AgentConfigurationPayload) => {
     humanEscalation: config.humanEscalation ?? true,
     messagingHumanHandoff: (config as any).messagingHumanHandoff ?? true,
     messagingHandoffMessage: (config as any).messagingHandoffMessage ?? '',
+    serviceIntervalMonths: (config as any).serviceIntervalMonths ?? 12,
+    serviceIntervalMiles: (config as any).serviceIntervalMiles ?? 10000,
+    messagingReplyDelay: (config as any).messagingReplyDelay ?? 'random',
+    messagingReplyDelaySeconds: (config as any).messagingReplyDelaySeconds ?? 10,
     messagingNotifyScope: (config as any).messagingNotifyScope ?? 'off',
     messagingNotifyEmail: (config as any).messagingNotifyEmail ?? false,
     messagingNotifySms: (config as any).messagingNotifySms ?? false,
@@ -409,6 +447,7 @@ const buildConfigurationResponse = (configuration: PrismaAgentConfiguration | nu
     allowFastFitOnly: configuration.allowFastFitOnly,
     callerRecognitionEnabled: configuration.callerRecognitionEnabled ?? false,
     advisoryUpsellsEnabled: configuration.advisoryUpsellsEnabled ?? false,
+    advisoryUpsellPrices: (configuration as Record<string, unknown>).advisoryUpsellPrices !== false,
     enableDropOffBookings: configuration.enableDropOffBookings || false,
     dropOffMessage: configuration.dropOffMessage || 'drop your vehicle off between 8am and half ten in the morning',
     dropOffExcludeServices: configuration.dropOffExcludeServices || ['MOT'],
@@ -418,6 +457,10 @@ const buildConfigurationResponse = (configuration: PrismaAgentConfiguration | nu
     humanEscalation: (configuration as Record<string, unknown>).humanEscalation !== false,
     messagingHumanHandoff: (configuration as Record<string, unknown>).messagingHumanHandoff !== false,
     messagingHandoffMessage: ((configuration as Record<string, unknown>).messagingHandoffMessage as string) ?? '',
+    serviceIntervalMonths: ((configuration as Record<string, unknown>).serviceIntervalMonths as number) ?? 12,
+    serviceIntervalMiles: ((configuration as Record<string, unknown>).serviceIntervalMiles as number) ?? 10000,
+    messagingReplyDelay: ((configuration as Record<string, unknown>).messagingReplyDelay as string) ?? 'random',
+    messagingReplyDelaySeconds: ((configuration as Record<string, unknown>).messagingReplyDelaySeconds as number) ?? 10,
     messagingNotifyScope: ((configuration as Record<string, unknown>).messagingNotifyScope as string) ?? 'off',
     messagingNotifyEmail: (configuration as Record<string, unknown>).messagingNotifyEmail === true,
     messagingNotifySms: (configuration as Record<string, unknown>).messagingNotifySms === true,
@@ -431,6 +474,7 @@ const buildConfigurationResponse = (configuration: PrismaAgentConfiguration | nu
       configuration.agentScript === 'Assist-agent' ? 'Assist-agent' :
       configuration.agentScript === 'GarageHive-agent' ? 'GarageHive-agent' :
       configuration.agentScript === 'MMH-agent' ? 'MMH-agent' : configuration.agentScript === 'bookar-agent' ? 'bookar-agent' :
+      configuration.agentScript === 'poole-agent' ? 'poole-agent' :
       (configuration.agentScript as any) === 'Newreceptionmateagent.py' ? 'receptionmate-agent-v3' :
       (configuration.agentScript as any) === 'basic_agent2.py' ? 'receptionmate-agent' :
       'receptionmate-agent'
@@ -450,7 +494,16 @@ const buildConfigurationResponse = (configuration: PrismaAgentConfiguration | nu
       }
       return createDefaultHubspotSettings();
     })(),
-  }), ...extraAgentFields(configuration) };
+  }), ...extraAgentFields(configuration),
+    // Also surface the raw integrationProviderConfig JSONB unchanged, so the DDB sync
+    // (which the voice agent reads) preserves per-provider blobs like `poole` and any
+    // fields parseIntegrationSettings didn't flatten. Chat side reads Postgres directly
+    // and doesn't rely on this — this is specifically for the DDB→voice-agent path.
+    // Discovered 2026-08-29 when the voice agent couldn't find Poole creds even though
+    // Postgres had them, because the sanitizer stripped integrationProviderConfig before
+    // writeAgentConfigToDynamo serialized the response.
+    integrationProviderConfig: configuration.integrationProviderConfig ?? null,
+  };
 };
 
 const serializeKnowledgeDocument = (document: PrismaKnowledgeDocument) => ({
@@ -885,7 +938,7 @@ router.put(
 
     const data = parseResult.data;
     const canEditAgentType = req.user?.role === 'RECEPTIONMATE_STAFF';
-    let resolvedAgentScript: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent' | 'GarageHive-agent' | 'MMH-agent' | 'bookar-agent' = data.agentScript === 'tyresoft-agent' ? 'tyresoft-agent' : data.agentScript === 'receptionmate-agent-v3' ? 'receptionmate-agent-v3' : data.agentScript === 'Assist-agent' ? 'Assist-agent' : data.agentScript === 'GarageHive-agent' ? 'GarageHive-agent' : data.agentScript === 'MMH-agent' ? 'MMH-agent' : data.agentScript === 'bookar-agent' ? 'bookar-agent' : 'receptionmate-agent';
+    let resolvedAgentScript: 'receptionmate-agent' | 'receptionmate-agent-v3' | 'tyresoft-agent' | 'Assist-agent' | 'GarageHive-agent' | 'MMH-agent' | 'bookar-agent' | 'poole-agent' = data.agentScript === 'tyresoft-agent' ? 'tyresoft-agent' : data.agentScript === 'receptionmate-agent-v3' ? 'receptionmate-agent-v3' : data.agentScript === 'Assist-agent' ? 'Assist-agent' : data.agentScript === 'GarageHive-agent' ? 'GarageHive-agent' : data.agentScript === 'MMH-agent' ? 'MMH-agent' : data.agentScript === 'bookar-agent' ? 'bookar-agent' : data.agentScript === 'poole-agent' ? 'poole-agent' : 'receptionmate-agent';
 
     // Only staff can change which agent serves the garage; everyone else keeps the saved script.
     if (!canEditAgentType) {
@@ -893,7 +946,7 @@ router.put(
         where: { garageId },
         select: { agentScript: true },
       });
-      resolvedAgentScript = existingConfig?.agentScript === 'tyresoft-agent' ? 'tyresoft-agent' : existingConfig?.agentScript === 'receptionmate-agent-v3' ? 'receptionmate-agent-v3' : existingConfig?.agentScript === 'Assist-agent' ? 'Assist-agent' : existingConfig?.agentScript === 'GarageHive-agent' ? 'GarageHive-agent' : existingConfig?.agentScript === 'MMH-agent' ? 'MMH-agent' : existingConfig?.agentScript === 'bookar-agent' ? 'bookar-agent' : 'receptionmate-agent';
+      resolvedAgentScript = existingConfig?.agentScript === 'tyresoft-agent' ? 'tyresoft-agent' : existingConfig?.agentScript === 'receptionmate-agent-v3' ? 'receptionmate-agent-v3' : existingConfig?.agentScript === 'Assist-agent' ? 'Assist-agent' : existingConfig?.agentScript === 'GarageHive-agent' ? 'GarageHive-agent' : existingConfig?.agentScript === 'MMH-agent' ? 'MMH-agent' : existingConfig?.agentScript === 'bookar-agent' ? 'bookar-agent' : existingConfig?.agentScript === 'poole-agent' ? 'poole-agent' : 'receptionmate-agent';
     }
 
     // agentType is DERIVED from the agent script — the script is the single source of truth.
@@ -1079,6 +1132,20 @@ router.put(
         ? { bookarClientId: (data.bookarSettings.bookarClientId || '').trim(), bookarClientSecret: (data.bookarSettings.bookarClientSecret || '').trim(), bookarApiBase: (data.bookarSettings.bookarApiBase || 'https://partners.bookar.app').trim(), ...hubspotPayload }
         : resolvedAgentScript === 'bookar-agent' && existingConfig?.integrationProviderConfig
         ? { ...(existingConfig.integrationProviderConfig as object), ...hubspotPayload }
+        : resolvedAgentScript === 'poole-agent' && data.pooleSettings
+        ? {
+            // Nested under `poole` — matches what chatAgentPoole.ts and the voice agent read.
+            // Preserve any siblings already present (e.g. hubspot config) via spread.
+            ...(existingConfig?.integrationProviderConfig && typeof existingConfig.integrationProviderConfig === 'object' && !Array.isArray(existingConfig.integrationProviderConfig) ? (existingConfig.integrationProviderConfig as object) : {}),
+            poole: {
+              branchKey: (data.pooleSettings.branchKey || '').trim(),
+              tenant: (data.pooleSettings.tenant || '').trim(),
+              branchCode: (data.pooleSettings.branchCode || '').trim(),
+            },
+            ...hubspotPayload,
+          }
+        : resolvedAgentScript === 'poole-agent' && existingConfig?.integrationProviderConfig
+        ? { ...(existingConfig.integrationProviderConfig as object), ...hubspotPayload }
         : Object.keys(hubspotPayload).length > 0 ? hubspotPayload : null;
 
     const normalizedData = {
@@ -1090,6 +1157,7 @@ router.put(
       websiteUrl: data.websiteUrl || null,
       weeklyOpeningHours: normalizedWeeklyOpeningHours,
       holidayClosures: data.holidayClosures || null,
+      bankHolidayDates: data.bankHolidayDates ?? undefined,
       greetingLine: data.greetingLine || null,
       tonePreference: data.tonePreference,
       responseSpeed: (data.responseSpeed || 'normal') as ResponseSpeed,
@@ -1100,6 +1168,7 @@ router.put(
       allowFastFitOnly: data.allowFastFitOnly,
       callerRecognitionEnabled: data.callerRecognitionEnabled ?? false,
       advisoryUpsellsEnabled: data.advisoryUpsellsEnabled ?? false,
+      advisoryUpsellPrices: data.advisoryUpsellPrices !== false,
       enableDropOffBookings: data.enableDropOffBookings || false,
       dropOffMessage: data.dropOffMessage || 'drop your vehicle off between 8am and half ten in the morning',
       dropOffExcludeServices: data.dropOffExcludeServices || ['MOT'],
@@ -1112,6 +1181,10 @@ router.put(
       humanEscalation: data.humanEscalation !== false,
       messagingHumanHandoff: data.messagingHumanHandoff !== false,
       messagingHandoffMessage: (data.messagingHandoffMessage as string) || null,
+      serviceIntervalMonths: Math.min(60, Math.max(1, Number(data.serviceIntervalMonths ?? 12) || 12)),
+      serviceIntervalMiles: Math.min(60000, Math.max(500, Number(data.serviceIntervalMiles ?? 10000) || 10000)),
+      messagingReplyDelay: (['none', 'random', 'custom'].includes(data.messagingReplyDelay as string) ? data.messagingReplyDelay : 'random') as string,
+      messagingReplyDelaySeconds: Math.min(600, Math.max(0, Number(data.messagingReplyDelaySeconds ?? 10) || 0)),
       messagingNotifyScope: (['off', 'escalated', 'all'].includes(data.messagingNotifyScope as string) ? data.messagingNotifyScope : 'off') as string,
       messagingNotifyEmail: data.messagingNotifyEmail === true,
       messagingNotifySms: data.messagingNotifySms === true,

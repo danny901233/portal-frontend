@@ -249,6 +249,7 @@ export interface AgentConfiguration {
   websiteUrl: string;
   weeklyOpeningHours: WeeklyOpeningHours;
   holidayClosures: string;
+  bankHolidayDates: { date: string; name: string }[] | null;
   greetingLine: string;
   tonePreference: TonePreference;
   responseSpeed: ResponseSpeed;
@@ -256,6 +257,7 @@ export interface AgentConfiguration {
   allowFastFitOnly: boolean;
   callerRecognitionEnabled?: boolean;
   advisoryUpsellsEnabled?: boolean;
+  advisoryUpsellPrices?: boolean;
   enableDropOffBookings: boolean;
   dropOffMessage: string;
   dropOffExcludeServices: string[];
@@ -277,6 +279,10 @@ export interface AgentConfiguration {
   // keeping chat fully AI-handled (or vice versa).
   messagingHumanHandoff?: boolean;
   messagingHandoffMessage?: string | null;
+  serviceIntervalMonths?: number;
+  serviceIntervalMiles?: number;
+  messagingReplyDelay?: 'none' | 'random' | 'custom';
+  messagingReplyDelaySeconds?: number;
   messagingNotifyScope?: 'off' | 'escalated' | 'all';
   messagingNotifyEmail?: boolean;
   messagingNotifySms?: boolean;

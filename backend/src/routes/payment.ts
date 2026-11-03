@@ -3,6 +3,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { createRequire } from 'module';
 import { prisma } from '../db.js';
+import { setBusinessMandate } from '../utils/businessBilling.js';
 import { authenticate } from '../middleware/auth.js';
 
 const require = createRequire(import.meta.url);
@@ -354,6 +355,10 @@ router.post('/payment/confirm-mandate', authenticate, async (req: Request, res: 
       },
     });
 
+    // ...and against the business, which is what the mandate actually authorises. Writing only
+    // User is how the two copies drifted apart before, leaving cancelled ids on Business.
+    await setBusinessMandate(user.garageAccessIds as string[] | null, mandateId, customerId ?? null);
+
     res.json({
       success: true,
       message: 'Payment setup completed successfully',
@@ -470,6 +475,7 @@ router.post('/payment/confirm-mandate-update', authenticate, async (req: Request
         id: true,
         gocardlessMandateId: true,
         gocardlessCustomerId: true,
+        garageAccessIds: true,   // needed to resolve the business the mandate belongs to
       },
     });
 
@@ -508,6 +514,10 @@ router.post('/payment/confirm-mandate-update', authenticate, async (req: Request
         mustSetupPayment: false,
       },
     });
+
+    // Keep the business copy in step. This is the path that went stale: two customers replaced
+    // their mandate here in August and Business kept pointing at the cancelled one.
+    await setBusinessMandate(user.garageAccessIds as string[] | null, newMandateId, newCustomerId ?? null);
 
     console.log(`Updated mandate for user ${user.id}: ${oldMandateId} → ${newMandateId}`);
 

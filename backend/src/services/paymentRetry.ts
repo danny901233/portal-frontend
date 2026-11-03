@@ -77,8 +77,13 @@ export async function retryFailedPayments(): Promise<{ retried: number; skipped:
     const attempts = attemptsFrom(inv.creditReason);
     if (attempts >= MAX_ATTEMPTS) { skipped.push(`${garage.name}: ${attempts} attempts already, needs a human`); continue; }
 
+    // The mandate is not necessarily on the first user attached to the garage — EAC Telford has
+    // three, and the one findFirst happened to return had no mandate while another user's was
+    // live, so every retry was skipped as "no mandate on file" for weeks. Ask for a user that
+    // actually holds one, newest first, and only fall back to "none" when nobody does.
     const user = await prisma.user.findFirst({
-      where: { garageAccessIds: { has: inv.garageId } },
+      where: { garageAccessIds: { has: inv.garageId }, gocardlessMandateId: { not: null } },
+      orderBy: { updatedAt: 'desc' },
       select: { id: true, email: true, gocardlessMandateId: true },
     });
     if (!user?.gocardlessMandateId) { skipped.push(`${garage.name}: no mandate on file`); continue; }

@@ -6,6 +6,7 @@ import { Router } from 'express';
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { prisma } from '../db.js';
+import { reconcileCallerName } from '../services/garageHiveBc.js';
 import { authenticate } from '../middleware/auth.js';
 import { callFeedbackSchema, createCallSchema } from '../utils/validators.js';
 import { classifyCallCategory } from '../utils/callClassifier.js';
@@ -25,6 +26,27 @@ import { analyzeCall, analyzeDeep } from '../services/callDiagnosis.js';
 import { cloneHubspotSettings } from '../utils/types.js';
 
 const router = Router();
+
+/**
+ * Is this call from one of our own test numbers?
+ *
+ * Set TEST_CALLER_NUMBERS to a comma-separated list. Such a call is recorded in full — it appears
+ * in the portal like any other — but the garage is not emailed or pushed about it, so we can
+ * exercise a real line without a customer wondering who rang.
+ *
+ * Compares the last 9 digits, so 07506629135, +447506629135 and "07506 629135" all match.
+ */
+function isTestCaller(...numbers: Array<string | null | undefined>): boolean {
+  const configured = (process.env.TEST_CALLER_NUMBERS || '')
+    .split(',')
+    .map((n) => n.replace(/\D/g, ''))
+    .filter((n) => n.length >= 9);
+  if (!configured.length) return false;
+  return numbers.some((raw) => {
+    const digits = String(raw || '').replace(/\D/g, '');
+    return digits.length >= 9 && configured.some((n) => digits.endsWith(n.slice(-9)));
+  });
+}
 
 const CALL_ID_LENGTH = 8;
 
@@ -369,6 +391,17 @@ router.post('/calls', async (req: Request, res: Response) => {
       },
     });
 
+    // Correct the caller's name from the garage's phonebook, if they are in it. Deliberately not
+    // awaited: the call is already saved, and Business Central being slow must not hold up the
+    // response or risk losing the record. A caller who is not in the phonebook keeps the name the
+    // agent heard.
+    void reconcileCallerName(
+      payload.garageId,
+      callId,
+      payload.customerPhone || payload.fromNumber,
+      payload.customerName,
+    );
+
     // Stage 2 — automatic AI call diagnosis (gpt-4o-mini). Fire-and-forget so it never
     // delays the agent's webhook response; the verdict is merged into the call's metrics
     // JSON (metrics.diagnosis) for the portal to display. Runs on every call (cheap triage).
@@ -480,7 +513,10 @@ router.post('/calls', async (req: Request, res: Response) => {
       const userNeedsPaymentSetup = usersWithAccess.some(u => u.mustSetupPayment);
       const portalUrl = process.env.PORTAL_URL || 'https://portal.receptionmate.co.uk';
 
-      if (createdCall.garage?.accessRestricted) {
+      if (isTestCaller(payload.customerPhone, payload.fromNumber)) {
+        // Our own test call. Recorded in full, but the garage hears nothing about it.
+        console.log(`[EMAIL] 🧪 Test caller — call ${callId} recorded, garage NOT emailed`);
+      } else if (createdCall.garage?.accessRestricted) {
         // Arrears: don't reveal any call content by email — just notify that a call was handled
         // and that the details are locked until the account is brought up to date.
         console.log(`[EMAIL] ⛔ Garage in arrears - sending arrears call notice (details withheld)`);
@@ -543,6 +579,10 @@ router.post('/calls', async (req: Request, res: Response) => {
         ? 'Your account is in arrears — settle up to view this call.'
         : summary || 'Tap to see the call details.';
       void (async () => {
+        if (isTestCaller(payload.customerPhone, payload.fromNumber)) {
+          console.log(`[PUSH] 🧪 Test caller — call ${callId} recorded, garage NOT pushed`);
+          return;
+        }
         const badge = await garageUnreadBadge(payload.garageId);
         await notifyGarageUsers(payload.garageId, {
           title: `${personaName} handled a call for you`,
@@ -1675,8 +1715,17 @@ router.get('/calls/:id/recording/audio', async (req: Request, res: Response) => 
         ...(rangeHeader ? { Range: rangeHeader } : {}),
       }));
 
-      res.setHeader('Content-Type', s3Response.ContentType || 'audio/mpeg');
-      res.setHeader('Content-Disposition', `inline; filename="recording-${id}.mp3"`);
+      // Content-Type used to be hard-coded to audio/mpeg regardless of the
+      // actual file. LiveKit-recorded calls are .mp4 (AAC in an MP4 container)
+      // and browsers were re-probing the file on that mismatch, blowing up the
+      // "0:00 / 0:00" wait. Prefer S3's ContentType; fall back to sniffing the
+      // file extension; then to audio/mpeg only as a last resort.
+      const isMp4 = /\.mp4$/i.test(s3Key);
+      const inferredType = isMp4 ? 'audio/mp4' : (/\.mp3$/i.test(s3Key) ? 'audio/mpeg' : null);
+      const contentType = s3Response.ContentType || inferredType || 'audio/mpeg';
+      const filenameExt = isMp4 ? 'mp4' : 'mp3';
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Content-Disposition', `inline; filename="recording-${id}.${filenameExt}"`);
       res.setHeader('Accept-Ranges', 'bytes');
       if (s3Response.ContentLength !== undefined) {
         res.setHeader('Content-Length', String(s3Response.ContentLength));

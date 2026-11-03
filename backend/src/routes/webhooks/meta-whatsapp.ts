@@ -9,6 +9,8 @@ import { findOrCreateCustomer, linkConversationToCustomer } from '../../services
 import { isWhatsappAdmin, handleAdminOpsMessage } from '../../services/whatsappOps.js';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { randomUUID } from 'crypto';
+import { buildTemplateFields } from '../../services/outboundSend.js';
+import { splitPersonName } from '../../utils/personName.js';
 
 const router = Router();
 
@@ -235,16 +237,17 @@ router.post('/meta-whatsapp', async (req: Request, res: Response) => {
                   const varMap = (campaign.variableMapping as Record<string, string>) || {};
                   const agentCfg = await prisma.agentConfiguration.findUnique({
                     where: { garageId: connection.garageId },
-                    select: { branchName: true },
+                    select: { branchName: true, phoneNumber: true },
                   });
-                  const contactFields: Record<string, string> = {
-                    customer_name: nameParts[0] || outboundContact.customerName,
-                    full_name: outboundContact.customerName,
-                    registration: reg || '',
-                    mot_due_date: outboundContact.motDueDate || '',
-                    service_due_date: outboundContact.serviceDueDate || '',
-                    garage_name: agentCfg?.branchName || 'our garage',
-                  };
+                  const contactFields = buildTemplateFields({
+                    customerName: outboundContact.customerName,
+                    phone: outboundContact.phone,
+                    registration: reg,
+                    motDueDate: outboundContact.motDueDate,
+                    serviceDueDate: outboundContact.serviceDueDate,
+                    garageName: agentCfg?.branchName,
+                    garagePhone: agentCfg?.phoneNumber,
+                  });
                   let body = tmpl.bodyText;
                   for (const [varNum, field] of Object.entries(varMap)) {
                     body = body.replace(new RegExp(`\\{\\{${varNum}\\}\\}`, 'g'), contactFields[field] || '');
@@ -275,10 +278,17 @@ router.post('/meta-whatsapp', async (req: Request, res: Response) => {
             await prisma.$executeRawUnsafe(
               `UPDATE "ChatConversation" SET "sessionState" = COALESCE("sessionState", '{}'::jsonb) || $1::jsonb WHERE id = $2`,
               JSON.stringify({
-                customerNameFirst: nameParts[0] || '',
-                customerNameLast: nameParts.slice(1).join(' ') || '',
+                // Titles dropped — a CSV "Mr Kris Cottrell" seeded "Mr" and the agent said "Hi Mr".
+                customerNameFirst: splitPersonName(outboundContact.customerName).first,
+                customerNameLast: splitPersonName(outboundContact.customerName).last,
                 ...(reg && { outboundRegistration: reg }),
-                outboundServiceType: outboundContact.messageType || 'mot',
+                // Only pre-select a job when the reminder was actually about one. Defaulting to
+                // 'mot' meant a service reminder — or a promotion — put the agent straight into an
+                // MOT booking, which is how a Great Hollands customer chasing an overdue service
+                // was offered an MOT against a service with no slots.
+                ...(outboundContact.messageType === 'service' || outboundContact.messageType === 'mot'
+                  ? { outboundServiceType: outboundContact.messageType }
+                  : {}),
                 ...(dueDate && { outboundDueDate: dueDate }),
                 // Vehicle is already known from the CSV — trust it, skip VRN confirmation.
                 // Start at need_service so the agent greets + upsells, then goes straight

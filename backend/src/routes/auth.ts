@@ -4,6 +4,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { randomBytes } from 'node:crypto';
 import { prisma } from '../db.js';
+import { businessNeedsPaymentSetup } from '../utils/businessBilling.js';
 import { loginSchema } from '../utils/validators.js';
 import { sanitizeBranchRoles } from '../utils/branchRoles.js';
 import { sendEmail } from '../utils/email.js';
@@ -221,8 +222,19 @@ router.post('/login', async (req: Request, res: Response) => {
       });
     }
 
-    // Check if payment setup is required
-    if (user.mustSetupPayment) {
+    // Check if payment setup is required.
+    //
+    // Asked of the BUSINESS, not just this user: the mandate authorises collection for the
+    // company, so whoever logs in should be able to fix a cancelled Direct Debit. Previously
+    // only the original signatory was ever prompted and colleagues just found the portal
+    // blank. The user flag is still honoured so a part-finished individual onboarding still
+    // completes, and staff are exempt.
+    const businessNeedsMandate =
+      user.role === 'RECEPTIONMATE_STAFF'
+        ? false
+        : await businessNeedsPaymentSetup(user.garageAccessIds as string[] | null);
+
+    if (user.mustSetupPayment || businessNeedsMandate) {
       return res.json({
         success: true,
         paymentSetupRequired: true,

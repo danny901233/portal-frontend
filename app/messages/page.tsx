@@ -88,7 +88,27 @@ interface ConversationDetail extends Conversation {
   };
   toolCalls?: ToolCall[];
   withinMessagingWindow?: boolean;
+  feedback?: {
+    id: string;
+    rating: string;
+    reasons: string[];
+    notes: string | null;
+    createdAt: string;
+    updatedAt: string;
+  } | null;
 }
+
+// Fixed reason set for negative message feedback. Same fixed-vocabulary
+// discipline as the enquiry tags — free-text becomes forty spellings of
+// "wrong info". Kept in sync with the ops audit process buckets.
+const FEEDBACK_REASONS: Array<{ key: string; label: string }> = [
+  { key: 'wrong_info', label: 'Wrong info (price, hours, availability)' },
+  { key: 'ghost_booking', label: 'Ghost booking (said done, nothing landed)' },
+  { key: 'complaint_mishandled', label: 'Complaint mishandled' },
+  { key: 'tone', label: 'Tone (rude / robotic)' },
+  { key: 'handover_failed', label: 'Handover to human failed' },
+  { key: 'other', label: 'Other (see notes)' },
+];
 
 // Inline AI tool-call marker shown in the thread — ✓/✗ + tool name, click to expand args/result.
 function ToolCallChip({ call }: { call: ToolCall }) {
@@ -336,6 +356,13 @@ export default function MessagesPage() {
   // right-aligned on the tabs row). Both start closed.
   const [showTagPopover, setShowTagPopover] = useState(false);
   const [showOwnerMenu, setShowOwnerMenu] = useState(false);
+  // Negative-feedback modal — same UX as /calls thumbs-down. Local draft state
+  // seeded from existing feedback when re-editing, so staff can amend reasons
+  // or notes without retyping.
+  const [showFeedbackModal, setShowFeedbackModal] = useState(false);
+  const [feedbackReasons, setFeedbackReasons] = useState<string[]>([]);
+  const [feedbackNotes, setFeedbackNotes] = useState('');
+  const [feedbackSaving, setFeedbackSaving] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [messageInput, setMessageInput] = useState('');
   const [loading, setLoading] = useState(true);
@@ -824,6 +851,49 @@ export default function MessagesPage() {
     } finally {
       setAssigning(false);
     }
+  };
+
+  // Seed the feedback modal from any existing rating whenever the modal opens
+  // (or a different conversation is selected while it's open). Lets staff
+  // amend a rating without retyping.
+  useEffect(() => {
+    if (!showFeedbackModal) return;
+    const existing = selectedConversation?.feedback;
+    setFeedbackReasons(existing?.reasons ?? []);
+    setFeedbackNotes(existing?.notes ?? '');
+  }, [showFeedbackModal, selectedConversation?.id, selectedConversation?.feedback]);
+
+  const submitFeedback = async () => {
+    if (!selectedConversation) return;
+    setFeedbackSaving(true);
+    try {
+      const token = getSessionToken();
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/api/conversations/${selectedConversation.id}/feedback`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({
+            rating: 'down',
+            reasons: feedbackReasons,
+            notes: feedbackNotes.trim() || undefined,
+          }),
+        }
+      );
+      if (!response.ok) throw new Error('Feedback save failed');
+      setShowFeedbackModal(false);
+      await fetchConversationDetail(selectedConversation.id);
+    } catch (error) {
+      console.error('Error saving feedback:', error);
+    } finally {
+      setFeedbackSaving(false);
+    }
+  };
+
+  const toggleFeedbackReason = (key: string) => {
+    setFeedbackReasons((prev) =>
+      prev.includes(key) ? prev.filter((r) => r !== key) : [...prev, key],
+    );
   };
 
   useEffect(() => {
@@ -1497,6 +1567,34 @@ export default function MessagesPage() {
                   )}
                 </div>
 
+                {/* Thumbs-down feedback — mirrors the /calls pattern so ops
+                    review negatives with the same audit process across both
+                    channels. Filled red thumb when a down rating exists, hollow
+                    thumb otherwise. Click opens the reasons + notes modal. */}
+                <button
+                  type="button"
+                  onClick={() => setShowFeedbackModal(true)}
+                  title={selectedConversation.feedback?.rating === 'down'
+                    ? `Flagged as negative — click to edit`
+                    : 'Flag this conversation as negative feedback'}
+                  className={cn(
+                    'rounded-md border p-1.5 transition-colors',
+                    selectedConversation.feedback?.rating === 'down'
+                      ? 'border-red-300 bg-red-50 text-red-600 hover:border-red-500'
+                      : 'border-slate-300 bg-white text-slate-500 hover:border-slate-500 hover:text-red-600'
+                  )}
+                >
+                  <svg
+                    className="h-4 w-4"
+                    fill={selectedConversation.feedback?.rating === 'down' ? 'currentColor' : 'none'}
+                    viewBox="0 0 24 24"
+                    strokeWidth={1.8}
+                    stroke="currentColor"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 15h2.25m8.024-9.75c.011.05.028.1.052.148.591 1.2.924 2.55.924 3.977a8.96 8.96 0 01-.999 4.125m.023-8.25c-.076-.365.183-.75.575-.75h.908c.889 0 1.713.518 1.972 1.368.339 1.11.521 2.287.521 3.507 0 1.553-.295 3.036-.831 4.398C20.613 14.547 19.833 15 19 15h-1.053c-.472 0-.745-.556-.5-.96a8.95 8.95 0 00.303-.54m.023-8.25H16.48a4.5 4.5 0 01-1.423-.23l-3.114-1.04a4.5 4.5 0 00-1.423-.23H6.504c-.618 0-1.217.247-1.605.729A11.95 11.95 0 002.25 12c0 .434.023.863.068 1.285C2.427 14.306 3.346 15 4.372 15h3.126c.618 0 .991.724.725 1.282A7.471 7.471 0 007.5 19.5a2.25 2.25 0 002.25 2.25.75.75 0 00.75-.75v-.633c0-.573.11-1.14.322-1.672.304-.76.93-1.33 1.653-1.715a9.04 9.04 0 002.86-2.4c.498-.634 1.226-1.08 2.032-1.08h.384" />
+                  </svg>
+                </button>
+
                 {/* Kebab menu: Unread, Flag, Tags, Resolve */}
                 <div className="relative">
                   <button
@@ -1842,6 +1940,92 @@ export default function MessagesPage() {
                   </button>
                 </>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Negative feedback modal — mirrors the /calls thumbs-down. Reason
+          chips constrain classification to a small fixed set so the Monday
+          audit process gets clean buckets, not forty free-text spellings.
+          Notes is free-text for the "other" case + verbatim quotes. */}
+      {showFeedbackModal && selectedConversation && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
+          onClick={() => !feedbackSaving && setShowFeedbackModal(false)}
+        >
+          <div
+            className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-lg font-semibold text-slate-900">Flag as negative</h3>
+            <p className="mt-1 text-sm text-slate-500">
+              Tell us what went wrong so the Monday audit picks it up. Reasons are internal — the customer never sees them.
+            </p>
+
+            <div className="mt-4">
+              <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">What happened?</div>
+              <div className="space-y-1">
+                {FEEDBACK_REASONS.map(({ key, label }) => {
+                  const active = feedbackReasons.includes(key);
+                  return (
+                    <label
+                      key={key}
+                      className={cn(
+                        'flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors',
+                        active
+                          ? 'border-red-300 bg-red-50 text-red-800'
+                          : 'border-slate-200 bg-white text-slate-700 hover:border-slate-400'
+                      )}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={active}
+                        onChange={() => toggleFeedbackReason(key)}
+                        className="h-4 w-4 rounded border-slate-300 text-red-600 focus:ring-red-500"
+                      />
+                      <span>{label}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="mt-4">
+              <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Notes (optional)
+              </label>
+              <textarea
+                value={feedbackNotes}
+                onChange={(e) => setFeedbackNotes(e.target.value)}
+                rows={3}
+                maxLength={2000}
+                placeholder="Anything specific — a quote, the mistaken price, the customer's reaction…"
+                className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
+              />
+            </div>
+
+            <div className="mt-6 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowFeedbackModal(false)}
+                disabled={feedbackSaving}
+                className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={submitFeedback}
+                disabled={feedbackSaving}
+                className="rounded-lg bg-red-600 px-5 py-2 text-sm font-semibold text-white shadow-sm hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {feedbackSaving
+                  ? 'Saving…'
+                  : selectedConversation.feedback?.rating === 'down'
+                  ? 'Update rating'
+                  : 'Flag as negative'}
+              </button>
             </div>
           </div>
         </div>

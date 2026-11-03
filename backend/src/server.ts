@@ -40,6 +40,7 @@ import publicLeadRouter from './routes/public-lead.js';
 import agreementsRouter from './routes/agreements.js';
 import supportRouter from './routes/support.js';
 import supportVoiceRouter from './routes/support-voice.js';
+import ticketsRouter from './routes/tickets.js';
 import opsTasksRouter from './routes/opsTasks.js';
 import deviceTokensRouter from './routes/deviceTokens.js';
 import { errorHandler, installProcessErrorHandlers } from './middleware/errorHandler.js';
@@ -53,6 +54,7 @@ import publicProspectRouter from './routes/public-prospect.js';
 import connectSignupRouter from './routes/connect-signup.js';
 import connectBillingRouter from './routes/connect-billing.js';
 import { initTrialCron } from './utils/trialCron.js';
+import { resumePendingReplies } from './services/chatDelay.js';
 
 const app = express();
 
@@ -109,6 +111,22 @@ app.use('/api/webhooks', stripeWebhook);
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true, limit: '2mb' })); // Parse form-urlencoded bodies (Twilio webhooks)
 app.use(morgan('dev'));
+
+// Kill slow requests after 30s instead of letting them hang until the socket resets.
+// Webhooks and streaming endpoints are excluded — they have their own lifecycle.
+app.use((req, res, next) => {
+  if (req.path.startsWith('/webhooks') || req.path.includes('/recording/')) return next();
+  const timeout = setTimeout(() => {
+    if (!res.headersSent) {
+      console.error(`[TIMEOUT] ${req.method} ${req.originalUrl} exceeded 30s`);
+      res.status(408).json({ error: 'Request timeout' });
+    }
+  }, 30_000);
+  res.on('finish', () => clearTimeout(timeout));
+  res.on('close', () => clearTimeout(timeout));
+  next();
+});
+
 // Carry the signed-in user through the request so the garage audit hook in db.ts can record who
 // made a change. Reads req.user when it is there and is harmless when it is not.
 app.use(trackActingUser);
@@ -151,6 +169,7 @@ app.use('/api', livekitDemoRouter);
 app.use('/api', agreementsRouter);
 app.use('/api', supportRouter);
 app.use('/api', supportVoiceRouter);
+app.use('/api', ticketsRouter);
 app.use('/api', opsTasksRouter);
 app.use('/api', deviceTokensRouter);
 app.use('/api', templatesRouter);
@@ -171,6 +190,10 @@ app.listen(port, '0.0.0.0', () => {
   // eslint-disable-next-line no-console
   console.log(`Server listening on port ${port}`);
   console.log('Effective WEBHOOK_SECRET:', JSON.stringify(process.env.WEBHOOK_SECRET ?? null));
+
+  // Anything we owed a customer when the last process stopped. Deploys land mid-conversation
+  // and the reply must outlive them.
+  void resumePendingReplies();
 
   // Initialize scheduled report jobs
   initializeScheduledReports();

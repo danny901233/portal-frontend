@@ -36,6 +36,14 @@ export default function MessagingTab({ config, save, isSaving }: Props) {
         'Optional. The exact line the agent sends when someone asks for a human and handovers are off. Leave blank to fall back to your phone/email contact details.',
       msgPlaceholder:
         "Thanks for your message! Our team isn't available on chat, but I can help you book, get a quote, or answer questions right here.",
+      delayHeading: 'Reply speed',
+      delayDesc:
+        "How long the agent waits before replying on WhatsApp. A short pause reads like a person typing; replying instantly reads like a bot. Pick what suits how you'd like your customers answered.",
+      delayRandom: 'Natural pause (recommended) — varies, usually under 30 seconds',
+      delayNone: 'No delay — reply as soon as the answer is ready',
+      delayCustom: 'Custom — always wait the same amount of time',
+      delaySecondsLabel: 'Seconds to wait',
+      delaySecondsHint: 'Between 0 and 600 seconds.',
       notifHeading: 'Notifications',
       notifDesc: 'Get alerted when customers message you on chat.',
       scopeLabel: 'When to notify',
@@ -64,6 +72,14 @@ export default function MessagingTab({ config, save, isSaving }: Props) {
         "Merci pour votre message ! Notre équipe n'est pas disponible sur le chat, mais je peux vous aider à réserver, obtenir un devis ou répondre à vos questions ici même.",
       notifHeading: 'Notifications',
       notifDesc: 'Soyez alerté lorsque des clients vous écrivent sur le chat.',
+      delayHeading: 'Vitesse de réponse',
+      delayDesc:
+        "Le temps que l'agent attend avant de répondre sur WhatsApp. Une courte pause donne l'impression d'une personne qui écrit ; une réponse instantanée fait robot.",
+      delayRandom: 'Pause naturelle (recommandé) — variable, généralement moins de 30 secondes',
+      delayNone: 'Aucun délai — répondre dès que la réponse est prête',
+      delayCustom: 'Personnalisé — toujours attendre la même durée',
+      delaySecondsLabel: "Secondes d'attente",
+      delaySecondsHint: 'Entre 0 et 600 secondes.',
       scopeLabel: 'Quand notifier',
       scopeOff: 'Désactivé — aucune notification',
       scopeEscalated: "Uniquement lorsqu'un chat est transféré à un humain",
@@ -84,6 +100,12 @@ export default function MessagingTab({ config, save, isSaving }: Props) {
   const [messagingHandoffMessage, setMessagingHandoffMessage] = useState(
     () => config.messagingHandoffMessage ?? '',
   );
+  const [replyDelay, setReplyDelay] = useState<'none' | 'random' | 'custom'>(
+    () => config.messagingReplyDelay ?? 'random',
+  );
+  const [replyDelaySeconds, setReplyDelaySeconds] = useState(
+    () => String(config.messagingReplyDelaySeconds ?? 10),
+  );
   const [notifyScope, setNotifyScope] = useState<'off' | 'escalated' | 'all'>(
     () => config.messagingNotifyScope ?? 'off',
   );
@@ -95,6 +117,9 @@ export default function MessagingTab({ config, save, isSaving }: Props) {
     void save({
       messagingHumanHandoff,
       messagingHandoffMessage: messagingHandoffMessage.trim() || null,
+      messagingReplyDelay: replyDelay,
+      // Blank or nonsense in the box must not become a 0-second delay by accident.
+      messagingReplyDelaySeconds: Math.min(600, Math.max(0, Number(replyDelaySeconds) || 0)),
       messagingNotifyScope: notifyScope,
       messagingNotifyEmail: notifyEmail,
       messagingNotifySms: notifySms,
@@ -137,6 +162,54 @@ export default function MessagingTab({ config, save, isSaving }: Props) {
           <p className="mt-1 text-xs text-slate-500">{c.msgHint}</p>
         </div>
       )}
+
+      {/* Reply speed */}
+      <div className="border-t border-slate-200 pt-5">
+        <p className="text-sm font-semibold text-slate-900">{c.delayHeading}</p>
+        <p className="mt-0.5 text-xs text-slate-500">{c.delayDesc}</p>
+
+        <fieldset className="mt-3">
+          <div className="space-y-2">
+            {([
+              ['random', c.delayRandom],
+              ['none', c.delayNone],
+              ['custom', c.delayCustom],
+            ] as const).map(([value, label]) => (
+              <label key={value} className="flex items-center gap-3 text-sm text-slate-800">
+                <input
+                  type="radio"
+                  name="messagingReplyDelay"
+                  checked={replyDelay === value}
+                  onChange={() => setReplyDelay(value)}
+                  className="h-4 w-4 border-slate-300 text-brand-600 focus:ring-brand-600"
+                />
+                {label}
+              </label>
+            ))}
+          </div>
+        </fieldset>
+
+        {replyDelay === 'custom' && (
+          <div className="mt-3 max-w-xs">
+            <label
+              htmlFor="messagingReplyDelaySeconds"
+              className="mb-1 block text-sm font-medium text-slate-700"
+            >
+              {c.delaySecondsLabel}
+            </label>
+            <input
+              id="messagingReplyDelaySeconds"
+              type="number"
+              min={0}
+              max={600}
+              value={replyDelaySeconds}
+              onChange={(e) => setReplyDelaySeconds(e.target.value)}
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand-600 focus:ring-brand-600"
+            />
+            <p className="mt-1 text-xs text-slate-500">{c.delaySecondsHint}</p>
+          </div>
+        )}
+      </div>
 
       {/* Notifications */}
       <div className="border-t border-slate-200 pt-5">

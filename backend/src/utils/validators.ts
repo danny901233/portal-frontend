@@ -246,6 +246,10 @@ export const upsertAgentConfigurationSchema = z.object({
   websiteUrl: optionalUrl,
   weeklyOpeningHours: weeklyOpeningHoursSchema.optional(),
   holidayClosures: z.union([z.string().max(2000), z.literal('')]).optional(),
+  bankHolidayDates: z.array(z.object({
+    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    name: z.string().max(100),
+  })).max(30).optional().nullable(),
   greetingLine: z.union([z.string().max(500), z.literal('')]).optional(),
   tonePreference: z.enum(['standard', 'upbeat', 'professional']),
   responseSpeed: z.enum(['slow', 'normal', 'fast']).optional(),
@@ -259,8 +263,9 @@ export const upsertAgentConfigurationSchema = z.object({
   garageHiveSettings: garageHiveSettingsSchema,
   tyresoftSettings: tyresoftSettingsSchema,
   bookarSettings: z.object({ bookarClientId: optionalBoundedString(200), bookarClientSecret: optionalBoundedString(1000), bookarApiBase: optionalBoundedString(500) }).optional(),
+  pooleSettings: z.object({ branchKey: optionalBoundedString(500), tenant: optionalBoundedString(100), branchCode: optionalBoundedString(100) }).optional(),
   agentType: z.enum(['assist', 'automate']).optional(),
-  agentScript: z.enum(['receptionmate-agent', 'receptionmate-agent-v3', 'tyresoft-agent', 'MMH-agent', 'bookar-agent', 'Assist-agent', 'GarageHive-agent']).optional(),
+  agentScript: z.enum(['receptionmate-agent', 'receptionmate-agent-v3', 'tyresoft-agent', 'MMH-agent', 'bookar-agent', 'poole-agent', 'Assist-agent', 'GarageHive-agent']).optional(),
   enableSmsBookingLinks: z.boolean().optional(),
   humanEscalation: z.boolean().optional(),
   // Written by the save handler and already on the AgentConfiguration model, but missing here
@@ -277,8 +282,13 @@ export const upsertAgentConfigurationSchema = z.object({
   // on every save. Ported from git HEAD, which already had them.
   callerRecognitionEnabled: z.boolean().optional(),
   advisoryUpsellsEnabled: z.boolean().optional(),
+  advisoryUpsellPrices: z.boolean().optional(),
   messagingHumanHandoff: z.boolean().optional(),
   messagingHandoffMessage: z.union([z.string().max(2000), z.literal(''), z.null()]).optional(),
+  serviceIntervalMonths: z.number().int().min(1).max(60).optional(),
+  serviceIntervalMiles: z.number().int().min(500).max(60000).optional(),
+  messagingReplyDelay: z.enum(['none', 'random', 'custom']).optional(),
+  messagingReplyDelaySeconds: z.number().int().min(0).max(600).optional(),
   messagingNotifyScope: z.enum(['off', 'escalated', 'all']).optional(),
   messagingNotifyEmail: z.boolean().optional(),
   messagingNotifySms: z.boolean().optional(),
@@ -360,6 +370,15 @@ export const upsertAgentConfigurationSchema = z.object({
 });
 
 export const callFeedbackSchema = z.object({
+  rating: z.enum(['up', 'down']),
+  reasons: z.array(z.string().min(1).max(200)).max(10).default([]),
+  notes: z.string().max(2000).optional(),
+});
+
+// Same shape as callFeedbackSchema — messages feedback mirrors calls so the
+// weekly audit process uses one mental model. Kept as a separate export so a
+// future divergence (different reason set) doesn't require touching call code.
+export const chatFeedbackSchema = z.object({
   rating: z.enum(['up', 'down']),
   reasons: z.array(z.string().min(1).max(200)).max(10).default([]),
   notes: z.string().max(2000).optional(),

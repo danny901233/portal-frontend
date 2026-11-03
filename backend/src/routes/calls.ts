@@ -1162,6 +1162,18 @@ router.get(
 // and `truncated` in the response tells the page when it has been hit.
 const DEFECT_PAGE_CAP = 1000;
 
+// The chips are read top-left downwards, so severity decides the order and the
+// count only breaks ties inside a band. Sorting by count alone buried a 3-fault
+// "booking claimed but not made" under an 80-fault "asked the same thing again",
+// which is backwards: the small HIGH is the one worth opening. An unrecognised
+// severity sorts last rather than jumping the queue.
+const DEFECT_SEVERITY_RANK: Record<string, number> = { high: 0, medium: 1, low: 2 };
+const bySeverityThenCount = (
+  a: { severity: string; count: number },
+  b: { severity: string; count: number },
+) => ((DEFECT_SEVERITY_RANK[a.severity] ?? 9) - (DEFECT_SEVERITY_RANK[b.severity] ?? 9))
+  || (b.count - a.count);
+
 // Write a working note against one fault, and/or mark it actioned.
 //
 // Keyed on callId + signature in the BODY rather than the path, because a signature contains a
@@ -1318,7 +1330,7 @@ router.get('/staff/call-defects', authenticate, async (req: Request, res: Respon
           return { signature: r.signature, severity: r.severity, count };
         })
         .filter((r) => r.count > 0)
-        .sort((a, b) => b.count - a.count),
+        .sort(bySeverityThenCount),
       recent: recent.map((r) => ({ ...r, garageName: nameById.get(r.garageId) || null })),
       counts,
       // How many matched the filter, versus how many are being sent.

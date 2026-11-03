@@ -17,6 +17,7 @@ import { callFeedbackSchema, createCallSchema } from '../utils/validators.js';
 import { classifyCallCategory } from '../utils/callClassifier.js';
 import { callerNumberForStorage } from '../utils/callerNumber.js';
 import { DEMO_GARAGE_ID, isDemoGarage } from '../utils/demoGarage.js';
+import { garageIsCardBilled } from '../utils/businessBilling.js';
 import { sendDemoCallSummary } from '../services/demoProspectSummary.js';
 import type { DemoProspectForSummary } from '../services/demoProspectSummary.js';
 import type {
@@ -813,7 +814,8 @@ router.post('/calls', async (req: Request, res: Response) => {
         }
       });
 
-      const userNeedsPaymentSetup = usersWithAccess.some(u => u.mustSetupPayment);
+      // Card-billed garages have no mandate to set up, so the Direct Debit reminder never applies.
+      const userNeedsPaymentSetup = !(await garageIsCardBilled(payload.garageId)) && usersWithAccess.some(u => u.mustSetupPayment);
       const portalUrl = process.env.PORTAL_URL || 'https://portal.receptionmate.co.uk';
 
       if (isTestCaller(payload.customerPhone, payload.fromNumber)) {

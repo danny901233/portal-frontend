@@ -5,6 +5,7 @@ import { raisesTickets, raiseTicketFromScreenedCall } from '../services/callTick
 import { sendCallSummaryEmail, sendPaymentSetupReminderEmail } from '../utils/email.js';
 import { isBlockedCaller } from '../utils/callerBlocklist.js';
 import { requestCallback } from '../services/callbackRequest.js';
+import { garageIsCardBilled } from '../utils/businessBilling.js';
 
 const router = Router();
 
@@ -602,7 +603,8 @@ router.post('/recording-status', async (req: Request, res: Response) => {
                 }
               });
 
-              const userNeedsPaymentSetup = usersWithAccess.some(u => u.mustSetupPayment);
+              // Card-billed garages have no mandate to set up, so the Direct Debit reminder never applies.
+              const userNeedsPaymentSetup = !(await garageIsCardBilled(call.garageId)) && usersWithAccess.some(u => u.mustSetupPayment);
               const portalUrl = process.env.PORTAL_URL || 'https://portal.receptionmate.co.uk';
 
               if (userNeedsPaymentSetup) {

@@ -89,3 +89,20 @@ export async function businessNeedsPaymentSetup(
     return false;
   }
 }
+
+/**
+ * Is this garage's business billed by card? Card customers never get the Direct Debit reminder,
+ * whatever the payment-setup flag says, because there is no mandate for them to set up.
+ */
+export async function garageIsCardBilled(garageId: string): Promise<boolean> {
+  try {
+    const garage = await prisma.garage.findUnique({
+      where: { id: garageId },
+      select: { business: { select: { billingMethod: true } } },
+    });
+    return garage?.business?.billingMethod === 'stripe_card';
+  } catch (e) {
+    console.error('[Billing] card-billing check failed:', e);
+    return false;
+  }
+}

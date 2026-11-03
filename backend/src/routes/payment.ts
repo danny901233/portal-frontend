@@ -107,7 +107,7 @@ router.post('/payment/card-setup-intent', authenticate, async (req: Request, res
     });
     if (!garage) return res.status(404).json({ error: 'No garage found for this account' });
 
-    const { stripeConfigured, getStripeClient, createAssistTrialSubscription } =
+    const { stripeConfigured, getStripeClient, createCardOnlyCustomer } =
       await import('../services/stripe.js');
     if (!stripeConfigured()) {
       return res.status(503).json({ error: 'Card payments are not configured yet' });
@@ -125,26 +125,19 @@ router.post('/payment/card-setup-intent', authenticate, async (req: Request, res
       return res.json({ clientSecret: si.client_secret, reused: true });
     }
 
-    const trial = await createAssistTrialSubscription({
+    // Save the card only. No subscription here: billing starts at booking activation (see
+    // trackConfirmedBooking), so the customer isn't charged or clocked before it.
+    const card = await createCardOnlyCustomer({
       email: req.user.email,
       businessName: garage.name,
-      pendingSignupId: garage.id,     // metadata only; ties the Stripe objects back to the garage
-      // Bill what this garage was sold at, not the flat list price. A zero cost means nobody set
-      // one, so fall back to the list price rather than opening a £0 subscription.
-      pricing: (garage.subscriptionCostGbp ?? 0) > 0
-        ? {
-            voiceNetGbp: garage.subscriptionCostGbp,
-            messagingNetGbp: garage.hasMessagingAccess ? (garage.messagingSubscriptionCostGbp ?? 0) : 0,
-            vatRate: garage.vatRate ?? 0.2,
-          }
-        : undefined,
+      garageId: garage.id,
     });
     await prisma.garage.update({
       where: { id: garage.id },
-      data: { stripeCustomerId: trial.customerId, stripeSubscriptionId: trial.subscriptionId },
+      data: { stripeCustomerId: card.customerId },
     });
-    console.log(`[PAYMENT] created Stripe customer for ${garage.name} at card setup`);
-    res.json({ clientSecret: trial.clientSecret, reused: false });
+    console.log(`[PAYMENT] created Stripe customer for ${garage.name} at card setup (card only)`);
+    res.json({ clientSecret: card.clientSecret, reused: false });
   } catch (error) {
     console.error('[PAYMENT] card setup intent failed:', error);
     res.status(500).json({ error: 'Could not start card setup' });

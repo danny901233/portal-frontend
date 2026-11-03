@@ -215,3 +215,47 @@ export async function createAssistTrialSubscription(args: CreateCheckoutSessionA
 
   return { clientSecret: si.client_secret, subscriptionId: subscription.id, customerId: customer.id };
 }
+
+// Card on file only: a Stripe customer and a SetupIntent, with NO subscription. Used for garages
+// whose billing starts later (bookingsRequiredForActivation), so nothing is charged or clocked
+// until activation calls createActivatedSubscription.
+export async function createCardOnlyCustomer(args: {
+  email: string;
+  businessName: string;
+  garageId: string;
+}): Promise<{ clientSecret: string; customerId: string }> {
+  const stripe = getStripeClient();
+  const customer = await stripe.customers.create({
+    email: args.email,
+    name: args.businessName.slice(0, 100),
+    metadata: { garageId: args.garageId, kind: 'card-on-file' },
+  });
+  const si = await stripe.setupIntents.create({
+    customer: customer.id,
+    usage: 'off_session',
+    metadata: { garageId: args.garageId },
+  });
+  if (!si.client_secret) throw new Error('SetupIntent produced no client_secret');
+  return { clientSecret: si.client_secret, customerId: customer.id };
+}
+
+// Starts billing for a garage whose card is already on file: a monthly subscription at the agreed
+// prices, charged now (no trial). Called at booking activation. Throws if no card is saved.
+export async function createActivatedSubscription(args: {
+  customerId: string;
+  garageId: string;
+  pricing: GarageMonthlyPricing;
+}): Promise<string> {
+  const stripe = getStripeClient();
+  const methods = await stripe.paymentMethods.list({ customer: args.customerId, type: 'card', limit: 1 });
+  const card = methods.data[0];
+  if (!card) throw new Error(`No saved card for Stripe customer ${args.customerId}`);
+  const subscription = await stripe.subscriptions.create({
+    customer: args.customerId,
+    items: await buildSubscriptionItems(args.pricing),
+    collection_method: 'charge_automatically',
+    default_payment_method: card.id,
+    metadata: { garageId: args.garageId, kind: 'booking-activated' },
+  });
+  return subscription.id;
+}

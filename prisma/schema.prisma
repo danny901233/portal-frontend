@@ -664,6 +664,13 @@ model AgentConfiguration {
   // rather than assumed, for the same reason as servicePairs above.
   serviceIntervalMonths Int      @default(12)
   serviceIntervalMiles  Int      @default(10000)
+  // What work this garage does — the Services tab. Json? and not String[] because a scalar
+  // list in Prisma can never be null, and null is a THIRD state here that matters: the garage
+  // has not answered, so the agent claims nothing either way and takes a message. An empty
+  // array means it answered "none of these". See backend/src/utils/servicesCatalogue.ts.
+  servicesOffered           Json?
+  // Services the garage typed in itself, matched on its own words only.
+  servicesCustom            String[] @default([])
   faqs                      Json?
   pronunciations            Json?
   voice                     String   @default("leah")

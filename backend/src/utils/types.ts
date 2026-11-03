@@ -274,6 +274,9 @@ export type AgentConfigurationPayload = {
   messagingHandoffMessage?: string | null;
   advisoryUpsellPrices?: boolean;
   serviceIntervalMonths?: number;
+  // null = the garage has never answered (agent takes a message); [] = "none of these".
+  servicesOffered?: string[] | null;
+  servicesCustom?: string[];
   serviceIntervalMiles?: number;
   messagingReplyDelay?: string;
   messagingReplyDelaySeconds?: number;

@@ -394,6 +394,10 @@ export const defaultConfiguration: AgentConfigurationPayload = {
   messagingHandoffMessage: '',
   serviceIntervalMonths: 12,
   serviceIntervalMiles: 10000,
+  // null, not []: a garage that has never opened the Services tab has not told us it does
+  // nothing. The agent reads null as "not answered" and takes a message.
+  servicesOffered: null,
+  servicesCustom: [],
   messagingReplyDelay: 'random',
   messagingReplyDelaySeconds: 10,
   messagingNotifyScope: 'off',
@@ -463,6 +467,10 @@ const sanitizeConfigForResponse = (config: AgentConfigurationPayload) => {
     shortCallCallback: (config as any).shortCallCallback === true,
     messagingHandoffMessage: (config as any).messagingHandoffMessage ?? '',
     serviceIntervalMonths: (config as any).serviceIntervalMonths ?? 12,
+    servicesOffered: Array.isArray((config as any).servicesOffered)
+      ? ((config as any).servicesOffered as string[])
+      : null,
+    servicesCustom: Array.isArray((config as any).servicesCustom) ? (config as any).servicesCustom : [],
     serviceIntervalMiles: (config as any).serviceIntervalMiles ?? 10000,
     messagingReplyDelay: (config as any).messagingReplyDelay ?? 'random',
     messagingReplyDelaySeconds: (config as any).messagingReplyDelaySeconds ?? 10,
@@ -594,6 +602,12 @@ export const buildConfigurationResponse = (configuration: PrismaAgentConfigurati
     shortCallCallback: (configuration as Record<string, unknown>).shortCallCallback === true,
     messagingHandoffMessage: ((configuration as Record<string, unknown>).messagingHandoffMessage as string) ?? '',
     serviceIntervalMonths: ((configuration as Record<string, unknown>).serviceIntervalMonths as number) ?? 12,
+    // `?? null` and NOT `|| []`: the two mean different things to the agent. See
+    // utils/servicesCatalogue.ts.
+    servicesOffered: Array.isArray((configuration as Record<string, unknown>).servicesOffered)
+      ? ((configuration as Record<string, unknown>).servicesOffered as string[])
+      : null,
+    servicesCustom: (((configuration as Record<string, unknown>).servicesCustom as string[]) ?? []),
     serviceIntervalMiles: ((configuration as Record<string, unknown>).serviceIntervalMiles as number) ?? 10000,
     messagingReplyDelay: ((configuration as Record<string, unknown>).messagingReplyDelay as string) ?? 'random',
     messagingReplyDelaySeconds: ((configuration as Record<string, unknown>).messagingReplyDelaySeconds as number) ?? 10,
@@ -1467,6 +1481,10 @@ router.put(
       shortCallCallback: resolvedShortCallCallback,
       messagingHandoffMessage: (data.messagingHandoffMessage as string) || null,
       serviceIntervalMonths: Math.min(60, Math.max(1, Number(data.serviceIntervalMonths ?? 12) || 12)),
+      // undefined leaves the column alone, which is what a save from a tab that does not own
+      // this field must do. Only the Services tab sends it.
+      servicesOffered: data.servicesOffered === undefined ? undefined : (data.servicesOffered ?? null),
+      servicesCustom: data.servicesCustom === undefined ? undefined : (data.servicesCustom ?? []),
       serviceIntervalMiles: Math.min(60000, Math.max(500, Number(data.serviceIntervalMiles ?? 10000) || 10000)),
       messagingReplyDelay: (['none', 'random', 'custom'].includes(data.messagingReplyDelay as string) ? data.messagingReplyDelay : 'random') as string,
       messagingReplyDelaySeconds: Math.min(600, Math.max(0, Number(data.messagingReplyDelaySeconds ?? 10) || 0)),

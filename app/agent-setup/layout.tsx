@@ -27,6 +27,10 @@ const AGENT_SETUP_NAV_FR: Record<string, { label: string; description: string }>
     label: 'Questions intelligentes et FAQ',
     description: 'Quoi demander + questions/réponses courantes',
   },
+  '/agent-setup/services': {
+    label: 'Services',
+    description: 'Les travaux que vous faites et ne faites pas',
+  },
   '/agent-setup/rules': {
     label: 'Règles',
     description: 'Règles personnalisées que l’agent doit suivre',

@@ -316,6 +316,10 @@ export interface AgentConfiguration {
   shortCallCallback?: boolean;
   messagingHandoffMessage?: string | null;
   serviceIntervalMonths?: number;
+  // The Services tab. null/undefined = this garage has never answered, and the agent takes a
+  // message for "do you do X?" rather than guessing. [] = "none of these".
+  servicesOffered?: string[] | null;
+  servicesCustom?: string[];
   serviceIntervalMiles?: number;
   messagingReplyDelay?: 'none' | 'random' | 'custom';
   messagingReplyDelaySeconds?: number;

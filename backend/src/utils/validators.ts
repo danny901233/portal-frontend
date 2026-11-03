@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { WEEKDAY_ORDER } from './types.js';
+import { SERVICE_KEYS } from './servicesCatalogue.js';
 
 // Base message entry (conversation turns) - with explicit type
 const messageEntryWithTypeSchema = z.object({
@@ -347,6 +348,12 @@ export const upsertAgentConfigurationSchema = z.object({
   shortCallCallback: z.boolean().optional(),
   messagingHandoffMessage: z.union([z.string().max(2000), z.literal(''), z.null()]).optional(),
   serviceIntervalMonths: z.number().int().min(1).max(60).optional(),
+  // What work this garage does. A key outside the catalogue is REFUSED rather than dropped: a
+  // silently stripped service reads back as "we don't do that", which is a claim about the
+  // garage's business made by a typo. Absent = never answered (the agent takes a message);
+  // [] = answered "none of these".
+  servicesOffered: z.array(z.enum(SERVICE_KEYS as [string, ...string[]])).max(60).nullable().optional(),
+  servicesCustom: z.array(z.string().trim().min(2).max(60)).max(20).optional(),
   serviceIntervalMiles: z.number().int().min(500).max(60000).optional(),
   messagingReplyDelay: z.enum(['none', 'random', 'custom']).optional(),
   messagingReplyDelaySeconds: z.number().int().min(0).max(600).optional(),

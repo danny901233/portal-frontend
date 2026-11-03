@@ -377,6 +377,41 @@ export async function generateInvoicesForPeriod(
   return results;
 }
 
+// Starts a Stripe subscription for a garage that saved its card at setup but has none yet. Runs at
+// activation and again on each later booking, so a failed start is retried rather than lost.
+// Garages with no Stripe customer are Direct Debit garages and are billed by the monthly job.
+async function startPendingStripeSubscription(garage: {
+  id: string;
+  name: string;
+  stripeCustomerId: string | null;
+  stripeSubscriptionId: string | null;
+  subscriptionCostGbp: number | null;
+  hasMessagingAccess: boolean;
+  messagingSubscriptionCostGbp: number | null;
+  vatRate: number | null;
+}): Promise<void> {
+  if (!garage.stripeCustomerId || garage.stripeSubscriptionId) return;
+  try {
+    const { createActivatedSubscription } = await import('./stripe.js');
+    const subscriptionId = await createActivatedSubscription({
+      customerId: garage.stripeCustomerId,
+      garageId: garage.id,
+      pricing: {
+        voiceNetGbp: garage.subscriptionCostGbp ?? 0,
+        messagingNetGbp: garage.hasMessagingAccess ? (garage.messagingSubscriptionCostGbp ?? 0) : 0,
+        vatRate: garage.vatRate ?? 0.2,
+      },
+    });
+    await prisma.garage.update({ where: { id: garage.id }, data: { stripeSubscriptionId: subscriptionId } });
+    garage.stripeSubscriptionId = subscriptionId;
+    console.log(`✓ Stripe subscription ${subscriptionId} started for ${garage.name}`);
+  } catch (e) {
+    // Most likely cause: no card saved yet. Logged as an error so it shows in the error log, and
+    // retried on the next booking.
+    console.error(`[BILLING] PENDING Stripe subscription for ${garage.name} not started:`, e);
+  }
+}
+
 /**
  * Track confirmed booking and check if subscription should be activated
  * Call this whenever a booking is confirmed
@@ -404,8 +439,13 @@ export async function trackConfirmedBooking(garageId: string) {
     return;
   }
 
-  // Only track if activation is required and not yet activated
-  if (!garage.requiresBookingActivation || garage.subscriptionActivatedAt) {
+  if (!garage.requiresBookingActivation) {
+    return;
+  }
+
+  // Already activated: retry a Stripe subscription that failed to start at activation.
+  if (garage.subscriptionActivatedAt) {
+    await startPendingStripeSubscription(garage);
     return;
   }
 
@@ -426,27 +466,7 @@ export async function trackConfirmedBooking(garageId: string) {
 
     console.log(`🎉 Garage ${garage.name} reached ${garage.bookingsRequiredForActivation} bookings - subscription activated!`);
 
-    // Stripe-card garages (card saved at setup, no subscription yet) start billing now. A garage
-    // with no Stripe customer is a Direct Debit garage and is billed by the monthly job instead.
-    if (garage.stripeCustomerId && !garage.stripeSubscriptionId) {
-      try {
-        const { createActivatedSubscription } = await import('./stripe.js');
-        const subscriptionId = await createActivatedSubscription({
-          customerId: garage.stripeCustomerId,
-          garageId: garage.id,
-          pricing: {
-            voiceNetGbp: garage.subscriptionCostGbp ?? 0,
-            messagingNetGbp: garage.hasMessagingAccess ? (garage.messagingSubscriptionCostGbp ?? 0) : 0,
-            vatRate: garage.vatRate ?? 0.2,
-          },
-        });
-        await prisma.garage.update({ where: { id: garageId }, data: { stripeSubscriptionId: subscriptionId } });
-        console.log(`✓ Stripe subscription ${subscriptionId} started for ${garage.name}`);
-      } catch (e) {
-        // Booking tracking must not fail. Most likely cause: no card saved yet.
-        console.error(`[BILLING] Could not start Stripe subscription for ${garage.name}:`, e);
-      }
-    }
+    await startPendingStripeSubscription(garage);
 
     // Set billing cycle start date for the user if not already set
     const user = await prisma.user.findFirst({

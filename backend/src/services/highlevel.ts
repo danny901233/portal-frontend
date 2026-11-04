@@ -398,7 +398,28 @@ async function findOpenOpportunityForContact(contactId: string): Promise<{ id: s
   }
 }
 
+/**
+ * One opportunity upsert at a time per contact.
+ *
+ * The upsert is search-then-create, and two calls for the same contact that end within seconds
+ * of each other both search before either creates — Motorcity Wakefield's two demo calls ended
+ * four seconds apart and left two Hot opportunities. Chaining the second behind the first means
+ * it finds what the first made. In-process only, which is the only place the race can happen.
+ */
+const opportunityLocks = new Map<string, Promise<unknown>>();
+
 export async function createOpportunity(args: CreateOpportunityArgs): Promise<{ id: string | null }> {
+  const prev = opportunityLocks.get(args.contactId) ?? Promise.resolve();
+  const run = prev.catch(() => undefined).then(() => createOpportunityUnlocked(args));
+  opportunityLocks.set(args.contactId, run);
+  try {
+    return await run;
+  } finally {
+    if (opportunityLocks.get(args.contactId) === run) opportunityLocks.delete(args.contactId);
+  }
+}
+
+async function createOpportunityUnlocked(args: CreateOpportunityArgs): Promise<{ id: string | null }> {
   if (!highlevelConfigured()) return { id: null };
   if (!pipelineConfigured()) {
     console.warn('[HL] skipping opportunity — set GHL_PIPELINE_ID / GHL_SIGNUP_STAGE_ID / GHL_LEAD_STAGE_ID in env.');

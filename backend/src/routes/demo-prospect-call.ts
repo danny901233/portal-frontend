@@ -136,8 +136,14 @@ const xml = (body: string) => `<?xml version="1.0" encoding="UTF-8"?>\n<Response
  *
  * The trunk matches on the called number, so its numbers are these same garage-<id> strings.
  */
-const dialAgent = (id: string): string =>
-  xml(`  <Dial><Sip>sip:garage-${id}@${SIP_DOMAIN()}${SIP_EDGE}</Sip></Dial>`);
+const dialAgent = (id: string, prospectId: string): string => {
+  // Twilio posts DialCallStatus + DialCallDuration here when the leg ends. It is how a call too
+  // short to be logged still reaches the CRM — the prospect leg records nothing, so unlike the
+  // garage line there is no recording-status callback to hang that off.
+  const base = process.env.PORTAL_BASE_URL || 'https://portal.receptionmate.co.uk';
+  const ended = `${base}/webhooks/demo-prospect-call/ended/${encodeURIComponent(prospectId)}`;
+  return xml(`  <Dial action="${ended}" method="POST"><Sip>sip:garage-${id}@${SIP_DOMAIN()}${SIP_EDGE}</Sip></Dial>`);
+};
 
 /**
  * Fall back to the shared demo garage.
@@ -247,7 +253,7 @@ router.all('/demo-prospect-call', async (req: Request, res: Response) => {
       .update({ where: { id: known.id }, data: { lastCalledAt: new Date(), callCount: { increment: 1 } } })
       .catch((err) => console.error('[DEMO_CALL] could not record the call', err));
     console.log(`[DEMO_CALL] ${known.spokenName} (agent ${known.agentId}) by caller id ${from}`);
-    return res.type('text/xml').send(dialAgent(known.agentId));
+    return res.type('text/xml').send(dialAgent(known.agentId, known.id));
   }
 
   const base = process.env.PORTAL_BASE_URL || 'https://portal.receptionmate.co.uk';
@@ -297,11 +303,64 @@ router.post('/demo-prospect-call/connect', async (req: Request, res: Response) =
       .catch((err) => console.error('[DEMO_CALL] could not record the call', err));
 
     console.log(`[DEMO_CALL] ${prospect.spokenName} (agent ${prospect.agentId}) by code`);
-    return res.type('text/xml').send(dialAgent(prospect.agentId));
+    return res.type('text/xml').send(dialAgent(prospect.agentId, prospect.id));
   } catch (err) {
     console.error('[DEMO_CALL] lookup failed — generic demo', err);
     return res.type('text/xml').send(dialSharedDemo());
   }
+});
+
+/**
+ * The leg ended. A connected call under the agent's logging floor is a hang-up, and a hang-up is
+ * still a lead — somebody opened their link and dialled it. The agent reports anything longer
+ * itself when it posts the call record, so this only acts on the short ones.
+ *
+ * The two clocks disagree by a second or two around the floor, so this waits a moment and checks
+ * whether the agent logged the call before calling it dropped: one call must not be both.
+ *
+ * The id is in the path, not the body, so an unsigned request cannot name a prospect: Twilio's
+ * signature is over the full URL it was given, which is the one dialAgent wrote.
+ */
+const DROPPED_CHECK_DELAY_MS = Number(process.env.DEMO_DROPPED_CHECK_DELAY_MS || 15_000);
+const PROSPECT_ID_RE = /^[a-z0-9]{10,40}$/;
+
+router.post('/demo-prospect-call/ended/:prospectId', async (req: Request, res: Response) => {
+  const prospectId = String(req.params.prospectId || '');
+  if (!PROSPECT_ID_RE.test(prospectId) || !fromTwilio(req, `/webhooks/demo-prospect-call/ended/${prospectId}`)) {
+    console.warn('[DEMO_CALL] rejected an unsigned call-ended report');
+    return res.status(403).type('text/xml').send(xml('  <Hangup/>'));
+  }
+  // Answer Twilio first — the caller has gone, and nothing below should hold the line.
+  res.type('text/xml').send(xml('  <Hangup/>'));
+
+  const dialStatus = String(req.body?.DialCallStatus || '');
+  const seconds = Number.parseInt(String(req.body?.DialCallDuration ?? ''), 10);
+  const from = String(req.body?.From || '');
+  const { isDroppedProspectDial, prospectCallLoggedRecently, captureDroppedProspectCallLead } =
+    await import('../services/prospectLead.js');
+  if (!isDroppedProspectDial(dialStatus, seconds)) {
+    console.log(`[DEMO_CALL] leg ended for ${prospectId}: ${dialStatus || 'unknown'} after ${Number.isFinite(seconds) ? seconds : '?'}s — the agent reports it`);
+    return;
+  }
+  console.log(`[DEMO_CALL] ${prospectId} hung up after ${seconds}s — checking for a logged call before raising a lead`);
+  setTimeout(() => {
+    void (async () => {
+      try {
+        if (await prospectCallLoggedRecently(prospectId)) {
+          console.log(`[DEMO_CALL] ${prospectId}: the agent logged the call — not a hang-up`);
+          return;
+        }
+        const prospect = await prisma.demoProspect.findUnique({
+          where: { id: prospectId },
+          select: { id: true, slug: true, spokenName: true, businessName: true, email: true, contactId: true, placeId: true, phoneNumber: true },
+        });
+        if (!prospect) return;
+        await captureDroppedProspectCallLead(prospect, { callerPhone: from || null, durationSeconds: seconds });
+      } catch (err) {
+        console.error('[DEMO_CALL] dropped-call lead failed', err);
+      }
+    })();
+  }, DROPPED_CHECK_DELAY_MS).unref();
 });
 
 export default router;

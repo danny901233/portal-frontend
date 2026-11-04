@@ -371,7 +371,11 @@ router.post('/calls', async (req: Request, res: Response) => {
     try {
       const prospect = await prisma.demoProspect.findUnique({
         where: { agentId: payload.garageId },
-        select: { id: true, spokenName: true, email: true, summaryEmailedAt: true, contactId: true, slug: true },
+        select: {
+          id: true, spokenName: true, email: true, summaryEmailedAt: true, contactId: true, slug: true,
+          // The resolver's fallbacks: the signup for the same place, or a contact made from these.
+          businessName: true, placeId: true, phoneNumber: true,
+        },
       });
       if (prospect) {
         prospectForMetrics = prospect;
@@ -616,60 +620,36 @@ router.post('/calls', async (req: Request, res: Response) => {
     // Same moment, the CRM side: a cold prospect who has just talked to their own receptionist is
     // the hottest lead this pipeline gets, and it should not depend on anyone reading a log.
     //
-    // createOpportunity is an UPSERT, which is the whole reason this is safe to call on every
-    // demo call: it looks for an open opportunity on the contact and advances that one instead of
-    // adding a second, and stageRank only ever moves a contact FORWARD — so a garage already on a
-    // free trial who rings their demo line again cannot be dragged back to Hot.
-    //
-    // Needs a contactId: these prospects came out of the CRM, so one exists for all but the
-    // scratch test row.
-    if (prospectForMetrics?.contactId) {
-      const { contactId, spokenName } = prospectForMetrics;
+    // No contactId precondition any more. The service resolves one at call time — the row's own,
+    // the synced signup for the same Google place, or a contact made from the garage's details —
+    // because requiring it here is how Protyre, Sytner and Stellantis rang their demos and were
+    // never seen (see services/prospectLead.ts).
+    if (prospectForMetrics) {
+      const p = prospectForMetrics;
       const callFacts = {
+        slug: p.slug ?? '',
         durationSeconds: actualDuration,
         summary: payload.summary,
         customerName: payload.customerName,
         registrationNumber: payload.registrationNumber,
         bookingDetails: payload.bookingDetails,
         confirmedBooking,
-        slug: prospectForMetrics.slug,
       };
       void (async () => {
-        try {
-          const { createOpportunity, addContactNote, addContactTags } = await import('../services/highlevel.js');
-          const { DID, FROM } = await import('../services/highlevelTags.js');
-          // Additive, so the directory-import tags these cold contacts came in with survive.
-          await addContactTags(contactId, [FROM.ownDemo, DID.demo]);
-          const { id } = await createOpportunity({
-            contactId,
-            name: spokenName,
-            kind: 'hot',
-            // The Assist monthly, so the pipeline carries a value rather than a blank.
-            monetaryValueGbp: 200,
-            packageName: 'Assist',
-          });
-          console.log(`[CALL] ${spokenName} → HighLevel opportunity ${id ?? 'not created'} (Hot)`);
-
-          // The note is what makes the lead workable. A stage change says someone is interested;
-          // this says what they asked for, so whoever rings them back opens with "I see you booked
-          // an MOT for the 29th" rather than "I see you clicked something".
-          const mins = Math.floor(callFacts.durationSeconds / 60);
-          const secs = callFacts.durationSeconds % 60;
-          const lines = [
-            `Tried their demo receptionist — call lasted ${mins ? `${mins}m ${secs}s` : `${secs}s`}.`,
-          ];
-          if (callFacts.confirmedBooking) {
-            lines.push(`BOOKED: ${callFacts.bookingDetails || 'a job, details not captured'}`);
-          }
-          if (callFacts.customerName) lines.push(`Gave the name: ${callFacts.customerName}`);
-          if (callFacts.registrationNumber) lines.push(`Registration: ${callFacts.registrationNumber}`);
-          if (callFacts.summary) lines.push('', callFacts.summary);
-          lines.push('', `Their demo: ${process.env.PORTAL_URL || 'https://portal.receptionmate.co.uk'}/try/${callFacts.slug}`);
-          const noted = await addContactNote(contactId, lines.join('\n'));
-          console.log(`[CALL] ${spokenName} → HighLevel note ${noted ? 'added' : 'FAILED'}`);
-        } catch (err) {
-          console.error('[CALL] could not raise the Hot opportunity or note', err);
-        }
+        const { captureProspectCallLead } = await import('../services/prospectLead.js');
+        await captureProspectCallLead(
+          {
+            id: p.id,
+            slug: p.slug ?? '',
+            spokenName: p.spokenName,
+            businessName: p.businessName ?? p.spokenName,
+            email: p.email,
+            contactId: p.contactId ?? null,
+            placeId: p.placeId ?? null,
+            phoneNumber: p.phoneNumber ?? null,
+          },
+          callFacts,
+        );
       })();
     }
 

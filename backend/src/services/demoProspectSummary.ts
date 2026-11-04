@@ -93,6 +93,10 @@ export type DemoProspectForSummary = {
   contactId?: string | null;
   /** Their demo URL, so the CRM note can link straight back to it. */
   slug?: string;
+  /** What prospectLead.ts falls back on when there is no contactId yet. */
+  businessName?: string;
+  placeId?: string | null;
+  phoneNumber?: string | null;
 };
 
 const mmss = (seconds: number): string => {

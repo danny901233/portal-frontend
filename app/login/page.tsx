@@ -117,7 +117,10 @@ export default function LoginPage() {
         role: data.user.role,
         branchRoles: data.user.branchRoles,
       });
-      router.push('/calls');
+      // An embedded page (the iframe inbox) bounced here to sign in: send them back to it. Only a
+      // path on this site is honoured, so the parameter cannot send anyone to another host.
+      const returnTo = new URLSearchParams(window.location.search).get('returnTo') || '';
+      router.push(/^\/(?!\/)\S*$/.test(returnTo) ? returnTo : '/calls');
     },
   });
 

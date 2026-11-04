@@ -69,6 +69,11 @@ const publicPrefixes = ['/try/'];
 const isPublicPath = (pathname: string | null): boolean =>
   publicPaths.has(pathname ?? '') || publicPrefixes.some((p) => (pathname ?? '').startsWith(p));
 const paymentPaths = new Set(['/setup-payment', '/setup-payment/callback']);
+// Pages built to sit inside another system's iframe: a signed-in user, none of our chrome.
+// '/embed/inbox' is the all-branches messages inbox a group's central sales team gets inside
+// their own customer system. It needs the session (token, garages) exactly like a portal page,
+// so it goes through bootstrapSession; a missing session sends them to /login with a way back.
+const embedPaths = new Set(['/embed/inbox']);
 
 export default function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
@@ -134,11 +139,19 @@ export default function AppShell({ children }: { children: ReactNode }) {
   }, [garages, managedGarageIdSet, restrictToAssignedBranches]);
   const visibleGarageIds = useMemo(() => visibleGarages.map((garage) => garage.id), [visibleGarages]);
   const allowAllAssignedBranches = useMemo(
-    () => (pathname === '/dashboard' || pathname === '/observability') && visibleGarageIds.length > 1,
+    () =>
+      (pathname === '/dashboard' || pathname === '/observability' || pathname === '/messages' || pathname === '/embed/inbox') &&
+      visibleGarageIds.length > 1,
     [pathname, visibleGarageIds.length],
   );
 
-  const shouldShowChrome = useMemo(() => !isPublicPath(pathname) && !paymentPaths.has(pathname ?? ''), [pathname]);
+  const isEmbedPath = embedPaths.has(pathname ?? '');
+  const shouldShowChrome = useMemo(
+    () => !isPublicPath(pathname) && !paymentPaths.has(pathname ?? '') && !embedPaths.has(pathname ?? ''),
+    [pathname],
+  );
+  // Chromeless is not the same as sessionless: the embed still has to know who is signed in.
+  const needsSession = shouldShowChrome || isEmbedPath;
 
   useEffect(() => {
     if (!allowAllAssignedBranches && branchScope === 'all') {
@@ -184,7 +197,9 @@ export default function AppShell({ children }: { children: ReactNode }) {
 
     if (!token || (!storedGarageId && !isPaymentPage)) {
       clearSession();
-      router.replace('/login');
+      // The embed lives in someone else's page: after signing in they must land back in it, not
+      // on /calls, or the frame shows the whole portal.
+      router.replace(embedPaths.has(pathname ?? '') ? `/login?returnTo=${encodeURIComponent(pathname ?? '')}` : '/login');
       return;
     }
 
@@ -247,13 +262,13 @@ export default function AppShell({ children }: { children: ReactNode }) {
   }, [pathname, router]);
 
   useEffect(() => {
-    if (!shouldShowChrome) {
+    if (!needsSession) {
       setIsReady(true);
       return;
     }
 
     void bootstrapSession();
-  }, [bootstrapSession, shouldShowChrome]);
+  }, [bootstrapSession, needsSession]);
 
   // Agreement-sign gate — if the user has an unsigned agreement, force them to
   // /agreement/sign before they can use the portal. We allow staff to bypass
@@ -464,15 +479,19 @@ export default function AppShell({ children }: { children: ReactNode }) {
     };
   }, [shouldShowChrome, isReady, pathname]);
 
-  const shellContent = !shouldShowChrome ? (
-    <>{children}</>
-  ) : !isReady ? (
+  const loadingScreen = (
     <div className="flex min-h-screen items-center justify-center bg-white text-slate-900">
       <div className="space-y-2 text-center">
         <div className="text-xl font-semibold">{c.loading}</div>
         <div className="text-sm text-slate-500">{c.preparing}</div>
       </div>
     </div>
+  );
+
+  const shellContent = !shouldShowChrome ? (
+    isEmbedPath && !isReady ? loadingScreen : <>{children}</>
+  ) : !isReady ? (
+    loadingScreen
   ) : isLocked && !isStaffUser ? (
     <PaymentBlocker
       garageName={garages.find((g) => g.id === garageId)?.name}

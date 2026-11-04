@@ -13,6 +13,7 @@ import { randomUUID } from 'crypto';
 import multer from 'multer';
 import { whatsappToken } from '../utils/whatsappToken.js';
 import { deliverReply } from '../services/replyDelivery.js';
+import { conversationFilters, mergeConversationsByCustomer, parseGarageIds } from '../services/conversationList.js';
 
 const router = Router();
 
@@ -333,139 +334,73 @@ router.get(
         // 404, not 403: whether a garage exists is not this caller's business.
         return res.status(404).json({ error: 'Garage not found' });
       }
-      const { platform, status, enquiryType, assigneeId } = req.query;
 
-      const where: any = { garageId };
-
-      if (platform && platform !== 'all') {
-        where.platform = platform;
-      }
-
-      if (status && status !== 'all') {
-        where.status = status;
-      }
-
-      if (enquiryType && enquiryType !== 'all') {
-        where.enquiryType = enquiryType;
-      }
-
-      // "mine" resolves to the caller's userId. "unassigned" filters the
-      // shared pool. Anything else is treated as a literal userId.
-      if (assigneeId === 'mine') {
-        where.assigneeId = req.user?.userId ?? null;
-      } else if (assigneeId === 'unassigned') {
-        where.assigneeId = null;
-      } else if (typeof assigneeId === 'string' && assigneeId && assigneeId !== 'all') {
-        where.assigneeId = assigneeId;
-      }
-
-      const take = Math.min(Number(req.query.limit) || 100, 500);
-      const skip = Math.max(Number(req.query.offset) || 0, 0);
-
-      const allConversations = await prisma.chatConversation.findMany({
-        where,
-        include: {
-          messages: {
-            orderBy: { createdAt: 'desc' },
-            take: 1,
-          },
-          customer: true,
-          assignee: { select: { id: true, email: true } },
-        },
-        orderBy: { lastMessageAt: 'desc' },
-        take,
-        skip,
-      });
-
-      // Group conversations by customer
-      const groupedByCustomer = new Map<string, any[]>();
-      const withoutCustomer: any[] = [];
-
-      for (const conv of allConversations) {
-        if (conv.customerId) {
-          const existing = groupedByCustomer.get(conv.customerId) || [];
-          existing.push(conv);
-          groupedByCustomer.set(conv.customerId, existing);
-        } else {
-          withoutCustomer.push(conv);
-        }
-      }
-
-      // Merge conversations with same customer
-      const mergedConversations = [];
-
-      // Priority for picking one enquiryType across a merged group. Complaint
-      // always wins so a customer's complaint on WhatsApp doesn't get hidden
-      // by a general Facebook message on the same person's card.
-      const ENQUIRY_PRIORITY: Record<string, number> = {
-        complaint: 4, booking: 3, parts: 3, sales: 2, general: 1,
-      };
-
-      for (const [customerId, convs] of groupedByCustomer.entries()) {
-        if (convs.length === 1) {
-          mergedConversations.push(convs[0]);
-        } else {
-          // Merge multiple conversations into one. Dedup platforms so a
-          // customer with several WhatsApp-only rows shows one WhatsApp icon,
-          // not N copies of it.
-          const platforms = Array.from(new Set(convs.map(c => c.platform)));
-          const allMessages = convs.flatMap(c => c.messages);
-          const latestMessage = allMessages.sort((a, b) =>
-            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-          )[0];
-
-          const totalUnread = convs.reduce((sum, c) => sum + c.unreadCount, 0);
-          const latestConv = convs.sort((a, b) =>
-            new Date(b.lastMessageAt).getTime() - new Date(a.lastMessageAt).getTime()
-          )[0];
-
-          // Roll up display fields for the merged card: enquiryType is the
-          // strongest across the group; assignee is the latest conversation's
-          // owner (assignment is per-conversation and the assign action still
-          // targets a specific id).
-          const rolledEnquiryType = convs.reduce<string | null>((best, c) => {
-            const t = c.enquiryType;
-            if (!t) return best;
-            if (!best) return t;
-            return (ENQUIRY_PRIORITY[t] ?? 0) > (ENQUIRY_PRIORITY[best] ?? 0) ? t : best;
-          }, null);
-
-          mergedConversations.push({
-            id: latestConv.id,
-            garageId: latestConv.garageId,
-            platform: platforms.join(','), // "whatsapp,facebook,instagram"
-            platforms: platforms, // Array of platforms
-            customerPhone: latestConv.customerPhone,
-            customerId: customerId,
-            customer: latestConv.customer,
-            customerName: latestConv.customer?.name || latestConv.customerName,
-            status: latestConv.status,
-            unreadCount: totalUnread,
-            enquiryType: rolledEnquiryType,
-            assigneeId: latestConv.assigneeId,
-            assignee: latestConv.assignee,
-            lastMessageAt: latestConv.lastMessageAt,
-            messages: [latestMessage],
-            conversationIds: convs.map(c => c.id), // Store all conversation IDs
-          });
-        }
-      }
-
-      // Add conversations without customer
-      mergedConversations.push(...withoutCustomer);
-
-      // Sort by last message time
-      mergedConversations.sort((a, b) =>
-        new Date(b.lastMessageAt).getTime() - new Date(a.lastMessageAt).getTime()
+      const conversations = await listConversations(
+        { garageId, ...conversationFilters(req.query, req.user?.userId) },
+        req.query,
       );
-
-      res.json({ success: true, conversations: mergedConversations });
+      res.json({ success: true, conversations });
     } catch (error) {
       console.error('Failed to fetch conversations:', error);
       res.status(500).json({ error: 'Failed to fetch conversations' });
     }
   }
 );
+
+// GET /api/inbox/conversations?garageIds=a,b - One list across several branches.
+//
+// Built for a group whose central sales team answers every branch's messages from one screen
+// (The Gearbox Centre, five branches, one WhatsApp number). Each conversation stays on its own
+// branch — the AI still books into that branch's diary and the branch manager still sees it in
+// their own view — this only reads across them. A requested garage the caller cannot access, or
+// that has no messaging subscription, is dropped rather than refused, so one lapsed branch does
+// not blank the whole inbox.
+router.get('/inbox/conversations', authenticate, async (req: Request, res: Response) => {
+  try {
+    const requested = parseGarageIds(req.query.garageIds);
+    if (requested.length === 0) {
+      return res.status(400).json({ error: 'garageIds required' });
+    }
+    const accessible: string[] = [];
+    for (const id of requested) {
+      if (await userCanAccessGarage(req.user?.userId, id)) accessible.push(id);
+    }
+    const withMessaging = await prisma.garage.findMany({
+      where: { id: { in: accessible }, hasMessagingAccess: true },
+      select: { id: true },
+    });
+    const garageIds = withMessaging.map((g) => g.id);
+    if (garageIds.length === 0) {
+      return res.json({ success: true, conversations: [], garageIds });
+    }
+    const conversations = await listConversations(
+      { garageId: { in: garageIds }, ...conversationFilters(req.query, req.user?.userId) },
+      req.query,
+    );
+    res.json({ success: true, conversations, garageIds });
+  } catch (error) {
+    console.error('Failed to fetch inbox conversations:', error);
+    res.status(500).json({ error: 'Failed to fetch conversations' });
+  }
+});
+
+async function listConversations(where: Record<string, unknown>, query: Record<string, unknown>) {
+  const take = Math.min(Number(query.limit) || 100, 500);
+  const skip = Math.max(Number(query.offset) || 0, 0);
+  const rows = await prisma.chatConversation.findMany({
+    where,
+    include: {
+      messages: { orderBy: { createdAt: 'desc' }, take: 1 },
+      customer: true,
+      assignee: { select: { id: true, email: true } },
+      garage: { select: { id: true, name: true } },
+    },
+    orderBy: { lastMessageAt: 'desc' },
+    take,
+    skip,
+  });
+  return mergeConversationsByCustomer(rows);
+}
 
 // GET /api/conversations/:conversationId - Get single conversation with messages
 router.get(

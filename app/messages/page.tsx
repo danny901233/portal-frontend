@@ -1,8 +1,9 @@
 'use client';
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { getGarageId, getSessionToken } from '../lib/auth';
+import { useBranchScope } from '../lib/branchScope';
 import { cn } from '../lib/utils';
 import ConversationTaggingPanel from '../components/ConversationTaggingPanel';
 import { useLang } from '@/app/i18n/LocaleProvider';
@@ -65,6 +66,8 @@ interface Conversation {
   lastMessageAt: string;
   messages: Message[];
   conversationIds?: string[];
+  // Which branch the conversation belongs to. Only shown when the inbox spans several.
+  garage?: { id: string; name: string } | null;
 }
 
 // Fixed enquiry-type vocabulary. Kept in sync with backend + migration —
@@ -415,6 +418,18 @@ export default function MessagesPage() {
   const [draftPreview, setDraftPreview] = useState<string | null>(null);
   const [previewing, setPreviewing] = useState(false);
   const [selectedGarageId, setSelectedGarageId] = useState<string | null>(null);
+  // One inbox across every branch the user can see. On /messages it follows the "All branches"
+  // choice in the branch picker; on /embed/inbox (the iframe a group's sales team gets inside
+  // their own customer system) it is always on, because that page exists for exactly this.
+  // Each conversation stays on its own branch; this only reads across them.
+  const pathname = usePathname();
+  const isEmbed = pathname === '/embed/inbox';
+  const { scope, setBranchScope, allowAllAssignedOption, assignedGarageIds } = useBranchScope();
+  const allBranches = assignedGarageIds.length > 1 && (isEmbed || (scope === 'all' && allowAllAssignedOption));
+  const allBranchIds = allBranches ? assignedGarageIds.join(',') : '';
+  useEffect(() => {
+    if (isEmbed && assignedGarageIds.length > 1 && scope !== 'all') setBranchScope('all');
+  }, [isEmbed, assignedGarageIds.length, scope, setBranchScope]);
   const [showFilterDropdown, setShowFilterDropdown] = useState(false);
   const [showPauseDropdown, setShowPauseDropdown] = useState(false);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
@@ -450,7 +465,9 @@ export default function MessagesPage() {
   };
 
   const submitTrain = async () => {
-    const garageId = getGarageId();
+    // The FAQ belongs to the branch the conversation is on, which across branches is not the
+    // branch selected in the picker.
+    const garageId = selectedConversation?.garage?.id ?? getGarageId();
     const token = getSessionToken();
     if (!garageId || !trainQuestion.trim() || !trainAnswer.trim()) return;
     setTrainSaving(true);
@@ -514,6 +531,14 @@ export default function MessagesPage() {
     }
     setSelectedGarageId(garageId);
 
+    // The embed reads across branches and the inbox endpoint already drops any branch without a
+    // messaging subscription, so the single-branch gate (and its bounce to /dashboard, which
+    // would load the whole portal into someone else's iframe) does not apply.
+    if (isEmbed) {
+      setHasMessagingAccess(true);
+      return;
+    }
+
     // Check messaging access
     const checkAccess = async () => {
       try {
@@ -544,7 +569,7 @@ export default function MessagesPage() {
     };
 
     void checkAccess();
-  }, [router]);
+  }, [router, isEmbed]);
 
   const fetchConversations = async () => {
     if (!selectedGarageId) return;
@@ -564,7 +589,9 @@ export default function MessagesPage() {
       }
 
       const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/api/garages/${selectedGarageId}/conversations?${params}`,
+        allBranches
+          ? `${process.env.NEXT_PUBLIC_API_URL}/api/inbox/conversations?garageIds=${allBranchIds}&${params}`
+          : `${process.env.NEXT_PUBLIC_API_URL}/api/garages/${selectedGarageId}/conversations?${params}`,
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -1028,7 +1055,7 @@ export default function MessagesPage() {
     fetchConversations();
     const interval = setInterval(fetchConversations, 10000);
     return () => clearInterval(interval);
-  }, [selectedGarageId, platformFilter, viewMode, enquiryTypeFilter, assigneeFilter]);
+  }, [selectedGarageId, allBranchIds, platformFilter, viewMode, enquiryTypeFilter, assigneeFilter]);
 
   useEffect(() => {
     if (!selectedConversation) return;
@@ -1084,7 +1111,8 @@ export default function MessagesPage() {
     const matchesSearch = !searchQuery ||
       (conv.customerName?.toLowerCase().includes(searchLower)) ||
       (conv.customerPhone?.toLowerCase().includes(searchLower)) ||
-      (conv.customerId?.toLowerCase().includes(searchLower));
+      (conv.customerId?.toLowerCase().includes(searchLower)) ||
+      (allBranches && conv.garage?.name.toLowerCase().includes(searchLower));
 
     return matchesSearch;
   });
@@ -1102,17 +1130,23 @@ export default function MessagesPage() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className={isEmbed ? 'p-2' : 'space-y-4'}>
       {/* Header. Channel connections now live under Agent Setup > Messaging
-          (previously an "Integrations" button here). */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">{c.title}</h1>
-          <p className="text-sm text-slate-500 mt-1">{c.subtitle}</p>
+          (previously an "Integrations" button here). Inside someone else's system the frame
+          is the heading, so the embed drops it and lets the panes fill the whole height. */}
+      {!isEmbed && (
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h1 className="text-2xl font-bold text-slate-900">{c.title}</h1>
+            <p className="text-sm text-slate-500 mt-1">{c.subtitle}</p>
+          </div>
         </div>
-      </div>
+      )}
 
-      <div className="flex flex-col md:flex-row h-[calc(100dvh-13rem)] md:h-[calc(100vh-220px)] gap-0">
+      <div className={cn(
+        'flex flex-col md:flex-row gap-0',
+        isEmbed ? 'h-[calc(100dvh-1rem)]' : 'h-[calc(100dvh-13rem)] md:h-[calc(100vh-220px)]',
+      )}>
         {/* Left Sidebar - Conversations List (single-pane on mobile: hidden once a chat is open) */}
         <div className={cn(
           'w-full md:w-[28rem] flex-1 min-h-0 md:flex-none md:h-auto md:max-h-none bg-white border border-slate-200 rounded-2xl md:rounded-l-2xl md:rounded-tr-none md:rounded-br-none flex-col shadow-sm shadow-slate-900/5',
@@ -1430,6 +1464,9 @@ export default function MessagesPage() {
                   {conv.customerPhone && conv.customerName && (
                     <p className="truncate text-[11px] text-slate-400">+{conv.customerPhone}</p>
                   )}
+                  {allBranches && conv.garage && (
+                    <p className="truncate text-[11px] font-medium text-brand-700">{conv.garage.name}</p>
+                  )}
                   <p className="mt-0.5 truncate text-[13px] text-slate-500">
                     {conv.messages[0]?.content || c.noMessages}
                   </p>
@@ -1539,6 +1576,9 @@ export default function MessagesPage() {
                   </h2>
                   {selectedConversation.customerPhone && selectedConversation.customerName && (
                     <p className="text-xs text-slate-400">+{selectedConversation.customerPhone}</p>
+                  )}
+                  {allBranches && selectedConversation.garage && (
+                    <p className="text-xs font-medium text-brand-700">{selectedConversation.garage.name}</p>
                   )}
                   <div className="flex items-center gap-2">
                     {(() => {

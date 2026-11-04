@@ -164,7 +164,9 @@ export const parseIntegrationSettings = (
   // every unified-agent garage showed an EMPTY credentials panel while its keys sat safely in
   // the database. That is what the five Gearbox branches looked like the moment they moved off
   // poole-agent, and Norwich reads the same way.
-  if (agentScript === 'unified-agent') {
+  // supervisor-agent is the unified agent's successor and carries the same diaries (4 Nov 2026:
+  // a save of Elite Autocare with supervisor-agent wiped its Tyresoft credentials).
+  if (agentScript === 'unified-agent' || agentScript === 'supervisor-agent') {
     const raw = (rawSettings && typeof rawSettings === 'object' && !Array.isArray(rawSettings))
       ? (rawSettings as Record<string, unknown>)
       : {};
@@ -1119,7 +1121,7 @@ router.put(
         where: { garageId },
         select: { agentScript: true },
       });
-      resolvedAgentScript = existingConfig?.agentScript === 'unified-agent' ? 'unified-agent' : existingConfig?.agentScript === 'tyresoft-agent' ? 'tyresoft-agent' : existingConfig?.agentScript === 'receptionmate-agent-v3' ? 'receptionmate-agent-v3' : existingConfig?.agentScript === 'Assist-agent' ? 'Assist-agent' : existingConfig?.agentScript === 'GarageHive-agent' ? 'GarageHive-agent' : existingConfig?.agentScript === 'MMH-agent' ? 'MMH-agent' : existingConfig?.agentScript === 'bookar-agent' ? 'bookar-agent' : existingConfig?.agentScript === 'poole-agent' ? 'poole-agent' : 'receptionmate-agent';
+      resolvedAgentScript = existingConfig?.agentScript === 'unified-agent' ? 'unified-agent' : existingConfig?.agentScript === 'supervisor-agent' ? 'supervisor-agent' : existingConfig?.agentScript === 'tyresoft-agent' ? 'tyresoft-agent' : existingConfig?.agentScript === 'receptionmate-agent-v3' ? 'receptionmate-agent-v3' : existingConfig?.agentScript === 'Assist-agent' ? 'Assist-agent' : existingConfig?.agentScript === 'GarageHive-agent' ? 'GarageHive-agent' : existingConfig?.agentScript === 'MMH-agent' ? 'MMH-agent' : existingConfig?.agentScript === 'bookar-agent' ? 'bookar-agent' : existingConfig?.agentScript === 'poole-agent' ? 'poole-agent' : 'receptionmate-agent';
     }
 
     // Ringing missed callers back spends LiveKit and Twilio minutes on our account and places
@@ -1348,7 +1350,7 @@ router.put(
     }
 
     const integrationProviderConfig: Prisma.InputJsonValue | null =
-      resolvedAgentScript === 'unified-agent'
+      (resolvedAgentScript === 'unified-agent' || resolvedAgentScript === 'supervisor-agent')
         ? {
             ...unifiedExistingConfig,
             ...(requestedProvider === 'garage_hive' && garageHiveSettings.apiKey
@@ -1559,7 +1561,7 @@ router.put(
       twilioNumber: garageRecord?.twilioNumber
     });
     
-    if (resolvedAgentScript === 'unified-agent') {
+    if (resolvedAgentScript === 'unified-agent' || resolvedAgentScript === 'supervisor-agent') {
       // Same arrangement as MMH below: the unified agent lives in its own LiveKit project
       // (receptionmate-automotive) and is reached by voice.ts via LIVEKIT_SIP_DOMAIN_UNIFIED,
       // not by a dispatch rule in the fleet project. Provisioning one here points the garage's

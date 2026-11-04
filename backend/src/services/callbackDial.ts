@@ -9,12 +9,12 @@
 // does: the tree carries two copies of @livekit/protocol, so passing protocol objects across the
 // SDK boundary does not typecheck. createDispatch takes a metadata string instead.
 import { AgentDispatchClient, SipClient } from 'livekit-server-sdk';
+import { dispatchAgentName } from './unifiedSip.js';
 
 import { prisma } from '../db.js';
 import { canonicalDialNumber, decideCallback } from './callbackPolicy.js';
 import { loadCallbackPolicyInput } from './callbackState.js';
 
-const UNIFIED_AGENT_NAME = 'unified-agent';
 /** Matches the transfer ring limit Dan set: past this, nobody is coming. */
 const RING_SECONDS = 25;
 /** The agents' own 10-minute cap, so a callback cannot run away either. */
@@ -132,6 +132,7 @@ export async function dialCallback(attemptId: string): Promise<void> {
           twilioNumber: true,
           outboundCallerId: true,
           outboundCallerIdVerified: true,
+          agentConfiguration: { select: { agentScript: true } },
         },
       },
     },
@@ -233,7 +234,8 @@ export async function dialCallback(attemptId: string): Promise<void> {
     // Dispatch first, so a worker is already on its way before the phone rings and the caller
     // does not answer to silence.
     const dispatch = new AgentDispatchClient(cfg.url, cfg.key, cfg.secret);
-    await dispatch.createDispatch(room, UNIFIED_AGENT_NAME, {
+    // The garage's own worker: a supervisor garage's callback is rung by the supervisor.
+    await dispatch.createDispatch(room, dispatchAgentName(attempt.garage?.agentConfiguration?.agentScript), {
       metadata: JSON.stringify({ callback: true, to: dialNumber, garageId: attempt.garageId }),
     });
 

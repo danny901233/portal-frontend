@@ -1,4 +1,5 @@
 import type { AgentConfiguration as PrismaAgentConfiguration, AgentKnowledgeDocument as PrismaKnowledgeDocument } from '@prisma/client';
+import { setUnifiedDispatchAgent } from '../services/unifiedSip.js';
 import { Prisma } from '@prisma/client';
 import type { Request, Response } from 'express';
 import { Router } from 'express';
@@ -1568,6 +1569,10 @@ router.put(
       // number at an agent name nothing is serving, and the line simply drops — which is what
       // happened to the GH v3 test garage on 2026-09-07 the first time it was switched over.
       console.log('[UPDATE_AGENT] Skipping dispatch rule update for unified-agent (routing via voice.ts to receptionmate-automotive)');
+      // The unified and supervisor workers share one project and one trunk per garage; the rule's
+      // agent name is the switch between them (Dan, 4 Nov 2026). Never fails the save.
+      const switched = await setUnifiedDispatchAgent(garageId, resolvedAgentScript);
+      console.log('[UPDATE_AGENT] unified-project dispatch:', JSON.stringify(switched));
     } else if (resolvedAgentScript === 'MMH-agent') {
       // MMH's SIP trunk + dispatch rule live in the dedicated 'new-gh-agent' LiveKit project,
       // which the onboarding service does NOT manage. Routing is handled entirely by voice.ts

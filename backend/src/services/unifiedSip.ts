@@ -114,3 +114,74 @@ export async function ensureUnifiedSipRouting(args: {
     return { ok: false, reason: err instanceof Error ? err.message : 'unknown error' };
   }
 }
+
+// ── Switching an existing garage between the unified and supervisor workers ─────────────────
+//
+// Dan, 4 Nov 2026: "we want it in the portal so we can switch between supervisor or unified".
+// ensureUnifiedSipRouting only names the worker when it CREATES a rule, so changing agentScript
+// on a garage that already had one moved nothing: the portal said supervisor and the calls went
+// to unified. The dispatch rule's agent name is the switch, so a save now moves it.
+
+const SWITCHABLE = new Set([UNIFIED_AGENT_NAME, SUPERVISOR_AGENT_NAME]);
+
+type RuleLike = {
+  sipDispatchRuleId?: string;
+  name?: string;
+  rule?: { rule?: { value?: { roomPrefix?: string } } };
+  roomConfig?: { agents?: { agentName: string }[] };
+};
+
+/** The room prefix of an individual dispatch rule. The oneof sits at rule.rule as {case, value}. */
+export function rulePrefix(r: RuleLike): string {
+  return r?.rule?.rule?.value?.roomPrefix ?? '';
+}
+
+/** "Route to X (unified-agent)" -> "Route to X (supervisor-agent)"; other names are kept. */
+export function renameForAgent(name: string, agentName: string): string {
+  return /\((unified-agent|supervisor-agent)\)/.test(name)
+    ? name.replace(/\((unified-agent|supervisor-agent)\)/, `(${agentName})`)
+    : name;
+}
+
+/**
+ * Point a rule at `agentName`, editing the existing protobuf entry IN PLACE — a plain
+ * `{agentName}` object fails to serialise ("value[i].toJson is not a function"). Only a rule
+ * already serving the unified or supervisor worker is ever moved; anything else is refused.
+ */
+export function retargetRule(r: RuleLike, agentName: string): { changed: boolean; from: string; refused?: true } {
+  const agents = r?.roomConfig?.agents ?? [];
+  const from = agents[0]?.agentName ?? '';
+  if (!agents.length || !SWITCHABLE.has(from)) return { changed: false, from, refused: true };
+  if (from === agentName) return { changed: false, from };
+  agents[0].agentName = agentName;
+  if (r.name) r.name = renameForAgent(r.name, agentName);
+  return { changed: true, from };
+}
+
+/**
+ * Move a garage's existing dispatch rule to the worker its agentScript names. Idempotent and
+ * never throws — a config save must not fail because this step did.
+ */
+export async function setUnifiedDispatchAgent(
+  garageId: string,
+  agentScript?: string | null,
+): Promise<{ ok: boolean; ruleId?: string; from?: string; to?: string; reason?: string }> {
+  const cfg = config();
+  if (!cfg) return { ok: false, reason: 'not configured' };
+  const want = dispatchAgentName(agentScript);
+  try {
+    const sip = new SipClient(cfg.url, cfg.key, cfg.secret);
+    const rules = await sip.listSipDispatchRule();
+    const rule = rules.find((r) => rulePrefix(r as unknown as RuleLike) === `garage-${garageId}`);
+    if (!rule) return { ok: false, reason: 'no dispatch rule for this garage in the unified project' };
+    const res = retargetRule(rule as unknown as RuleLike, want);
+    if (res.refused) return { ok: false, ruleId: rule.sipDispatchRuleId, from: res.from, reason: 'rule serves another agent' };
+    if (!res.changed) return { ok: true, ruleId: rule.sipDispatchRuleId, from: res.from, to: want, reason: 'already' };
+    await sip.updateSipDispatchRule(rule.sipDispatchRuleId, rule);
+    console.log(`[UNIFIED_SIP] ${garageId}: rule ${rule.sipDispatchRuleId} ${res.from} -> ${want}`);
+    return { ok: true, ruleId: rule.sipDispatchRuleId, from: res.from, to: want };
+  } catch (err) {
+    console.error('[UNIFIED_SIP] failed to switch', garageId, err);
+    return { ok: false, reason: err instanceof Error ? err.message : 'unknown error' };
+  }
+}

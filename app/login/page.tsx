@@ -10,6 +10,9 @@ import type { LoginResponse } from '../types';
 import { useLang } from '@/app/i18n/LocaleProvider';
 import LanguageToggle from '@/app/components/LanguageToggle';
 
+// Pages that may ask the login to send a user back to them (see embedPaths in AppShell).
+const EMBED_RETURN_PATHS = new Set(['/embed/inbox']);
+
 export default function LoginPage() {
   const lang = useLang();
   const c = {
@@ -117,10 +120,11 @@ export default function LoginPage() {
         role: data.user.role,
         branchRoles: data.user.branchRoles,
       });
-      // An embedded page (the iframe inbox) bounced here to sign in: send them back to it. Only a
-      // path on this site is honoured, so the parameter cannot send anyone to another host.
+      // An embedded page (the iframe inbox) bounced here to sign in: send them back to it. Only
+      // the embed pages themselves are honoured, never an arbitrary path, so a crafted login link
+      // cannot bounce anyone anywhere else.
       const returnTo = new URLSearchParams(window.location.search).get('returnTo') || '';
-      router.push(/^\/(?!\/)\S*$/.test(returnTo) ? returnTo : '/calls');
+      router.push(EMBED_RETURN_PATHS.has(returnTo) ? returnTo : '/calls');
     },
   });
 

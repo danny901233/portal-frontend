@@ -274,7 +274,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
   // /agreement/sign before they can use the portal. We allow staff to bypass
   // so they can keep working even if a stale draft exists on their account.
   useEffect(() => {
-    if (!shouldShowChrome || !isReady || !userId || isStaffUser) return;
+    if (!needsSession || !isReady || !userId || isStaffUser) return;
     if (pathname?.startsWith('/agreement/sign')) return;
 
     let cancelled = false;
@@ -291,13 +291,13 @@ export default function AppShell({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [shouldShowChrome, isReady, userId, isStaffUser, pathname, router]);
+  }, [needsSession, isReady, userId, isStaffUser, pathname, router]);
 
   // Arrears gate — if the selected garage is locked for non-payment, show the full-screen
   // payment blocker. Internal staff are never blocked. Polled so an already-open session
   // locks the moment the 2-day grace elapses.
   useEffect(() => {
-    if (!shouldShowChrome || !isReady || !garageId || isStaffUser) {
+    if (!needsSession || !isReady || !garageId || isStaffUser) {
       setIsLocked(false);
       return;
     }
@@ -316,7 +316,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
       cancelled = true;
       clearInterval(interval);
     };
-  }, [shouldShowChrome, isReady, garageId, isStaffUser]);
+  }, [needsSession, isReady, garageId, isStaffUser]);
 
   // Check if setup wizard should be shown
   useEffect(() => {
@@ -488,15 +488,23 @@ export default function AppShell({ children }: { children: ReactNode }) {
     </div>
   );
 
-  const shellContent = !shouldShowChrome ? (
-    isEmbedPath && !isReady ? loadingScreen : <>{children}</>
-  ) : !isReady ? (
-    loadingScreen
-  ) : isLocked && !isStaffUser ? (
+  // The embed drops the chrome, not the gates: an account locked for non-payment, or one with an
+  // agreement still to sign, is held exactly as it would be in the portal.
+  const paymentBlocker = (
     <PaymentBlocker
       garageName={garages.find((g) => g.id === garageId)?.name}
       onLogout={handleLogout}
     />
+  );
+
+  const shellContent = isEmbedPath ? (
+    !isReady ? loadingScreen : isLocked && !isStaffUser ? paymentBlocker : <>{children}</>
+  ) : !shouldShowChrome ? (
+    <>{children}</>
+  ) : !isReady ? (
+    loadingScreen
+  ) : isLocked && !isStaffUser ? (
+    paymentBlocker
   ) : (
     (() => {
       const navbar = (

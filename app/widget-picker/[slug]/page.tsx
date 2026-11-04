@@ -116,14 +116,25 @@ function BranchPickerInner() {
   // visitor picks, say, Phone and then finds half the branches missing from the next screen.
   // Judged across the branches whose config loaded, so one failed fetch doesn't empty the menu.
   const loadedBranches = branches.filter((b) => b.loaded);
-  const anyWhatsapp = loadedBranches.length > 0 && loadedBranches.every((b) => b.whatsappNumber);
+  const sharedWhatsapp = group.whatsappNumber;
+  const anyWhatsapp = !!sharedWhatsapp || (loadedBranches.length > 0 && loadedBranches.every((b) => b.whatsappNumber));
   const anyPhone = loadedBranches.length > 0 && loadedBranches.every((b) => b.phone);
   const visibleBranches =
     channel === 'whatsapp' ? branches.filter((b) => b.whatsappNumber)
     : channel === 'phone' ? branches.filter((b) => b.phone)
     : branches;
 
+  const openWhatsapp = (number: string) => {
+    const message = encodeURIComponent('Hi, I would like to get in touch.');
+    window.open(`https://wa.me/${number}?text=${message}`, '_blank');
+  };
+
   const selectChannel = (next: Channel) => {
+    // One number for the whole group means there is no branch to pick: go straight to the chat.
+    if (next === 'whatsapp' && sharedWhatsapp) {
+      openWhatsapp(sharedWhatsapp);
+      return;
+    }
     router.push(`/widget-picker/${slug}?channel=${next}`);
   };
 
@@ -141,9 +152,8 @@ function BranchPickerInner() {
   };
 
   const selectBranch = (branch: BranchCard) => {
-    if (channel === 'whatsapp' && branch.whatsappNumber) {
-      const message = encodeURIComponent('Hi, I would like to get in touch.');
-      window.open(`https://wa.me/${branch.whatsappNumber}?text=${message}`, '_blank');
+    if (channel === 'whatsapp' && (sharedWhatsapp || branch.whatsappNumber)) {
+      openWhatsapp((sharedWhatsapp || branch.whatsappNumber) as string);
       return;
     }
     if (channel === 'phone' && branch.phone) {

@@ -473,7 +473,14 @@ export const sendGarageHiveConnectRequest = async (businessId: string): Promise<
  * Keyed off the garage's own integrationProvider so each provider is judged on the credentials
  * it actually writes, rather than on GarageHive's.
  */
-const diaryIsConnected = (ipc: Record<string, unknown>, provider: string, script: string): boolean => {
+export const diaryIsConnected = (ipc: Record<string, unknown>, provider: string, script: string): boolean => {
+  // An Assist garage has no diary by design: the agent takes messages and books nothing, so there
+  // are no credentials to wait for and the signed agreement is the only gate. Without this clause
+  // an Assist deal onboarded by staff could never go live — no number bought, no login email —
+  // because the provider is 'none' and the default branch below says "not connected" forever.
+  // Cawteco signed on 22 Oct 2026 and sat at "awaiting credentials" for three weeks that way.
+  // Judged on BOTH fields: Assist with a provider set is a garage mid-switch, and must still wait.
+  if (script === 'Assist-agent' && provider === 'none') return true;
   if (!GH_AGENT_SCRIPTS.includes(script)) return false;
   const has = (k: string) => !!String(ipc[k] ?? '').trim();
   switch (provider) {
@@ -519,6 +526,8 @@ export const announceGoLiveIfReady = async (garageId: string): Promise<boolean> 
   const script = garage.agentConfiguration?.agentScript || '';
   const provider = String(garage.agentConfiguration?.integrationProvider || 'none');
   const connected = diaryIsConnected(ipc, provider, script);
+  // Assist has no diary, so the wording below must not promise one.
+  const isAssist = script === 'Assist-agent' && provider === 'none';
   if (!connected || ipc.goLiveEmailedAt) return false;
   const signed = garage.businessId
     ? await prisma.agreement.findFirst({
@@ -606,7 +615,7 @@ export const announceGoLiveIfReady = async (garageId: string): Promise<boolean> 
   const body =
     `<tr><td style="padding: 32px;">` +
     `<h1 style="margin:0 0 14px;font-size:20px;color:#0f172a;font-weight:700;">You're live 🎉</h1>` +
-    `<p style="margin:0 0 12px;font-size:15px;line-height:1.55;color:#475569;"><strong>${garage.name}</strong> is now connected to your GarageHive diary.</p>` +
+    `<p style="margin:0 0 12px;font-size:15px;line-height:1.55;color:#475569;"><strong>${garage.name}</strong> ${isAssist ? 'is ready to answer your calls.' : 'is now connected to your GarageHive diary.'}</p>` +
     (issueCredentials
       ? `<p style="margin:0 0 16px;font-size:15px;line-height:1.55;color:#475569;">Here are your login details — there are three quick things to finish off:</p>${creds}${steps}`
       : `<p style="margin:0 0 16px;font-size:15px;line-height:1.55;color:#475569;">Log in to finish your agent setup.</p>`) +
@@ -615,21 +624,23 @@ export const announceGoLiveIfReady = async (garageId: string): Promise<boolean> 
     `</tr></table>` +
     `<p style="margin:0 0 16px;font-size:15px;line-height:1.55;color:#475569;">Once that's done, set up call forwarding on your line to your ReceptionMate number:</p>` +
     `<table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:0 auto 18px;"><tr><td style="background:#f1f2f9;border-radius:10px;padding:14px 26px;text-align:center;"><span style="font-size:22px;font-weight:800;color:#3426cf;letter-spacing:0.5px;">${number}</span></td></tr></table>` +
-    `<p style="margin:0;font-size:15px;line-height:1.55;color:#475569;">One last thing in Garage Hive: add an <strong>“Other”</strong> service package so the agent can book custom jobs. Garage Hive's guide walks you through it — <a href="${GH_OTHER_GUIDE_URL}" style="color:#3426cf;font-weight:600;">How to set up an “Other” service package</a>.</p>` +
+    (isAssist
+      ? ''
+      : `<p style="margin:0;font-size:15px;line-height:1.55;color:#475569;">One last thing in Garage Hive: add an <strong>“Other”</strong> service package so the agent can book custom jobs. Garage Hive's guide walks you through it — <a href="${GH_OTHER_GUIDE_URL}" style="color:#3426cf;font-weight:600;">How to set up an “Other” service package</a>.</p>`) +
     `</td></tr>`;
 
   const sent = await sendEmail({
     to: [manager.email],
     subject: `${garage.name} is live on ReceptionMate`,
     text:
-      `${garage.name} is now connected to your GarageHive diary.\n\n` +
+      `${garage.name} ${isAssist ? 'is ready to answer your calls.' : 'is now connected to your GarageHive diary.'}\n\n` +
       (issueCredentials
         ? `Log in at ${PORTAL_URL}\n  Email: ${manager.email}\n  Password: ${password}\n\n` +
           `Three quick things to finish off:\n  1. Log in — you'll be asked to set your own password.\n` +
           `  2. Set up your Direct Debit.\n  3. Finish your agent setup.\n\n`
         : `Log in at ${PORTAL_URL} to finish your agent setup.\n\n`) +
-      `Then set up call forwarding on your line to your ReceptionMate number: ${number}.\n\n` +
-      `One last thing in Garage Hive: add an "Other" service package so the agent can book custom jobs: ${GH_OTHER_GUIDE_URL}`,
+      `Then set up call forwarding on your line to your ReceptionMate number: ${number}.` +
+      (isAssist ? '' : `\n\nOne last thing in Garage Hive: add an "Other" service package so the agent can book custom jobs: ${GH_OTHER_GUIDE_URL}`),
     html: brandedEmailShell(body),
   }).catch(() => false);
 

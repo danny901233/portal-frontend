@@ -43,6 +43,8 @@ function likeness(a: string, b: string): number {
 }
 
 const AGENT_MATCH = 0.5;
+// With one voice id, a line this much like an agent line is the agent's echo, not the caller.
+const CALLER_MAX_LIKENESS = 0.3;
 
 export function mergeRecordingTranscript(
   live: TranscriptEntry[],
@@ -80,8 +82,13 @@ export function mergeRecordingTranscript(
 
   const cutoff = typeof opts.transferAtSeconds === 'number' && opts.transferAtSeconds > 0
     ? opts.transferAtSeconds : Infinity;
+  // One speaker id for everything (a quarter of the first live sweep, 5 Nov): the id cannot tell
+  // the voices apart, so a line is the caller's when it is not something the agent said.
+  const oneVoice = new Set(utts.map((u) => u.speaker)).size === 1;
+  const isCaller = (b: { u: Utterance; score: number }) =>
+    oneVoice ? b.score < CALLER_MAX_LIKENESS : (b.u.speaker !== agentSpeaker && b.score < AGENT_MATCH);
   const callerLines: TranscriptEntry[] = best
-    .filter((b) => b.u.speaker !== agentSpeaker && b.score < AGENT_MATCH)
+    .filter(isCaller)
     .map((b) => ({
       type: 'message',
       speaker: 'customer',
@@ -90,6 +97,13 @@ export function mergeRecordingTranscript(
       source: 'recording',
     }))
     .filter((e) => (e.timestamp as number) <= cutoff);
+
+  // Never fewer of the caller's words than the live transcript had: none at all, or under a third
+  // of its lines, means the recording was not split into voices well enough to trust.
+  const liveCaller = (live || []).filter((e) => e.type === 'message' && e.speaker === 'customer').length;
+  if (liveCaller > 0 && (callerLines.length === 0 || (liveCaller >= 3 && callerLines.length < liveCaller / 3))) {
+    return null;
+  }
 
   const kept = (live || []).filter((e) => !(e.type === 'message' && e.speaker === 'customer'));
   // Stable: equal times keep the live entry first.

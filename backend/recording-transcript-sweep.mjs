@@ -14,6 +14,7 @@
  *   node recording-transcript-sweep.mjs --hours=48      a wider window
  *   node recording-transcript-sweep.mjs --call=67195486 one call, whatever its state
  *   node recording-transcript-sweep.mjs --dry-run       report only, write nothing
+ *   node recording-transcript-sweep.mjs --call=<id> --dry-run --show   print the merged conversation
  */
 import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
@@ -28,6 +29,7 @@ const HOURS = Number(arg('hours', '6'));
 const LIMIT = Number(arg('limit', '40'));
 const ONE = arg('call', '');
 const DRY_RUN = process.argv.includes('--dry-run');
+const SHOW = process.argv.includes('--show');
 const TIME_BUDGET_MS = 8 * 60 * 1000;            // inside the 10-minute cron window
 const MIN_AGE_MS = 3 * 60 * 1000;                 // egress uploads after hang-up
 const MAX_ATTEMPTS = 2;
@@ -96,6 +98,7 @@ async function main() {
       }
       const callerLines = merged.filter((e) => e.type === 'message' && e.speaker === 'customer').length;
       log(`${c.id}: ${callerLines} caller line(s) from the recording${DRY_RUN ? ' (dry run)' : ''}`);
+      if (SHOW) for (const e of merged) if (e.type === 'message') console.log(`   ${String(e.timestamp).padStart(6)} ${e.speaker === 'agent' ? 'A' : 'C'}: ${String(e.text).slice(0, 120)}`);
       if (!DRY_RUN) {
         await prisma.call.update({ where: { id: c.id }, data: {
           transcript: merged,

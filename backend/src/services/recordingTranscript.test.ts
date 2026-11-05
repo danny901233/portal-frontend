@@ -63,3 +63,19 @@ test('a recording that does not line up with the call leaves the live transcript
   assert.equal(mergeRecordingTranscript(live, []), null);
   assert.equal(mergeRecordingTranscript([], utts), null);
 });
+
+// 5 Nov, first live sweep: on 10 of 40 calls the diarizer gave EVERY utterance one speaker id, so
+// every line was "the agent's" and the caller's words were replaced by nothing (51380790: 3 -> 0).
+test('one speaker in the recording: the caller is whatever the agent did not say', () => {
+  const one = utts.map((u) => ({ ...u, speaker: 0 }));
+  const out = mergeRecordingTranscript(live, one);
+  assert.ok(out);
+  const caller = out!.filter((e) => e.type === 'message' && e.speaker === 'customer').map((e) => e.text);
+  assert.deepEqual(caller, ["Hey, Tom. Can I pick up my car now?", 'M I R A.', 'Mira.', 'FG66XTB.']);
+});
+
+test('far fewer caller lines than the live transcript had: left alone', () => {
+  // Only agent speech recognised in the recording.
+  const agentOnly = utts.filter((u) => u.speaker === 0);
+  assert.equal(mergeRecordingTranscript(live, agentOnly), null);
+});
